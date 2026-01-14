@@ -1,5 +1,4 @@
 """COMSOL Java API 封装"""
-import os
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -11,7 +10,7 @@ from src.comsol.config import comsol_config
 from src.planner.schema import GeometryPlan, GeometryShape
 
 if TYPE_CHECKING:
-    from com.comsol.model import Model
+    pass
 
 
 class COMSOLWrapper:
@@ -36,24 +35,27 @@ class COMSOLWrapper:
         if not is_valid:
             raise RuntimeError(f"COMSOL 配置无效: {error}")
         
+        # 获取classpath（支持目录或单个jar文件）
+        classpath = comsol_config.get_classpath()
+        
         # 设置 Java 路径
         if comsol_config.java_home:
             java_path = comsol_config.get_java_path()
             if java_path:
                 jpype.startJVM(
                     jpype.getDefaultJVMPath(),
-                    f"-Djava.class.path={comsol_config.jar_path}",
+                    f"-Djava.class.path={classpath}",
                     f"-Djava.home={comsol_config.java_home}"
                 )
             else:
                 jpype.startJVM(
                     jpype.getDefaultJVMPath(),
-                    f"-Djava.class.path={comsol_config.jar_path}"
+                    f"-Djava.class.path={classpath}"
                 )
         else:
             jpype.startJVM(
                 jpype.getDefaultJVMPath(),
-                f"-Djava.class.path={comsol_config.jar_path}"
+                f"-Djava.class.path={classpath}"
             )
         
         # 导入 COMSOL 类
@@ -76,7 +78,6 @@ class COMSOLWrapper:
         Returns:
             COMSOL Model 对象
         """
-        from com.comsol.model import Model
         from com.comsol.model.util import ModelUtil
         
         logger.info(f"创建模型: {model_name}")

@@ -1,7 +1,7 @@
 """COMSOL 配置管理"""
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from src.utils.config import settings
 
@@ -14,6 +14,34 @@ class COMSOLConfig:
         self.java_home = settings.java_home or os.environ.get("JAVA_HOME")
         self.model_output_dir = Path(settings.model_output_dir)
         
+    def get_classpath(self) -> str:
+        """
+        获取 Java classpath 字符串
+        
+        如果配置的是目录，则自动收集所有jar文件
+        如果配置的是单个jar文件，则直接返回
+        
+        Returns:
+            classpath 字符串（多个路径用分号分隔，Windows）或冒号分隔（Unix）
+        """
+        path = Path(self.jar_path)
+        
+        if not path.exists():
+            raise ValueError(f"COMSOL JAR 路径不存在: {self.jar_path}")
+        
+        # 如果是目录，收集所有jar文件
+        if path.is_dir():
+            jar_files = list(path.glob("*.jar"))
+            if not jar_files:
+                raise ValueError(f"在目录中未找到任何jar文件: {self.jar_path}")
+            
+            # Windows使用分号，Unix使用冒号
+            separator = ";" if os.name == "nt" else ":"
+            return separator.join(str(jar) for jar in jar_files)
+        
+        # 如果是单个文件，直接返回
+        return str(path)
+    
     def validate(self) -> tuple[bool, Optional[str]]:
         """
         验证 COMSOL 配置
@@ -24,8 +52,19 @@ class COMSOLConfig:
         if not self.jar_path:
             return False, "COMSOL JAR 路径未配置，请设置 COMSOL_JAR_PATH"
         
-        if not Path(self.jar_path).exists():
-            return False, f"COMSOL JAR 文件不存在: {self.jar_path}"
+        path = Path(self.jar_path)
+        if not path.exists():
+            return False, f"COMSOL JAR 路径不存在: {self.jar_path}"
+        
+        # 如果是目录，检查是否包含jar文件
+        if path.is_dir():
+            jar_files = list(path.glob("*.jar"))
+            if not jar_files:
+                return False, f"目录中未找到任何jar文件: {self.jar_path}"
+        
+        # 如果是文件，检查是否是jar文件
+        elif not path.suffix.lower() == ".jar":
+            return False, f"指定的文件不是jar文件: {self.jar_path}"
         
         if not self.java_home:
             return False, "JAVA_HOME 未配置，请设置 JAVA_HOME 环境变量或配置"
