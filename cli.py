@@ -10,6 +10,7 @@ from rich.json import JSON
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
 from agent.planner.geometry_agent import GeometryAgent
+from agent.react.react_agent import ReActAgent
 from agent.utils.context_manager import get_context_manager
 from agent.utils.env_check import validate_environment, check_environment, print_check_result
 from agent.utils.logger import setup_logging, get_logger
@@ -47,6 +48,8 @@ def run(
     base_url: Optional[str] = typer.Option(None, "--base-url", help="API 基础 URL（用于 openai/openai-compatible）"),
     ollama_url: Optional[str] = typer.Option(None, "--ollama-url", help="Ollama 服务地址（仅用于 ollama 后端）"),
     model: Optional[str] = typer.Option(None, "--model", help="模型名称，覆盖配置"),
+    use_react: bool = typer.Option(True, "--react/--no-react", help="使用 ReAct 架构（默认启用）"),
+    max_iterations: int = typer.Option(10, "--max-iterations", help="ReAct 最大迭代次数"),
 ):
     """主入口：接收自然语言并创建 COMSOL 模型"""
     setup_logging("DEBUG" if verbose else "INFO")
@@ -60,36 +63,65 @@ def run(
     try:
         logger.info("开始创建 COMSOL 模型")
         
-        # 获取上下文信息
-        context = None if no_context else context_manager.get_context_for_planner()
-        if context:
-            logger.debug(f"使用上下文: {context[:100]}...")
-        
-        # Planner: 解析自然语言（带上下文）
-        planner = GeometryAgent(
-            backend=backend,
-            api_key=api_key,
-            base_url=base_url,
-            ollama_url=ollama_url,
-            model=model
-        )
-        plan = planner.parse(input_text, context=context)
-        logger.info(f"解析成功: {len(plan.shapes)} 个形状")
-        
-        # Executor: 创建 COMSOL 模型
-        runner = COMSOLRunner()
-        model_path = runner.create_model_from_plan(plan, output)
-        
-        # 保存对话记录
-        context_manager.add_conversation(
-            user_input=input_text,
-            plan=plan.to_dict(),
-            model_path=str(model_path),
-            success=True
-        )
-        
-        console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
-        return 0
+        if use_react:
+            # 使用 ReAct 架构
+            logger.info("使用 ReAct 架构")
+            
+            react_agent = ReActAgent(
+                backend=backend,
+                api_key=api_key,
+                base_url=base_url,
+                ollama_url=ollama_url,
+                model=model,
+                max_iterations=max_iterations
+            )
+            
+            model_path = react_agent.run(input_text, output)
+            
+            # 保存对话记录
+            context_manager.add_conversation(
+                user_input=input_text,
+                plan={"architecture": "react"},
+                model_path=str(model_path),
+                success=True
+            )
+            
+            console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
+            return 0
+        else:
+            # 使用传统架构
+            logger.info("使用传统架构")
+            
+            # 获取上下文信息
+            context = None if no_context else context_manager.get_context_for_planner()
+            if context:
+                logger.debug(f"使用上下文: {context[:100]}...")
+            
+            # Planner: 解析自然语言（带上下文）
+            planner = GeometryAgent(
+                backend=backend,
+                api_key=api_key,
+                base_url=base_url,
+                ollama_url=ollama_url,
+                model=model
+            )
+            plan = planner.parse(input_text, context=context)
+            logger.info(f"解析成功: {len(plan.shapes)} 个形状")
+            
+            # Executor: 创建 COMSOL 模型
+            runner = COMSOLRunner()
+            model_path = runner.create_model_from_plan(plan, output)
+            
+            # 保存对话记录
+            context_manager.add_conversation(
+                user_input=input_text,
+                plan=plan.to_dict(),
+                model_path=str(model_path),
+                success=True
+            )
+            
+            console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
+            return 0
         
     except Exception as e:
         logger.error(f"创建模型失败: {e}")
