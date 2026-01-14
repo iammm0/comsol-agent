@@ -14,11 +14,20 @@ DASHSCOPE_API_KEY=your_dashscope_api_key_here
 
 #### 2. COMSOL 配置
 ```bash
-COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar
+COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
 ```
-- Windows 示例路径：`C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar`
-- Linux 示例路径：`/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
-- Mac 示例路径：`/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
+
+**重要说明**：
+- 可以配置为 **plugins 目录**（推荐）：程序会自动加载目录下所有jar文件
+- 也可以配置为单个jar文件路径（如果您的COMSOL版本有单独的comsol.jar）
+
+**路径示例**：
+- **Windows COMSOL 6.3+**（推荐）：`C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins`
+- **Windows COMSOL 6.1**：`C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar`
+- **Linux COMSOL 6.3+**（推荐）：`/opt/comsol63/multiphysics/plugins`
+- **Linux COMSOL 6.1**：`/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
+- **Mac COMSOL 6.3+**（推荐）：`/Applications/COMSOL63/Multiphysics/plugins`
+- **Mac COMSOL 6.1**：`/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
 
 #### 3. Java 配置
 ```bash
@@ -65,11 +74,15 @@ python src/comsol/verify_setup.py
 
 **解决方案**：
 1. 确认 COMSOL 已正确安装
-2. 检查安装目录下的 `lib/` 文件夹
-3. 根据操作系统选择正确的子目录：
-   - Windows: `lib/win64/`
-   - Linux: `lib/glnxa64/`
-   - Mac: `lib/darwin64/`
+2. **对于 COMSOL 6.3 及以上版本**（推荐）：
+   - 配置为 `plugins` 目录：`C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins`
+   - 程序会自动加载目录下所有jar文件
+3. **对于 COMSOL 6.1 及更早版本**：
+   - 检查安装目录下的 `lib/` 文件夹
+   - 根据操作系统选择正确的子目录：
+     - Windows: `lib/win64/comsol.jar`
+     - Linux: `lib/glnxa64/comsol.jar`
+     - Mac: `lib/darwin64/comsol.jar`
 
 ### 问题 2: Java 环境错误
 
@@ -89,7 +102,16 @@ python src/comsol/verify_setup.py
 
 ## 配置示例
 
-### Windows 完整配置示例
+### Windows 完整配置示例（COMSOL 6.3+）
+```bash
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
+JAVA_HOME=C:/Program Files/Java/jdk-17
+MODEL_OUTPUT_DIR=./models
+LOG_LEVEL=INFO
+```
+
+### Windows 完整配置示例（COMSOL 6.1）
 ```bash
 DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar
@@ -98,7 +120,16 @@ MODEL_OUTPUT_DIR=./models
 LOG_LEVEL=INFO
 ```
 
-### Linux 完整配置示例
+### Linux 完整配置示例（COMSOL 6.3+）
+```bash
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+COMSOL_JAR_PATH=/opt/comsol63/multiphysics/plugins
+JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+MODEL_OUTPUT_DIR=./models
+LOG_LEVEL=INFO
+```
+
+### Linux 完整配置示例（COMSOL 6.1）
 ```bash
 DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar
@@ -107,7 +138,16 @@ MODEL_OUTPUT_DIR=./models
 LOG_LEVEL=INFO
 ```
 
-### Mac 完整配置示例
+### Mac 完整配置示例（COMSOL 6.3+）
+```bash
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+COMSOL_JAR_PATH=/Applications/COMSOL63/Multiphysics/plugins
+JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home
+MODEL_OUTPUT_DIR=./models
+LOG_LEVEL=INFO
+```
+
+### Mac 完整配置示例（COMSOL 6.1）
 ```bash
 DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar

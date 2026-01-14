@@ -57,14 +57,21 @@ comsol-agent --help
    set DASHSCOPE_API_KEY=your_api_key_here
    ```
 
-2. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径
+2. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径或plugins目录
    ```bash
-   # Linux/Mac
-   export COMSOL_JAR_PATH="/path/to/comsol.jar"
+   # Linux/Mac (COMSOL 6.3+ 推荐使用plugins目录)
+   export COMSOL_JAR_PATH="/opt/comsol63/multiphysics/plugins"
    
-   # Windows
-   set COMSOL_JAR_PATH=C:\path\to\comsol.jar
+   # Windows (COMSOL 6.3+ 推荐使用plugins目录)
+   set COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
+   
+   # 也可以使用单个jar文件（COMSOL 6.1及更早版本）
+   export COMSOL_JAR_PATH="/path/to/comsol.jar"
    ```
+   
+   **注意**：
+   - COMSOL 6.3+ 版本推荐配置为 `plugins` 目录，程序会自动加载所有jar文件
+   - COMSOL 6.1 及更早版本需要配置为单个jar文件路径
 
 3. **JAVA_HOME** - Java 安装路径
    ```bash
@@ -160,10 +167,15 @@ comsol-agent run --skip-check "创建一个矩形"
 ### 问题 3: COMSOL JAR 文件找不到
 
 **解决方案**：
-- 检查 COMSOL 安装路径
-- Windows: 通常在 `C:\Program Files\COMSOL\COMSOL61\Multiphysics\lib\win64\comsol.jar`
-- Linux: 通常在 `/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
-- Mac: 通常在 `/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
+- **COMSOL 6.3+ 版本**（推荐）：
+  - Windows: `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins`
+  - Linux: `/opt/comsol63/multiphysics/plugins`
+  - Mac: `/Applications/COMSOL63/Multiphysics/plugins`
+  - 配置为plugins目录，程序会自动加载所有jar文件
+- **COMSOL 6.1 及更早版本**：
+  - Windows: `C:\Program Files\COMSOL\COMSOL61\Multiphysics\lib\win64\comsol.jar`
+  - Linux: `/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
+  - Mac: `/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
 
 ### 问题 4: Java 环境错误
 
