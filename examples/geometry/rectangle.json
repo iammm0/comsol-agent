@@ -1,0 +1,18 @@
+{
+  "model_name": "rectangle_example",
+  "units": "m",
+  "shapes": [
+    {
+      "type": "rectangle",
+      "parameters": {
+        "width": 1.0,
+        "height": 0.5
+      },
+      "position": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "name": "rect1"
+    }
+  ]
+}
