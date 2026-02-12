@@ -426,6 +426,8 @@ agent-for-comsol-multiphysics/
 
 ## 开发
 
+提交规范与架构范式见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [design-paradigms/](design-paradigms/)。
+
 ### 运行测试
 
 ```bash
