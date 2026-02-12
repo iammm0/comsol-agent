@@ -1,9 +1,11 @@
 """环境检查模块"""
+import os
 from pathlib import Path
 from typing import Tuple, List
 
 from agent.utils.config import get_settings
 from agent.utils.logger import get_logger
+from agent.utils import secrets as secrets_utils
 
 logger = get_logger(__name__)
 
@@ -52,26 +54,29 @@ def check_environment() -> EnvCheckResult:
     result.add_info(f"LLM 后端: {backend}")
     
     if backend == "dashscope":
-        if not settings.dashscope_api_key:
-            result.add_error("DASHSCOPE_API_KEY 未配置，请设置环境变量或 .env 文件")
+        key = settings.get_api_key_for_backend("dashscope")
+        if not key:
+            result.add_error("DASHSCOPE_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
         else:
-            result.add_info(f"DASHSCOPE_API_KEY 已配置（长度: {len(settings.dashscope_api_key)} 字符）")
+            result.add_info(f"DASHSCOPE_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
             
     elif backend == "openai":
-        if not settings.openai_api_key:
-            result.add_error("OPENAI_API_KEY 未配置，请设置环境变量或 .env 文件")
+        key = settings.get_api_key_for_backend("openai")
+        if not key:
+            result.add_error("OPENAI_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
         else:
-            result.add_info(f"OPENAI_API_KEY 已配置（长度: {len(settings.openai_api_key)} 字符）")
+            result.add_info(f"OPENAI_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
             if settings.openai_base_url:
                 result.add_info(f"OpenAI 基础 URL: {settings.openai_base_url}")
             else:
                 result.add_info("使用 OpenAI 官方 API")
                 
     elif backend == "openai-compatible":
-        if not settings.openai_compatible_api_key:
-            result.add_error("OPENAI_COMPATIBLE_API_KEY 未配置，请设置环境变量或 .env 文件")
+        key = settings.get_api_key_for_backend("openai-compatible")
+        if not key:
+            result.add_error("OPENAI_COMPATIBLE_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
         else:
-            result.add_info(f"OPENAI_COMPATIBLE_API_KEY 已配置（长度: {len(settings.openai_compatible_api_key)} 字符）")
+            result.add_info(f"OPENAI_COMPATIBLE_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
         
         if not settings.openai_compatible_base_url:
             result.add_error("OPENAI_COMPATIBLE_BASE_URL 未配置，请设置环境变量或 .env 文件")

@@ -2,10 +2,12 @@
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
+
+from agent.utils import secrets as secrets_utils
 
 # 加载 .env 文件
 load_dotenv()
@@ -78,6 +80,54 @@ class Settings(BaseSettings):
         # 如果未设置输出目录，使用默认值
         if not self.model_output_dir:
             self.model_output_dir = get_default_output_dir()
+
+    def get_api_key_for_backend(self, backend: str) -> Optional[str]:
+        """获取当前后端的 API Key。顺序：环境变量优先，再 keyring。"""
+        if backend == "ollama":
+            return None
+        key = secrets_utils.get_api_key(backend)
+        if key:
+            return key
+        # 回退到 pydantic 从 env 加载的字段
+        if backend == "dashscope":
+            return self.dashscope_api_key or None
+        if backend == "openai":
+            return self.openai_api_key or None
+        if backend == "openai-compatible":
+            return self.openai_compatible_api_key or None
+        return None
+
+    def get_base_url_for_backend(self, backend: str) -> Optional[str]:
+        """获取当前后端的 API base URL。"""
+        if backend == "openai":
+            return self.openai_base_url
+        if backend == "openai-compatible":
+            return self.openai_compatible_base_url or None
+        return None
+
+    def get_model_for_backend(self, backend: str) -> str:
+        """获取当前后端的模型名称。"""
+        if backend == "dashscope":
+            return getattr(self, "dashscope_model", "qwen-turbo") or "qwen-turbo"
+        if backend == "openai":
+            return self.openai_model or "gpt-3.5-turbo"
+        if backend == "openai-compatible":
+            return self.openai_compatible_model or "gpt-3.5-turbo"
+        if backend == "ollama":
+            return self.ollama_model or "llama3"
+        return ""
+
+    def show_config_status(self) -> Dict[str, bool]:
+        """
+        返回各 provider 是否已配置（不暴露密钥）。
+        供 CLI/调试展示用。
+        """
+        status: Dict[str, bool] = {}
+        for provider in ("dashscope", "openai", "openai-compatible"):
+            status[provider] = bool(self.get_api_key_for_backend(provider))
+        # ollama: 有 URL 即视为可尝试使用
+        status["ollama"] = bool(self.ollama_url and self.ollama_url.strip())
+        return status
 
 
 # 全局配置实例
