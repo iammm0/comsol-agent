@@ -6,11 +6,9 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from agent.react.react_agent import ReActAgent
-from agent.planner.geometry_agent import GeometryAgent
+from agent.dependencies import get_agent, get_settings
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.utils.logger import setup_logging, get_logger
-from agent.utils.config import get_settings
 from rich.console import Console
 from rich.panel import Panel
 
@@ -93,25 +91,19 @@ def main():
     
     try:
         if use_react:
-            console.print(f"\n[bold green]使用 ReAct 架构[/bold green]")
+            console.print("\n[bold green]使用 ReAct 架构[/bold green]")
             console.print(f"[dim]用户输入: {user_input}[/dim]\n")
-            
-            react_agent = ReActAgent(max_iterations=10)
-            model_path = react_agent.run(user_input, output_filename)
-            
+            core = get_agent("core", max_iterations=10)
+            model_path = core.run(user_input, output_filename)
             console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
         else:
-            console.print(f"\n[bold yellow]使用传统架构[/bold yellow]")
+            console.print("\n[bold yellow]使用传统架构[/bold yellow]")
             console.print(f"[dim]用户输入: {user_input}[/dim]\n")
-            
-            # 使用传统架构
-            planner = GeometryAgent()
+            planner = get_agent("planner")
             plan = planner.parse(user_input)
             console.print(f"[green]✅ 解析成功: {len(plan.shapes)} 个形状[/green]")
-            
             runner = COMSOLRunner()
             model_path = runner.create_model_from_plan(plan, output_filename)
-            
             console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
             
     except KeyboardInterrupt:
@@ -127,30 +119,30 @@ def run_interactive_mode(use_react: bool):
     """运行交互模式"""
     console.print("\n[bold cyan]进入交互模式[/bold cyan]")
     console.print("[dim]输入 'quit' 或 'exit' 退出[/dim]\n")
-    
+
     if use_react:
-        react_agent = ReActAgent(max_iterations=10)
+        core = get_agent("core", max_iterations=10)
     else:
-        planner = GeometryAgent()
+        planner = get_agent("planner")
         runner = COMSOLRunner()
-    
+
     while True:
         try:
             user_input = input("\n[bold]请输入建模需求:[/bold] ").strip()
-            
+
             if not user_input:
                 continue
-            
+
             if user_input.lower() in ["quit", "exit", "q"]:
                 console.print("\n[yellow]退出交互模式[/yellow]")
                 break
-            
+
             if use_react:
-                console.print(f"\n[dim]使用 ReAct 架构处理...[/dim]")
-                model_path = react_agent.run(user_input)
+                console.print("\n[dim]使用 ReAct 架构处理...[/dim]")
+                model_path = core.run(user_input)
                 console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
             else:
-                console.print(f"\n[dim]使用传统架构处理...[/dim]")
+                console.print("\n[dim]使用传统架构处理...[/dim]")
                 plan = planner.parse(user_input)
                 console.print(f"[green]✅ 解析成功: {len(plan.shapes)} 个形状[/green]")
                 model_path = runner.create_model_from_plan(plan)

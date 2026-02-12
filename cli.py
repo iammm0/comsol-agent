@@ -1,4 +1,4 @@
-"""CLI 入口模块"""
+"""CLI 入口模块：依赖组装 + 调用 run 函数，子命令通过 get_agent 获取实例。"""
 import json
 from pathlib import Path
 from typing import Optional
@@ -7,11 +7,9 @@ import typer
 from rich.console import Console
 from rich.json import JSON
 
+from agent.dependencies import get_agent, get_context_manager, get_settings
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
-from agent.planner.geometry_agent import GeometryAgent
-from agent.react.react_agent import ReActAgent
-from agent.utils.context_manager import get_context_manager
 from agent.utils.env_check import validate_environment, check_environment, print_check_result
 from agent.utils.logger import setup_logging, get_logger
 from schemas.geometry import GeometryPlan
@@ -59,67 +57,53 @@ def run(
         return 1
     
     context_manager = get_context_manager()
-    
+
     try:
         logger.info("开始创建 COMSOL 模型")
-        
+
         if use_react:
-            # 使用 ReAct 架构
             logger.info("使用 ReAct 架构")
-            
-            react_agent = ReActAgent(
+            core = get_agent(
+                "core",
                 backend=backend,
                 api_key=api_key,
                 base_url=base_url,
                 ollama_url=ollama_url,
                 model=model,
-                max_iterations=max_iterations
+                max_iterations=max_iterations,
             )
-            
-            model_path = react_agent.run(input_text, output)
-            
-            # 保存对话记录
+            model_path = core.run(input_text, output)
             context_manager.add_conversation(
                 user_input=input_text,
                 plan={"architecture": "react"},
                 model_path=str(model_path),
-                success=True
+                success=True,
             )
-            
             console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
             return 0
         else:
-            # 使用传统架构
             logger.info("使用传统架构")
-            
-            # 获取上下文信息
             context = None if no_context else context_manager.get_context_for_planner()
             if context:
-                logger.debug(f"使用上下文: {context[:100]}...")
-            
-            # Planner: 解析自然语言（带上下文）
-            planner = GeometryAgent(
+                logger.debug("使用上下文: %s...", context[:100])
+            planner = get_agent(
+                "planner",
                 backend=backend,
                 api_key=api_key,
                 base_url=base_url,
                 ollama_url=ollama_url,
-                model=model
+                model=model,
             )
             plan = planner.parse(input_text, context=context)
-            logger.info(f"解析成功: {len(plan.shapes)} 个形状")
-            
-            # Executor: 创建 COMSOL 模型
+            logger.info("解析成功: %s 个形状", len(plan.shapes))
             runner = COMSOLRunner()
             model_path = runner.create_model_from_plan(plan, output)
-            
-            # 保存对话记录
             context_manager.add_conversation(
                 user_input=input_text,
                 plan=plan.to_dict(),
                 model_path=str(model_path),
-                success=True
+                success=True,
             )
-            
             console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
             return 0
         
@@ -145,9 +129,9 @@ def plan(
 ):
     """仅执行 Planner：解析自然语言为结构化 JSON"""
     setup_logging("DEBUG" if verbose else "INFO")
-    
+
     try:
-        planner = GeometryAgent()
+        planner = get_agent("planner")
         plan = planner.parse(input_text)
         
         plan_dict = plan.to_dict()
@@ -218,7 +202,7 @@ def demo(
     for i, case in enumerate(demo_cases, 1):
         console.print(f"[cyan]示例 {i}:[/cyan] {case}")
         try:
-            planner = GeometryAgent()
+            planner = get_agent("planner")
             plan = planner.parse(case)
             console.print(f"  [green]✅ 解析成功: {len(plan.shapes)} 个形状[/green]")
             console.print(f"  模型名称: {plan.model_name}, 单位: {plan.units}")
@@ -235,12 +219,14 @@ def doctor(
 ):
     """诊断功能：检查环境配置"""
     setup_logging("DEBUG" if verbose else "INFO")
-    
+
     console.print("[bold]COMSOL Agent 环境诊断[/bold]\n")
-    
+    status = get_settings().show_config_status()
+    console.print("[dim]各后端配置状态: %s[/dim]\n" % status)
+
     result = check_environment()
     print_check_result(result)
-    
+
     return 0 if result.is_valid() else 1
 
 
