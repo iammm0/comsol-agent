@@ -1,0 +1,66 @@
+"""依赖注入：get_agent、get_settings、get_event_bus 等，CLI 与 API 共用。"""
+from typing import Literal, Optional, Dict, Any, Callable
+
+from agent.utils.config import get_settings as _get_settings
+from agent.utils.context_manager import ContextManager, get_context_manager as _get_context_manager
+from agent.utils.prompt_manager import get_prompt_manager as _get_prompt_manager
+from agent.events import EventBus, EventType, Event
+from agent.router import route
+from agent.qa_agent import QAAgent
+from agent.summary_agent import SummaryAgent
+from agent.planner.geometry_agent import GeometryAgent
+from agent.react.react_agent import ReActAgent
+
+AgentType = Literal["qa", "planner", "core", "summary"]
+
+_agents: Dict[str, Any] = {}
+_event_bus: Optional[EventBus] = None
+
+
+def get_settings():
+    """获取配置单例。"""
+    return _get_settings()
+
+
+def get_context_manager():
+    """获取上下文管理器单例。"""
+    return _get_context_manager()
+
+
+def get_prompt_manager(prompts_dir=None):
+    """获取 PromptManager 单例。"""
+    return _get_prompt_manager(prompts_dir)
+
+
+def get_event_bus() -> EventBus:
+    """获取 EventBus 单例。"""
+    global _event_bus
+    if _event_bus is None:
+        _event_bus = EventBus()
+    return _event_bus
+
+
+def get_agent(agent_type: AgentType, **kwargs: Any) -> Any:
+    """
+    按类型获取 Agent，懒加载并缓存。
+    非法类型校验并 raise ValueError（由 CLI/API 转为 SystemExit 或 HTTPException）。
+    """
+    allowed = ("qa", "planner", "core", "summary")
+    if agent_type not in allowed:
+        raise ValueError(f"非法 agent_type: {agent_type}，允许: {allowed}")
+
+    if agent_type not in _agents:
+        if agent_type == "qa":
+            _agents["qa"] = QAAgent(**kwargs)
+        elif agent_type == "planner":
+            _agents["planner"] = GeometryAgent(**kwargs)
+        elif agent_type == "core":
+            _agents["core"] = ReActAgent(**kwargs)
+        elif agent_type == "summary":
+            _agents["summary"] = SummaryAgent(**kwargs)
+    return _agents[agent_type]
+
+
+def get_router() -> Callable[[str], str]:
+    """返回路由函数。"""
+    return route
