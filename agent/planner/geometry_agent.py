@@ -1,8 +1,9 @@
 """几何建模 Planner Agent"""
 import json
 import re
-from typing import Optional
+from typing import Optional, Any
 
+from agent.base import BaseAgent
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
 from agent.utils.logger import get_logger
@@ -12,67 +13,34 @@ from schemas.geometry import GeometryPlan
 logger = get_logger(__name__)
 
 
-class GeometryAgent:
-    """几何建模 Planner Agent"""
-    
+class GeometryAgent(BaseAgent):
+    """几何建模 Planner Agent：解析意图、产出几何计划。"""
+
     def __init__(
         self,
         api_key: Optional[str] = None,
         backend: Optional[str] = None,
         base_url: Optional[str] = None,
         ollama_url: Optional[str] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        history: Optional[list] = None,
     ):
-        """
-        初始化几何建模 Agent
-        
-        Args:
-            api_key: API Key（用于 dashscope、openai、openai-compatible）
-            backend: LLM 后端类型，如果为 None 则从配置读取
-                - "dashscope": Dashscope (Qwen) 官方 API
-                - "openai": OpenAI 官方 API
-                - "openai-compatible": 符合 OpenAI API 规范的第三方服务
-                - "ollama": Ollama 服务（本地或远程）
-            base_url: API 基础 URL
-                - 对于 openai: 可选，默认使用官方 API
-                - 对于 openai-compatible: 必须提供
-            ollama_url: Ollama 服务地址（仅用于 ollama 后端）
-            model: 模型名称（可选）
-        """
+        super().__init__(system_prompt=system_prompt, history=history)
         settings = get_settings()
         backend = backend or settings.llm_backend
-        
-        if backend == "dashscope":
-            self.llm = LLMClient(
-                backend="dashscope",
-                api_key=api_key or settings.dashscope_api_key,
-                model=model
-            )
-        elif backend == "openai":
-            self.llm = LLMClient(
-                backend="openai",
-                api_key=api_key or settings.openai_api_key,
-                base_url=base_url or settings.openai_base_url,
-                model=model or settings.openai_model
-            )
-        elif backend == "openai-compatible":
-            self.llm = LLMClient(
-                backend="openai-compatible",
-                api_key=api_key or settings.openai_compatible_api_key,
-                base_url=base_url or settings.openai_compatible_base_url,
-                model=model or settings.openai_compatible_model
-            )
-        elif backend == "ollama":
-            self.llm = LLMClient(
-                backend="ollama",
-                ollama_url=ollama_url or settings.ollama_url,
-                model=model or settings.ollama_model
-            )
-        else:
-            raise ValueError(
-                f"不支持的后端类型: {backend}，"
-                f"支持的后端: dashscope, openai, openai-compatible, ollama"
-            )
+        self.llm = LLMClient(
+            backend=backend,
+            api_key=api_key or settings.get_api_key_for_backend(backend),
+            base_url=base_url or settings.get_base_url_for_backend(backend),
+            ollama_url=ollama_url or settings.ollama_url,
+            model=model or settings.get_model_for_backend(backend),
+        )
+
+    def process(self, user_input: str, **kwargs: Any) -> str:
+        """BaseAgent 接口：解析并返回简短摘要字符串。"""
+        plan = self.parse(user_input, context=kwargs.get("context"))
+        return f"解析成功: {len(plan.shapes)} 个形状; model_name={plan.model_name}"
     
     def _extract_json_from_response(self, response_text: str) -> dict:
         """从 LLM 响应中提取 JSON"""
@@ -144,5 +112,5 @@ class GeometryAgent:
         # 验证并创建 GeometryPlan
         plan = GeometryPlan.from_dict(json_data)
         
-        logger.info(f"解析成功: {len(plan.shapes)} 个形状")
+        logger.info("解析成功: %s 个形状", len(plan.shapes))
         return plan
