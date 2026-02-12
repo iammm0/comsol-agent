@@ -15,15 +15,14 @@ logger = get_logger(__name__)
 
 
 class ActionExecutor:
-    """行动执行器 - 执行具体的建模操作"""
-    
-    def __init__(self):
-        """初始化行动执行器"""
+    """行动执行器 - 执行具体的建模操作；可选 event_bus 供上层发射事件。"""
+
+    def __init__(self, event_bus: Optional[Any] = None):
         self.settings = get_settings()
         self.comsol_runner = COMSOLRunner()
         self.java_api_controller = JavaAPIController()
-        
-        # 初始化 Planner Agents（延迟初始化，需要时再创建）
+        self._event_bus = event_bus
+
         self._geometry_agent = None
         self._physics_agent = None
         self._study_agent = None

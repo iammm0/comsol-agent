@@ -10,14 +10,15 @@ from agent.react.iteration_controller import IterationController
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
+from agent.events import EventBus, EventType
 from schemas.task import ReActTaskPlan, ExecutionStep, Observation
 
 logger = get_logger(__name__)
 
 
 class ReActAgent:
-    """ReAct Agent - 协调推理和执行"""
-    
+    """ReAct Agent - 协调推理和执行；可选 EventBus 用于可观测。"""
+
     def __init__(
         self,
         backend: Optional[str] = None,
@@ -25,36 +26,25 @@ class ReActAgent:
         base_url: Optional[str] = None,
         ollama_url: Optional[str] = None,
         model: Optional[str] = None,
-        max_iterations: int = 10
+        max_iterations: int = 10,
+        event_bus: Optional[EventBus] = None,
     ):
-        """
-        初始化 ReAct Agent
-        
-        Args:
-            backend: LLM 后端类型
-            api_key: API Key
-            base_url: API 基础 URL
-            ollama_url: Ollama 服务地址
-            model: 模型名称
-            max_iterations: 最大迭代次数
-        """
         settings = get_settings()
-        
-        # 初始化 LLM 客户端
+        self._event_bus = event_bus
+
         self.llm = LLMClient(
             backend=backend or settings.llm_backend,
             api_key=api_key or settings.get_api_key_for_backend(backend or settings.llm_backend),
             base_url=base_url or settings.get_base_url_for_backend(backend or settings.llm_backend),
             ollama_url=ollama_url or settings.ollama_url,
-            model=model or settings.get_model_for_backend(backend or settings.llm_backend)
+            model=model or settings.get_model_for_backend(backend or settings.llm_backend),
         )
-        
-        # 初始化组件
+
         self.reasoning_engine = ReasoningEngine(self.llm)
-        self.action_executor = ActionExecutor()
+        self.action_executor = ActionExecutor(event_bus=event_bus)
         self.observer = Observer()
         self.iteration_controller = IterationController(self.llm)
-        
+
         self.max_iterations = max_iterations
     
     def run(self, user_input: str, output_filename: Optional[str] = None) -> Path:
@@ -81,24 +71,33 @@ class ReActAgent:
         
         # ReAct 主循环
         for iteration in range(self.max_iterations):
-            logger.info(f"\n--- 迭代 {iteration + 1}/{self.max_iterations} ---")
-            
+            logger.info("\n--- 迭代 %s/%s ---", iteration + 1, self.max_iterations)
+            if self._event_bus:
+                self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "react", "iteration": iteration + 1})
+
             try:
-                # Think: 推理当前状态，规划下一步行动
                 thought = self.think(plan)
-                logger.info(f"[Think] {thought.get('action', 'N/A')}")
-                
-                # Act: 执行行动
+                logger.info("[Think] %s", thought.get("action", "N/A"))
+                if self._event_bus:
+                    self._event_bus.emit_type(EventType.THINK_CHUNK, {"thought": thought}, iteration=iteration + 1)
+
                 if thought.get("action") == "complete":
                     logger.info("[Act] 任务已完成")
+                    if self._event_bus:
+                        self._event_bus.emit_type(EventType.ACTION_END, {"action": "complete"})
                     break
-                
+
+                if self._event_bus:
+                    self._event_bus.emit_type(EventType.ACTION_START, {"thought": thought}, iteration=iteration + 1)
                 result = self.act(plan, thought)
-                logger.info(f"[Act] 执行结果: {result.get('status', 'N/A')}")
-                
-                # Observe: 观察结果
+                logger.info("[Act] 执行结果: %s", result.get("status", "N/A"))
+                if self._event_bus:
+                    self._event_bus.emit_type(EventType.EXEC_RESULT, {"result": result}, iteration=iteration + 1)
+
                 observation = self.observe(plan, result)
-                logger.info(f"[Observe] {observation.message}")
+                logger.info("[Observe] %s", observation.message)
+                if self._event_bus:
+                    self._event_bus.emit_type(EventType.OBSERVATION, {"observation": observation.message, "status": observation.status}, iteration=iteration + 1)
                 
                 # 判断是否完成
                 if observation.status == "success" and self._is_all_steps_complete(plan):
