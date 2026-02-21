@@ -38,6 +38,11 @@ venv.bak/
 *~
 .DS_Store
 
+# 本地提交辅助（可选保留）
+commit-msg-tmp.txt
+do_commits.sh
+do_commits_remaining.sh
+
 # Environment variables
 .env
 .env.local
