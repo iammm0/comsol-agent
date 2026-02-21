@@ -28,12 +28,16 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "dashscope>=1.14.0",
+    "openai>=1.0.0",
+    "requests>=2.28.0",
     "jpype1>=1.4.0",
     "rich>=13.7.0",
     "loguru>=0.7.2",
     "tqdm>=4.66.0",
     "typer>=0.9.0",
+    "setuptools>=61.0",
+    "questionary>=1.10.0",
+    "textual>=0.40.0",
 ]
 
 [project.optional-dependencies]
@@ -44,10 +48,11 @@ dev = [
 ]
 
 [project.scripts]
-comsol-agent = "cli:app"
+comsol-agent = "cli:main"
 
 [tool.setuptools]
 packages = ["agent", "schemas"]
+py-modules = ["cli"]
 
 [tool.setuptools.package-data]
 "*" = ["*.txt", "*.md"]

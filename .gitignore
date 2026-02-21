@@ -47,6 +47,9 @@ venv.bak/
 models/
 outputs/
 
+# 内置 Java 运行时（首次使用时自动下载，不提交）
+runtime/
+
 # Logs
 *.log
 logs/
