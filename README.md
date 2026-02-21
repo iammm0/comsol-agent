@@ -38,32 +38,28 @@
 
 ### 2. 安装步骤
 
-#### 方式一：从源码安装（开发模式）
+#### 方式一：从源码安装（开发模式，推荐使用 uv）
 
 ```bash
 # 克隆项目
 git clone <repository-url>
 cd agent-for-comsol-multiphysics
 
-# 创建虚拟环境
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-# 安装依赖和包
-pip install -r requirements.txt
-pip install -e .
+# 使用 uv 安装依赖与可编辑安装（需先安装 uv: https://docs.astral.sh/uv/）
+uv sync
+# 验证
+uv run comsol-agent --help
 ```
 
 #### 方式二：构建并安装分发包
 
 ```bash
 # 构建分发包
-python build.py
+uv run python build.py
 # 或使用脚本: ./scripts/build.sh (Linux/Mac) 或 scripts\build.bat (Windows)
 
 # 安装分发包
-pip install dist/agent-for-comsol-multiphysics-*.whl
+uv pip install dist/agent-for-comsol-multiphysics-*.whl
 ```
 
 详细安装说明请参考 [INSTALL.md](INSTALL.md)
@@ -72,53 +68,53 @@ pip install dist/agent-for-comsol-multiphysics-*.whl
 
 安装后，**必须**配置以下环境变量：
 
-1. **LLM_BACKEND** - LLM 后端类型（`dashscope`/`openai`/`openai-compatible`/`ollama`，默认 `dashscope`）
+1. **LLM_BACKEND** - LLM 后端类型（`deepseek`/`kimi`/`ollama`/`openai-compatible`，默认 `ollama`）
 2. 根据选择的后端配置相应的 API Key 和 URL（见下方配置示例）
-3. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径或plugins目录
-   - **COMSOL 6.3+**（推荐）：配置为 `plugins` 目录，程序会自动加载所有jar文件
-   - **COMSOL 6.1及更早版本**：配置为单个jar文件路径
-4. **JAVA_HOME** - Java 安装路径
-5. **MODEL_OUTPUT_DIR** - 模型输出目录（可选，默认为安装目录下的 `models`）
+3. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径或 plugins 目录
+   - **COMSOL 6.3+**（推荐）：配置为 `plugins` 目录，程序会自动加载所有 jar 文件
+   - **COMSOL 6.1及更早版本**：配置为单个 jar 文件路径
+4. **JAVA_HOME** - 可选。不配置时优先使用系统环境变量；若仍无，首次使用 COMSOL 功能会自动下载内置 JDK 11 到项目 `runtime/java`
+5. **JAVA_DOWNLOAD_MIRROR** - 可选。内置 JDK 下载镜像，国内加速可设为 `tsinghua`（清华 TUNA 镜像）
+6. **MODEL_OUTPUT_DIR** - 模型输出目录（可选，默认为安装目录下的 `models`）
 
 #### 配置方式
 
 **方式一：使用环境变量**
 ```bash
-# Linux/Mac (COMSOL 6.3+ 推荐使用plugins目录)
-export DASHSCOPE_API_KEY="your_api_key"
+# Linux/Mac (COMSOL 6.3+ 推荐使用 plugins 目录；JAVA_HOME 可选)
+export DEEPSEEK_API_KEY="your_api_key"
 export COMSOL_JAR_PATH="/opt/comsol63/multiphysics/plugins"
-export JAVA_HOME="/path/to/java"
+# export JAVA_HOME="/path/to/java"  # 不设则使用内置 JDK 11
 
-# Windows (COMSOL 6.3+ 推荐使用plugins目录)
-set DASHSCOPE_API_KEY=your_api_key
+# Windows (COMSOL 6.3+ 推荐使用 plugins 目录；JAVA_HOME 可选，不设则使用内置 JDK 11)
+set DEEPSEEK_API_KEY=your_api_key
 set COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
-set JAVA_HOME=C:\path\to\java
+rem set JAVA_HOME=C:\path\to\java
 ```
 
 **方式二：使用 .env 文件（推荐）**
 
 在项目根目录或用户主目录创建 `.env` 文件：
 
-**使用 Dashscope (Qwen) 后端：**
+**使用 DeepSeek：**
 ```env
-LLM_BACKEND=dashscope
-DASHSCOPE_API_KEY=your_api_key
+LLM_BACKEND=deepseek
+DEEPSEEK_API_KEY=your_api_key
 COMSOL_JAR_PATH=/opt/comsol63/multiphysics/plugins
 JAVA_HOME=/path/to/java
 MODEL_OUTPUT_DIR=/path/to/output
 ```
 
-**使用 OpenAI 官方 API：**
+**使用 Kimi（Moonshot）：**
 ```env
-LLM_BACKEND=openai
-OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=gpt-3.5-turbo
+LLM_BACKEND=kimi
+KIMI_API_KEY=your_api_key
 COMSOL_JAR_PATH=/path/to/comsol.jar
 JAVA_HOME=/path/to/java
 MODEL_OUTPUT_DIR=/path/to/output
 ```
 
-**使用 OpenAI 兼容服务（第三方）：**
+**使用符合 OpenAI 规范的中转 API：**
 ```env
 LLM_BACKEND=openai-compatible
 OPENAI_COMPATIBLE_API_KEY=your_api_key
@@ -160,9 +156,62 @@ comsol-agent doctor
 
 详细配置说明请参考 [INSTALL.md](INSTALL.md)
 
+### 5. 环境就绪与自动化建模测试
+
+环境已配置好后，建议按以下步骤确认并测试完整流程：
+
+**第一步：环境诊断**
+
+```bash
+uv run comsol-agent doctor
+```
+
+- 若有**错误**（红色），按提示补齐 `.env` 或环境变量（如 `COMSOL_JAR_PATH`、当前 LLM 后端的 API Key）。
+- 若 Java 已就绪（本机已装或已存在 `runtime/java`），可在 `.env` 中设置 `JAVA_SKIP_AUTO_DOWNLOAD=1`，避免再触发自动下载。
+
+**第二步：测试自动化建模（一条命令生成模型）**
+
+```bash
+# 示例：从自然语言生成 .mph 模型（ReAct 架构，默认）
+uv run comsol-agent run "创建一个宽1米、高0.5米的矩形" -o test_rect.mph
+```
+
+- 成功时会输出模型路径；模型文件在默认输出目录（如项目下的 `models/`）或 `-o` 指定位置。
+- 也可先只做规划、不跑 COMSOL：`uv run comsol-agent plan "创建一个宽1米高0.5米的矩形"`，查看解析出的 JSON。
+
+**第三步：交互式使用（可选）**
+
+```bash
+uv run comsol-agent
+```
+
+进入全终端 TUI 后，直接输入建模需求即可生成模型；输入 `/demo` 可跑内置示例。
+
 ## 使用方法
 
-### 命令行使用
+### 全终端交互模式（推荐）
+
+直接运行以下命令即可进入**占据整个终端的交互界面**，无需子命令：
+
+```bash
+comsol-agent
+```
+
+- **默认模式**：在底部输入框中输入自然语言建模需求，直接生成 COMSOL 模型（等同 `run`）。
+- **计划模式**：输入 `/plan` 切换为计划模式，下一句输入将仅解析为 JSON 计划（等同 `plan`）；输入 `/run` 切回默认模式。
+- **退出**：输入 `/quit` 或 `/exit` 退出；也可按 `q`（若已绑定）。
+- **斜杠命令**（输入后通过方向键选择或按提示操作）：
+  - `/exec`：根据 JSON 计划创建模型或仅生成 Java 代码
+  - `/demo`：运行演示示例
+  - `/doctor`：环境诊断
+  - `/context`：查看摘要 / 历史 / 统计 / 清除对话历史
+  - `/backend`：选择 LLM 后端（DeepSeek / Kimi / Ollama / OpenAI 兼容中转）
+  - `/output`：设置默认输出文件名
+  - `/help`：显示斜杠命令帮助
+
+脚本或非交互场景仍可使用子命令：`comsol-agent run "..."`、`comsol-agent plan "..."` 等。
+
+### 命令行使用（子命令）
 
 ```bash
 # 运行完整流程（使用 ReAct 架构，默认启用）
@@ -205,7 +254,7 @@ python main.py --react "创建一个宽1米、高0.5米的矩形"
 # 使用传统架构
 python main.py --no-react "创建一个矩形"
 
-# 交互模式
+# 交互模式（与 comsol-agent 无参数启动相同，进入全终端 TUI）
 python main.py --interactive
 
 # 指定输出文件
@@ -268,7 +317,7 @@ from agent.react.observer import Observer
 from agent.utils.llm import LLMClient
 
 # 初始化组件
-llm = LLMClient(backend="dashscope", api_key="your_key")
+llm = LLMClient(backend="deepseek", api_key="your_key")
 reasoning_engine = ReasoningEngine(llm)
 action_executor = ActionExecutor()
 observer = Observer()
@@ -301,7 +350,7 @@ python scripts/dev_test.py
 agent-for-comsol-multiphysics/
 ├── README.md
 ├── pyproject.toml
-├── requirements.txt
+├── uv.lock
 ├── .env.example
 ├── .gitignore
 │
@@ -426,7 +475,7 @@ agent-for-comsol-multiphysics/
 
 ## 开发
 
-提交规范与架构范式见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [design-paradigms/](design-paradigms/)。
+提交规范与架构范式见 [CONTRIBUTING.md](docs/CONTRIBUTING.md) 与 [design-paradigms/](docs/agent-design-skills/)。
 
 ### 运行测试
 
@@ -464,7 +513,7 @@ A:
 - **COMSOL 6.1及更早版本**：配置为单个jar文件，例如 `安装目录/lib/win64/comsol.jar`
 
 ### Q: Java 环境错误？
-A: 确保 `JAVA_HOME` 指向正确的 JDK 路径，且版本与 COMSOL 兼容
+A: 项目已集成 JDK 11，无需单独配置；若使用系统 Java，请确保 `JAVA_HOME` 指向正确 JDK 路径且与 COMSOL 兼容
 
 ### Q: API 调用失败？
-A: 检查 `DASHSCOPE_API_KEY` 是否正确配置
+A: 检查当前 LLM 后端对应的 API Key（如 DEEPSEEK_API_KEY、KIMI_API_KEY）是否已配置

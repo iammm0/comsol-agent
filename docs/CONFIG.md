@@ -6,11 +6,13 @@
 
 ### 必需配置
 
-#### 1. Qwen API 配置
-```bash
-DASHSCOPE_API_KEY=your_dashscope_api_key_here
-```
-- 获取方式：访问 [阿里云 DashScope](https://dashscope.console.aliyun.com/) 注册并获取 API Key
+#### 1. LLM 后端配置（仅支持 deepseek / kimi / ollama / openai-compatible）
+- **DeepSeek**：`LLM_BACKEND=deepseek`，`DEEPSEEK_API_KEY=your_key`
+- **Kimi**：`LLM_BACKEND=kimi`，`KIMI_API_KEY=your_key`
+- **Ollama**：`LLM_BACKEND=ollama`（无需 API Key）
+- **中转 API**：`LLM_BACKEND=openai-compatible`，`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_BASE_URL`
+
+详见 [llm-backends.md](llm-backends.md)。
 
 #### 2. COMSOL 配置
 ```bash
@@ -29,13 +31,14 @@ COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
 - **Mac COMSOL 6.3+**（推荐）：`/Applications/COMSOL63/Multiphysics/plugins`
 - **Mac COMSOL 6.1**：`/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
 
-#### 3. Java 配置
+#### 3. Java 配置（可选）
+- **不配置**：使用项目内置 JDK 11（`runtime/java`，首次使用 COMSOL 时自动下载）
+- **国内加速**：在 .env 中设置 `JAVA_DOWNLOAD_MIRROR=tsinghua` 使用清华镜像
+- 若使用系统已安装的 Java，可配置：
 ```bash
 JAVA_HOME=C:/Program Files/Java/jdk-17
 ```
 - 确保 Java 版本与 COMSOL 兼容（通常 JDK 8-17）
-- Windows 示例：`C:/Program Files/Java/jdk-17`
-- Linux/Mac 示例：`/usr/lib/jvm/java-11-openjdk`
 
 ### 可选配置
 
@@ -87,24 +90,22 @@ python src/comsol/verify_setup.py
 ### 问题 2: Java 环境错误
 
 **解决方案**：
-1. 确认已安装 Java JDK（不是 JRE）
-2. 设置 `JAVA_HOME` 环境变量指向 JDK 安装目录
-3. 确保 Java 版本与 COMSOL 兼容：
-   - COMSOL 6.0+: JDK 8-17
-   - 检查 COMSOL 文档获取具体版本要求
+1. **推荐**：不配置 `JAVA_HOME`，使用项目内置 JDK 11（首次使用 COMSOL 功能时会自动下载到 `runtime/java`）
+2. 或确认已安装 Java JDK（不是 JRE），设置 `JAVA_HOME` 指向 JDK 安装目录
+3. 确保 Java 版本与 COMSOL 兼容（COMSOL 6.0+: JDK 8-17）
 
 ### 问题 3: API Key 无效
 
 **解决方案**：
 1. 确认 API Key 已正确复制（无多余空格）
-2. 检查 API Key 是否有效（访问 DashScope 控制台）
+2. 检查当前 LLM 后端对应的 API Key 是否有效（如 DeepSeek / Kimi 控制台）
 3. 确认账户有足够的调用额度
 
 ## 配置示例
 
 ### Windows 完整配置示例（COMSOL 6.3+）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
 JAVA_HOME=C:/Program Files/Java/jdk-17
 MODEL_OUTPUT_DIR=./models
@@ -113,7 +114,7 @@ LOG_LEVEL=INFO
 
 ### Windows 完整配置示例（COMSOL 6.1）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar
 JAVA_HOME=C:/Program Files/Java/jdk-17
 MODEL_OUTPUT_DIR=./models
@@ -122,7 +123,7 @@ LOG_LEVEL=INFO
 
 ### Linux 完整配置示例（COMSOL 6.3+）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/opt/comsol63/multiphysics/plugins
 JAVA_HOME=/usr/lib/jvm/java-11-openjdk
 MODEL_OUTPUT_DIR=./models
@@ -131,7 +132,7 @@ LOG_LEVEL=INFO
 
 ### Linux 完整配置示例（COMSOL 6.1）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar
 JAVA_HOME=/usr/lib/jvm/java-11-openjdk
 MODEL_OUTPUT_DIR=./models
@@ -140,7 +141,7 @@ LOG_LEVEL=INFO
 
 ### Mac 完整配置示例（COMSOL 6.3+）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/Applications/COMSOL63/Multiphysics/plugins
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home
 MODEL_OUTPUT_DIR=./models
@@ -149,7 +150,7 @@ LOG_LEVEL=INFO
 
 ### Mac 完整配置示例（COMSOL 6.1）
 ```bash
-DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar
 JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home
 MODEL_OUTPUT_DIR=./models

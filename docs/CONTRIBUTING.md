@@ -2,7 +2,7 @@
 
 ## 提交规范（Commit Conventions）
 
-本项目采用 [Conventional Commits](https://www.conventionalcommits.org/) 风格，并与仓库内设计范式一致。详见 [design-paradigms/commit-conventions.md](../design-paradigms/commit-conventions.md)。
+本项目采用 [Conventional Commits](https://www.conventionalcommits.org/) 风格，并与仓库内设计范式一致。详见 [design-paradigms/commit-conventions.md](agent-design-skills/commit-conventions.md)。
 
 ### 格式
 

@@ -163,8 +163,8 @@ OLLAMA_MODEL=llama3
 
 ```bash
 # 在 .env 文件中设置
-LLM_BACKEND=dashscope
-DASHSCOPE_API_KEY=your_api_key
+LLM_BACKEND=deepseek
+DEEPSEEK_API_KEY=your_api_key
 ```
 
 ## 示例配置
@@ -188,6 +188,6 @@ OLLAMA_MODEL=llama3.2
 ### 生产环境（Dashscope）
 
 ```env
-LLM_BACKEND=dashscope
-DASHSCOPE_API_KEY=your_api_key
+LLM_BACKEND=deepseek
+DEEPSEEK_API_KEY=your_api_key
 ```

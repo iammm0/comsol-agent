@@ -22,18 +22,18 @@ scripts\build.bat
 
 #### 方式四：直接使用 build 命令
 ```bash
-python -m pip install --upgrade build wheel
-python -m build
+uv pip install --upgrade build wheel
+uv run python -m build
 ```
 
 ### 2. 安装分发包
 
 ```bash
 # 从 wheel 文件安装
-pip install dist/agent-for-comsol-multiphysics-*.whl
+uv pip install dist/agent-for-comsol-multiphysics-*.whl
 
 # 或从源码安装（开发模式）
-pip install -e .
+uv sync
 ```
 
 ### 3. 验证安装
@@ -44,17 +44,19 @@ comsol-agent --help
 
 ## 环境配置
 
-安装后，**必须**配置以下环境变量：
+安装后，需配置以下环境变量（**JAVA_HOME 为可选**，项目已集成 JDK 11）：
 
 ### 必需配置
 
-1. **DASHSCOPE_API_KEY** - 通义千问 API Key
+1. **LLM 后端与 API Key** - 按所选后端配置其一（仅支持 deepseek / kimi / ollama / openai-compatible）
+   - 使用 DeepSeek：`LLM_BACKEND=deepseek`，`DEEPSEEK_API_KEY=your_key`
+   - 使用 Kimi：`LLM_BACKEND=kimi`，`KIMI_API_KEY=your_key`
+   - 使用 Ollama：`LLM_BACKEND=ollama`（无需 API Key）
+   - 使用中转 API：`LLM_BACKEND=openai-compatible`，`OPENAI_COMPATIBLE_API_KEY`、`OPENAI_COMPATIBLE_BASE_URL`
    ```bash
-   # Linux/Mac
-   export DASHSCOPE_API_KEY="your_api_key_here"
-   
-   # Windows
-   set DASHSCOPE_API_KEY=your_api_key_here
+   # 示例：DeepSeek
+   export LLM_BACKEND=deepseek
+   export DEEPSEEK_API_KEY="your_api_key_here"
    ```
 
 2. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径或plugins目录
@@ -73,7 +75,8 @@ comsol-agent --help
    - COMSOL 6.3+ 版本推荐配置为 `plugins` 目录，程序会自动加载所有jar文件
    - COMSOL 6.1 及更早版本需要配置为单个jar文件路径
 
-3. **JAVA_HOME** - Java 安装路径
+3. **JAVA_HOME** - 可选。不配置时使用**项目内置 JDK 11**（位于 `runtime/java`，首次使用 COMSOL 功能时自动下载）
+   - 若需使用系统已安装的 Java，可配置：
    ```bash
    # Linux/Mac
    export JAVA_HOME="/usr/lib/jvm/java-11-openjdk"
@@ -84,7 +87,9 @@ comsol-agent --help
 
 ### 可选配置
 
-4. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为安装目录下的 `models` 文件夹）
+4. **JAVA_DOWNLOAD_MIRROR** - 内置 JDK 下载镜像，国内加速可设为 `tsinghua`（清华 TUNA）
+
+5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为安装目录下的 `models` 文件夹）
    ```bash
    # Linux/Mac
    export MODEL_OUTPUT_DIR="/path/to/output"
@@ -98,9 +103,10 @@ comsol-agent --help
 在项目根目录或用户主目录创建 `.env` 文件：
 
 ```env
-DASHSCOPE_API_KEY=your_api_key_here
-COMSOL_JAR_PATH=/path/to/comsol.jar
-JAVA_HOME=/usr/lib/jvm/java-11-openjdk
+LLM_BACKEND=ollama
+# 或 deepseek/kimi/openai-compatible，并配置对应 API Key
+COMSOL_JAR_PATH=/path/to/comsol/plugins
+# JAVA_HOME=  可选，不设则使用项目内置 JDK 11
 MODEL_OUTPUT_DIR=/path/to/output
 ```
 
@@ -153,9 +159,9 @@ comsol-agent run --skip-check "创建一个矩形"
 ### 问题 1: 找不到 comsol-agent 命令
 
 **解决方案**：
-- 确保已正确安装：`pip install dist/agent-for-comsol-multiphysics-*.whl`
+- 确保已正确安装：`uv pip install dist/agent-for-comsol-multiphysics-*.whl`
 - 检查 Python 环境：`which python` 或 `where python`
-- 重新安装：`pip uninstall agent-for-comsol-multiphysics && pip install dist/agent-for-comsol-multiphysics-*.whl`
+- 重新安装：`uv pip uninstall agent-for-comsol-multiphysics && uv pip install dist/agent-for-comsol-multiphysics-*.whl`
 
 ### 问题 2: 环境变量未生效
 
@@ -180,16 +186,15 @@ comsol-agent run --skip-check "创建一个矩形"
 ### 问题 4: Java 环境错误
 
 **解决方案**：
-- 确保安装了 JDK（不是 JRE）
-- 检查 JAVA_HOME 指向正确的 JDK 路径
-- 确保 Java 版本与 COMSOL 兼容（通常 JDK 8-17）
+- 推荐不配置 `JAVA_HOME`，使用项目内置 JDK 11（首次使用 COMSOL 时自动下载到 `runtime/java`）
+- 或确保已安装 JDK（不是 JRE），`JAVA_HOME` 指向正确路径，且版本与 COMSOL 兼容（通常 JDK 8-17）
 
 ## 开发模式安装
 
 如果要在开发模式下安装（修改代码后立即生效）：
 
 ```bash
-pip install -e .
+uv sync
 ```
 
 这样安装后，代码修改会立即反映到已安装的包中。
