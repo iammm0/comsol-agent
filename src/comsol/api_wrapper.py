@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import jpype
+from src.context.events import Event, EventBus, EventType
 import jpype.imports
 from loguru import logger
 
@@ -180,65 +181,98 @@ class COMSOLWrapper:
         geom = model.geom(geom_name)
         geom.run()
     
-    def save_model(self, model, output_path: Path) -> Path:
+    def save_model(
+        self,
+        model,
+        output_path: Path,
+        event_bus: Optional[EventBus] = None,
+        model_name: Optional[str] = None,
+    ) -> Path:
         """
-        保存模型到文件
-        
+        保存模型到文件。
+
+        若传入 event_bus，保存成功后会发布 EventType.MODEL_SAVED，供会话上下文等订阅方同步状态。
+
         Args:
             model: COMSOL 模型对象
             output_path: 输出文件路径
-        
+            event_bus: 可选；提供时在保存成功后发布 MODEL_SAVED 事件
+            model_name: 可选；写入事件 data 的模型名称
+
         Returns:
             保存的文件路径
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info(f"保存模型到: {output_path}")
         model.save(str(output_path))
-        
+
         if output_path.exists():
             logger.info(f"模型已成功保存: {output_path}")
+            if event_bus is not None:
+                event_bus.emit(
+                    Event(
+                        type=EventType.MODEL_SAVED,
+                        data={
+                            "path": str(output_path),
+                            "name": model_name or output_path.stem,
+                        },
+                    )
+                )
             return output_path
         else:
             raise RuntimeError(f"模型保存失败: {output_path}")
     
-    def create_model_from_plan(self, plan: GeometryPlan, output_filename: Optional[str] = None) -> Path:
+    def create_model_from_plan(
+        self,
+        plan: GeometryPlan,
+        output_filename: Optional[str] = None,
+        event_bus: Optional[EventBus] = None,
+    ) -> Path:
         """
-        根据 GeometryPlan 创建并保存 COMSOL 模型
-        
+        根据 GeometryPlan 创建并保存 COMSOL 模型。
+
+        若传入 event_bus，保存成功后会发布 EventType.MODEL_SAVED。
+
         Args:
             plan: 几何建模计划
             output_filename: 输出文件名（不含路径），如果为 None 则使用 plan.model_name
-        
+            event_bus: 可选；提供时在保存成功后发布 MODEL_SAVED 事件
+
         Returns:
             保存的模型文件路径
         """
         logger.info(f"根据计划创建模型: {plan.model_name}")
-        
+
         # 创建模型
         model = self.create_model(plan.model_name)
-        
+
         # 创建几何节点（2D）
         geom = model.geom().create("geom1", 2)
-        
+
         # 创建所有形状
         for i, shape in enumerate(plan.shapes, 1):
             if not shape.name:
                 shape.name = f"{shape.type}{i}"
             self.create_shape(model, shape, i)
-        
+
         # 构建几何
         self.build_geometry(model, "geom1")
-        
+
         # 确定输出路径
         if output_filename is None:
             output_filename = f"{plan.model_name}.mph"
-        
+
         output_path = comsol_config.model_output_dir / output_filename
-        
-        # 保存模型
-        return self.save_model(model, output_path)
+
+        # 保存模型（可选发布事件）
+        return self.save_model(
+            model,
+            output_path,
+            event_bus=event_bus,
+            model_name=plan.model_name,
+        )
     
     @classmethod
     def shutdown_jvm(cls):

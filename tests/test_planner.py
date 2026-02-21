@@ -13,7 +13,7 @@ class TestPlannerAgent:
         with patch("agent.planner.geometry_agent.LLMClient") as mock_llm_cls:
             mock_llm_cls.return_value.call = Mock(return_value="")
             from agent.planner.geometry_agent import GeometryAgent
-            return GeometryAgent(backend="dashscope", api_key="test_key")
+            return GeometryAgent(backend="deepseek", api_key="test_key")
 
     def test_extract_json_from_response(self, planner):
         """测试从响应中提取 JSON"""
