@@ -92,33 +92,26 @@ class ActionExecutor:
         """
         logger.info("执行几何建模...")
         
-        # 如果计划中已有几何计划，直接使用
+        # 若无几何计划，则用 GeometryAgent 从用户输入解析
         geometry_plan = getattr(plan, 'geometry_plan', None)
-        if geometry_plan:
-            # 使用 GeometryAgent 解析用户输入
+        if not geometry_plan:
             if not self._geometry_agent:
                 self._geometry_agent = GeometryAgent()
-            
-            # 从用户输入或参数中提取几何需求
-            geometry_input = thought.get("parameters", {}).get("geometry_input", plan.user_input)
+            geometry_input = thought.get("parameters", {}).get("geometry_input") or getattr(plan, "user_input", "") or ""
             geometry_plan = self._geometry_agent.parse(geometry_input)
-            # 存储几何计划到 plan 对象
-            if not hasattr(plan, 'geometry_plan'):
-                plan.geometry_plan = None
             plan.geometry_plan = geometry_plan
         
-        # 使用 COMSOLRunner 创建几何
+        model_name = getattr(plan, "model_name", None) or "model"
+        output_filename = f"{model_name}.mph"
+        
         try:
-            output_filename = f"{plan.model_name}.mph"
             model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename)
-            
             plan.model_path = str(model_path)
-            
             return {
                 "status": "success",
                 "message": "几何建模成功",
                 "model_path": str(model_path),
-                "geometry_plan": geometry_plan.model_dump()
+                "geometry_plan": geometry_plan.to_dict()
             }
         except Exception as e:
             logger.error(f"几何建模失败: {e}")
@@ -161,14 +154,18 @@ class ActionExecutor:
         
         try:
             physics_plan = self._physics_agent.parse(physics_input)
-            
-            # 使用 Java API 控制器添加物理场
             result = self.java_api_controller.add_physics(plan.model_path, physics_plan)
-            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "message": result.get("message", "物理场设置失败"),
+                }
+            if result.get("saved_path"):
+                plan.model_path = result["saved_path"]
             return {
                 "status": "success",
                 "message": "物理场设置成功",
-                "physics_plan": physics_plan.model_dump()
+                "physics_plan": physics_plan.model_dump(),
             }
         except NotImplementedError:
             logger.warning("PhysicsAgent 尚未实现，跳过物理场设置")
@@ -211,7 +208,13 @@ class ActionExecutor:
         try:
             mesh_params = thought.get("parameters", {}).get("mesh", {})
             result = self.java_api_controller.generate_mesh(plan.model_path, mesh_params)
-            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "message": result.get("message", "网格划分失败"),
+                }
+            if result.get("saved_path"):
+                plan.model_path = result["saved_path"]
             return {
                 "status": "success",
                 "message": "网格划分成功",
@@ -257,10 +260,14 @@ class ActionExecutor:
         
         try:
             study_plan = self._study_agent.parse(study_input)
-            
-            # 使用 Java API 控制器配置研究
             result = self.java_api_controller.configure_study(plan.model_path, study_plan)
-            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "message": result.get("message", "研究配置失败"),
+                }
+            if result.get("saved_path"):
+                plan.model_path = result["saved_path"]
             return {
                 "status": "success",
                 "message": "研究配置成功",
@@ -306,7 +313,13 @@ class ActionExecutor:
         
         try:
             result = self.java_api_controller.solve(plan.model_path)
-            
+            if result.get("status") == "error":
+                return {
+                    "status": "error",
+                    "message": result.get("message", "求解失败"),
+                }
+            if result.get("saved_path"):
+                plan.model_path = result["saved_path"]
             return {
                 "status": "success",
                 "message": "求解成功",

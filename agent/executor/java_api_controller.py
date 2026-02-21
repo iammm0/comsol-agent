@@ -2,6 +2,8 @@
 from pathlib import Path
 from typing import Dict, Any, Optional
 import jpype
+import shutil
+import tempfile
 
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
@@ -11,6 +13,59 @@ from schemas.physics import PhysicsPlan
 from schemas.study import StudyPlan
 
 logger = get_logger(__name__)
+
+# 物理场类型 -> COMSOL 物理接口 tag（以 COMSOL 6.x 文档为准）
+PHYSICS_TYPE_TO_COMSOL_TAG = {
+    "heat": "HeatTransfer",
+    "electromagnetic": "ElectromagneticWaves",
+    "structural": "SolidMechanics",
+    "fluid": "SinglePhaseFlow",
+}
+
+# 研究类型 -> COMSOL study tag（以 COMSOL 6.x 文档为准）
+STUDY_TYPE_TO_COMSOL_TAG = {
+    "stationary": "Stationary",
+    "time_dependent": "Time",
+    "eigenvalue": "Eigenvalue",
+    "frequency": "Frequency",
+}
+
+
+def _save_model_avoid_lock(model, dest_path: Path):
+    """保存 model 到 dest_path。先写临时文件再替换；若目标被占用(WinError 32)则写入备用路径。
+    返回实际保存路径 (Path)。"""
+    import os
+    dest_path = Path(dest_path).resolve()
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(suffix=".mph", prefix=dest_path.stem + "_", dir=str(dest_path.parent))
+    try:
+        os.close(fd)
+    except Exception:
+        pass
+    tmp_path = Path(tmp_path)
+    try:
+        model.save(tmp_path.as_posix())
+        try:
+            tmp_path.replace(dest_path)
+            return dest_path
+        except OSError as e:
+            if getattr(e, "winerror", None) == 32:
+                fallback = dest_path.parent / (dest_path.stem + "_updated.mph")
+                shutil.copy2(str(tmp_path), str(fallback))
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+                logger.info(f"原文件被占用，已保存到: {fallback}")
+                return fallback
+            raise
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+        raise
 
 
 class JavaAPIController:
@@ -45,9 +100,10 @@ class JavaAPIController:
             # 确保 JVM 已启动
             COMSOLRunner._ensure_jvm_started()
             
-            # 加载模型
+            # 加载模型：ModelUtil.load(tag, filePath)
             from com.comsol.model.util import ModelUtil
-            model = ModelUtil.load(model_path)
+            path = Path(model_path)
+            model = ModelUtil.load(path.stem or "model", str(path.resolve()))
             
             # 根据操作类型执行
             if operation == "set_parameter":
@@ -118,96 +174,210 @@ class JavaAPIController:
         physics_plan: PhysicsPlan
     ) -> Dict[str, Any]:
         """
-        添加物理场
-        
-        Args:
-            model_path: 模型文件路径
-            physics_plan: 物理场计划
-        
-        Returns:
-            执行结果
+        添加物理场：加载模型，按计划添加物理接口，保存。
         """
         logger.info("添加物理场...")
-        
-        # 物理场设置是复杂操作，使用代码生成
-        parameters = {
-            "model_path": model_path,
-            "physics_plan": physics_plan.model_dump()
-        }
-        
-        return self.execute_via_codegen("add_physics", model_path, parameters)
+        try:
+            COMSOLRunner._ensure_jvm_started()
+            from com.comsol.model.util import ModelUtil
+            path = Path(model_path)
+            # ModelUtil.load(tag, filePath): tag 为模型名，filePath 为 .mph 路径
+            model = ModelUtil.load(path.stem or "model", str(path.resolve()))
+            result = self._add_physics_direct(model, physics_plan)
+            saved_path = _save_model_avoid_lock(model, path)
+            out = {
+                "status": "success",
+                "message": "物理场设置成功",
+                "result": result,
+            }
+            if saved_path != path:
+                out["saved_path"] = str(saved_path)
+            return out
+        except Exception as e:
+            logger.error(f"添加物理场失败: {e}")
+            return {
+                "status": "error",
+                "message": str(e),
+            }
+
+    def _add_physics_direct(self, model, physics_plan: PhysicsPlan) -> Dict[str, Any]:
+        """在已加载的 model 上添加物理场接口。添加前先构建几何。
+        COMSOL API：create(tag, physIntID) 创建的是 0D 物理场；create(tag, physIntID, geom) 在指定几何上创建，必须用三参数避免「空间维度: 零维」。"""
+        self._ensure_geometry_built(model)
+        geom_tag = "geom1"
+        added = []
+        for i, field in enumerate(physics_plan.fields):
+            tag = PHYSICS_TYPE_TO_COMSOL_TAG.get(field.type, "HeatTransfer")
+            name = f"ht{i}" if field.type == "heat" else f"{field.type[:2]}{i}"
+            if field.type == "electromagnetic":
+                name = f"emw{i}"
+            elif field.type == "structural":
+                name = f"solid{i}"
+            elif field.type == "fluid":
+                name = f"fluid{i}"
+            try:
+                if model.component().has("comp1"):
+                    model.component("comp1").physics().create(name, tag, geom_tag)
+                else:
+                    model.physics().create(name, tag, geom_tag)
+            except Exception:
+                model.physics().create(name, tag, geom_tag)
+            added.append({"interface": name, "type": field.type, "tag": tag})
+        return {"interfaces": added}
+
+    def _ensure_geometry_built(self, model) -> None:
+        """确保几何已构建，使模型具有 2D/3D 域，避免添加物理场时报「空间维度: 零维」。优先 component 下 geom，再试 model 级。"""
+        try:
+            if model.component().has("comp1") and model.component("comp1").geom().has("geom1"):
+                model.component("comp1").geom("geom1").run()
+                return
+        except Exception:
+            pass
+        try:
+            if model.geom().has("geom1"):
+                model.geom("geom1").run()
+        except Exception:
+            pass
     
     def generate_mesh(
         self,
         model_path: str,
         mesh_params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        生成网格
-        
-        Args:
-            model_path: 模型文件路径
-            mesh_params: 网格参数
-        
-        Returns:
-            执行结果
-        """
+        """生成网格：加载模型，创建/设置 mesh，run，保存。"""
         logger.info("生成网格...")
-        
-        # 网格生成是复杂操作，使用代码生成
-        parameters = {
-            "model_path": model_path,
-            "mesh_params": mesh_params
-        }
-        
-        return self.execute_via_codegen("generate_mesh", model_path, parameters)
+        try:
+            COMSOLRunner._ensure_jvm_started()
+            from com.comsol.model.util import ModelUtil
+            path = Path(model_path)
+            model = ModelUtil.load(path.stem or "model", str(path.resolve()))
+            self._generate_mesh_direct(model, mesh_params or {})
+            saved_path = _save_model_avoid_lock(model, path)
+            out = {"status": "success", "message": "网格划分成功", "result": {}}
+            if saved_path != path:
+                out["saved_path"] = str(saved_path)
+            return out
+        except Exception as e:
+            logger.error(f"生成网格失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _mesh_has(self, mesh_list, tag: str) -> bool:
+        """MeshList/ComponentMeshList 可能用 has 或 hasTag，兼容两种 API。"""
+        if hasattr(mesh_list, "has"):
+            return mesh_list.has(tag)
+        if hasattr(mesh_list, "hasTag"):
+            return mesh_list.hasTag(tag)
+        return False
+
+    def _generate_mesh_direct(self, model, mesh_params: Dict[str, Any]) -> None:
+        """在已加载的 model 上创建并运行网格。优先用 comp1，无 comp1 时用 model 级 mesh（MeshList.create(tag, gtag)、run）。"""
+        mesh_name = "mesh1"
+        geom_tag = "geom1"
+        hauto = mesh_params.get("hauto", 5) if isinstance(mesh_params, dict) else 5
+        try:
+            if model.component().has("comp1"):
+                mesh_seq = model.component("comp1").mesh()
+                if not self._mesh_has(mesh_seq, mesh_name):
+                    try:
+                        mesh_seq.create(mesh_name, geom_tag)
+                    except Exception:
+                        mesh_seq.create(mesh_name)
+                try:
+                    model.component("comp1").mesh(mesh_name).create("size", "Size")
+                except Exception:
+                    pass
+                try:
+                    model.component("comp1").mesh(mesh_name).feature("size").set("hauto", hauto)
+                except Exception:
+                    pass
+                model.component("comp1").mesh(mesh_name).run()
+                return
+        except Exception:
+            pass
+        # 无 comp1 或 component 下失败：使用 model 级 mesh（model.mesh() 返回 MeshList，用 hasTag 而非 has）
+        ml = model.mesh()
+        if not self._mesh_has(ml, mesh_name):
+            ml.create(mesh_name, geom_tag)
+        try:
+            model.mesh(mesh_name).create("size", "Size")
+        except Exception:
+            pass
+        try:
+            model.mesh(mesh_name).feature("size").set("hauto", hauto)
+        except Exception:
+            pass
+        model.mesh().run()
     
     def configure_study(
         self,
         model_path: str,
         study_plan: StudyPlan
     ) -> Dict[str, Any]:
-        """
-        配置研究
-        
-        Args:
-            model_path: 模型文件路径
-            study_plan: 研究计划
-        
-        Returns:
-            执行结果
-        """
+        """配置研究：加载模型，按计划创建 study，保存。"""
         logger.info("配置研究...")
-        
-        # 研究配置是复杂操作，使用代码生成
-        parameters = {
-            "model_path": model_path,
-            "study_plan": study_plan.model_dump()
-        }
-        
-        return self.execute_via_codegen("configure_study", model_path, parameters)
+        try:
+            COMSOLRunner._ensure_jvm_started()
+            from com.comsol.model.util import ModelUtil
+            path = Path(model_path)
+            model = ModelUtil.load(path.stem or "model", str(path.resolve()))
+            result = self._configure_study_direct(model, study_plan)
+            saved_path = _save_model_avoid_lock(model, path)
+            out = {
+                "status": "success",
+                "message": "研究配置成功",
+                "result": result,
+            }
+            if saved_path != path:
+                out["saved_path"] = str(saved_path)
+            return out
+        except Exception as e:
+            logger.error(f"配置研究失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _configure_study_direct(self, model, study_plan: StudyPlan) -> Dict[str, Any]:
+        """在已加载的 model 上创建研究。COMSOL 6.x: study().create(tag) 仅接受 tag，再在 study 下 create(stepTag, type)。"""
+        added = []
+        for i, st in enumerate(study_plan.studies):
+            step_type = STUDY_TYPE_TO_COMSOL_TAG.get(st.type, "Stationary")
+            name = f"std{i + 1}"
+            model.study().create(name)
+            model.study(name).create("std", step_type)
+            added.append({"study": name, "type": st.type, "tag": step_type})
+        return {"studies": added}
     
     def solve(
         self,
         model_path: str
     ) -> Dict[str, Any]:
-        """
-        执行求解
-        
-        Args:
-            model_path: 模型文件路径
-        
-        Returns:
-            执行结果
-        """
+        """执行求解：加载模型，运行第一个 study，保存。"""
         logger.info("执行求解...")
-        
-        # 求解是复杂操作，使用代码生成
-        parameters = {
-            "model_path": model_path
-        }
-        
-        return self.execute_via_codegen("solve", model_path, parameters)
+        try:
+            COMSOLRunner._ensure_jvm_started()
+            from com.comsol.model.util import ModelUtil
+            path = Path(model_path)
+            model = ModelUtil.load(path.stem or "model", str(path.resolve()))
+            study_name = self._solve_direct(model)
+            saved_path = _save_model_avoid_lock(model, path)
+            out = {
+                "status": "success",
+                "message": "求解成功",
+                "result": {"study": study_name},
+            }
+            if saved_path != path:
+                out["saved_path"] = str(saved_path)
+            return out
+        except Exception as e:
+            logger.error(f"求解失败: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _solve_direct(self, model) -> str:
+        """运行模型中第一个研究，返回研究名。"""
+        tags = model.study().tags()
+        if not tags:
+            raise RuntimeError("模型中没有研究，请先配置研究")
+        study_name = tags[0]
+        model.study(study_name).run()
+        return study_name
     
     def validate_execution(
         self,

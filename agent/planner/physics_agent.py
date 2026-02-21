@@ -1,24 +1,99 @@
-"""物理场建模 Planner Agent（预留）"""
+"""物理场建模 Planner Agent"""
+import json
+import re
 from typing import Optional
 
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
-from schemas.physics import PhysicsPlan
+from schemas.physics import PhysicsPlan, PhysicsField
 
 logger = get_logger(__name__)
 
+# 默认物理场：当无法解析或用户仅说「加物理场」时使用
+DEFAULT_PHYSICS_PLAN = PhysicsPlan(
+    fields=[PhysicsField(type="heat", parameters={})]
+)
+
+# 物理场类型与 COMSOL 接口 tag 的映射（以 COMSOL 6.x 文档为准）
+PHYSICS_TYPE_TO_COMSOL_TAG = {
+    "heat": "HeatTransfer",
+    "electromagnetic": "ElectromagneticWaves",
+    "structural": "SolidMechanics",
+    "fluid": "SinglePhaseFlow",
+}
+
 
 class PhysicsAgent:
-    """物理场建模 Planner Agent"""
-    
-    def __init__(self, api_key: Optional[str] = None):
-        """初始化物理场建模 Agent"""
+    """物理场建模 Planner Agent：解析自然语言为 PhysicsPlan。"""
+
+    def __init__(self, api_key: Optional[str] = None, backend: Optional[str] = None, **kwargs):
         settings = get_settings()
-        self.llm = LLMClient(api_key or settings.dashscope_api_key)
-    
+        b = backend or settings.llm_backend
+        key = api_key or settings.get_api_key_for_backend(b)
+        self.llm = LLMClient(
+            backend=b,
+            api_key=key,
+            base_url=settings.get_base_url_for_backend(b),
+            **kwargs
+        )
+
+    def _extract_json_from_response(self, response_text: str) -> dict:
+        """从 LLM 响应中提取 JSON。"""
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            pass
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response_text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+        json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(0))
+            except json.JSONDecodeError:
+                pass
+        raise ValueError(f"无法从响应中提取有效 JSON: {response_text[:200]}")
+
     def parse(self, user_input: str) -> PhysicsPlan:
-        """解析自然语言输入为物理场计划"""
-        # TODO: 实现物理场解析逻辑
-        raise NotImplementedError("物理场建模 Agent 尚未实现")
+        """
+        解析自然语言输入为物理场计划。
+        成功时返回 PhysicsPlan；LLM 不可用或解析失败时返回默认传热物理场。
+        """
+        user_input = (user_input or "").strip()
+        if not user_input:
+            logger.info("物理场输入为空，使用默认传热")
+            return DEFAULT_PHYSICS_PLAN
+
+        # 简单关键词回退：明显只要求「加物理场」时直接用默认
+        if re.search(r"加物理场|添加物理场|开始加物理场|设置物理场", user_input) and not re.search(
+            r"电磁|流体|结构|力学", user_input
+        ):
+            logger.info("检测到通用物理场需求，使用默认传热")
+            return DEFAULT_PHYSICS_PLAN
+
+        try:
+            prompt = prompt_loader.format("planner", "physics_planner", user_input=user_input)
+            response_text = self.llm.call(prompt, temperature=0.1, max_retries=2)
+            json_data = self._extract_json_from_response(response_text)
+            fields = json_data.get("fields", [])
+            if not fields:
+                return DEFAULT_PHYSICS_PLAN
+            allowed = {"heat", "electromagnetic", "structural", "fluid"}
+            field_list = []
+            for f in fields:
+                t = f.get("type", "heat")
+                field_list.append(PhysicsField(
+                    type=t if t in allowed else "heat",
+                    parameters=f.get("parameters", {})
+                ))
+            plan = PhysicsPlan(fields=field_list)
+            logger.info("物理场解析成功: %s 个物理场", len(plan.fields))
+            return plan
+        except Exception as e:
+            logger.warning("物理场 LLM 解析失败，使用默认传热: %s", e)
+            return DEFAULT_PHYSICS_PLAN
