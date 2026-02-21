@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Tuple, List
 
 from agent.utils.config import get_settings
+from agent.utils.java_runtime import get_effective_java_home, is_bundled_java_path, is_project_java_path
 from agent.utils.logger import get_logger
 from agent.utils import secrets as secrets_utils
 
@@ -53,24 +54,20 @@ def check_environment() -> EnvCheckResult:
     backend = settings.llm_backend.lower()
     result.add_info(f"LLM 后端: {backend}")
     
-    if backend == "dashscope":
-        key = settings.get_api_key_for_backend("dashscope")
+    if backend == "deepseek":
+        key = settings.get_api_key_for_backend("deepseek")
         if not key:
-            result.add_error("DASHSCOPE_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
+            result.add_error("DEEPSEEK_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
         else:
-            result.add_info(f"DASHSCOPE_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
-            
-    elif backend == "openai":
-        key = settings.get_api_key_for_backend("openai")
+            result.add_info(f"DEEPSEEK_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
+
+    elif backend == "kimi":
+        key = settings.get_api_key_for_backend("kimi")
         if not key:
-            result.add_error("OPENAI_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
+            result.add_error("KIMI_API_KEY 未配置，请设置环境变量、.env 或使用 keyring")
         else:
-            result.add_info(f"OPENAI_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
-            if settings.openai_base_url:
-                result.add_info(f"OpenAI 基础 URL: {settings.openai_base_url}")
-            else:
-                result.add_info("使用 OpenAI 官方 API")
-                
+            result.add_info(f"KIMI_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
+
     elif backend == "openai-compatible":
         key = settings.get_api_key_for_backend("openai-compatible")
         if not key:
@@ -79,9 +76,9 @@ def check_environment() -> EnvCheckResult:
             result.add_info(f"OPENAI_COMPATIBLE_API_KEY 已配置（{secrets_utils.mask_key(key)}）")
         
         if not settings.openai_compatible_base_url:
-            result.add_error("OPENAI_COMPATIBLE_BASE_URL 未配置，请设置环境变量或 .env 文件")
+            result.add_error("OPENAI_COMPATIBLE_BASE_URL 未配置（符合 OpenAI 规范的中转 API 需填写）")
         else:
-            result.add_info(f"OpenAI 兼容 API 基础 URL: {settings.openai_compatible_base_url}")
+            result.add_info(f"中转 API 基础 URL: {settings.openai_compatible_base_url}")
             # 测试连接
             try:
                 import requests
@@ -110,7 +107,7 @@ def check_environment() -> EnvCheckResult:
         except Exception as e:
             result.add_error(f"无法连接到 Ollama 服务 ({settings.ollama_url}): {e}")
     else:
-        result.add_error(f"不支持的 LLM 后端: {backend}，支持的后端: dashscope, openai, openai-compatible, ollama")
+        result.add_error(f"不支持的 LLM 后端: {backend}，支持: deepseek, kimi, ollama, openai-compatible")
     
     # 2. 检查 COMSOL_JAR_PATH
     if not settings.comsol_jar_path:
@@ -123,30 +120,28 @@ def check_environment() -> EnvCheckResult:
         else:
             result.add_error(f"COMSOL JAR 文件不存在: {jar_path}")
     
-    # 3. 检查 JAVA_HOME
-    if not settings.java_home:
-        # 尝试从环境变量获取
-        import os
-        java_home_env = os.environ.get("JAVA_HOME")
-        if java_home_env:
-            settings.java_home = java_home_env
-            result.add_info(f"从环境变量获取 JAVA_HOME: {java_home_env}")
-        else:
-            result.add_error("JAVA_HOME 未配置，请设置环境变量或 .env 文件")
-    
-    if settings.java_home:
-        java_home_path = Path(settings.java_home)
+    # 3. 检查 Java（支持内置运行时：未配置 JAVA_HOME 时首次使用会自动下载 JDK 11）
+    java_home = get_effective_java_home()
+    if java_home:
+        java_home_path = Path(java_home)
         if java_home_path.exists():
-            # 检查 Java 可执行文件
             java_exe = java_home_path / "bin" / "java.exe"
             if not java_exe.exists():
                 java_exe = java_home_path / "bin" / "java"
             if java_exe.exists():
-                result.add_info(f"Java 可执行文件存在: {java_exe}")
+                if is_bundled_java_path(java_home):
+                    suffix = "（项目内置 JDK 11）"
+                elif is_project_java_path(java_home):
+                    suffix = "（项目集成 Java）"
+                else:
+                    suffix = ""
+                result.add_info(f"Java 可执行文件: {java_exe}{suffix}")
             else:
                 result.add_warning(f"未找到 Java 可执行文件: {java_home_path / 'bin'}")
         else:
             result.add_error(f"JAVA_HOME 路径不存在: {java_home_path}")
+    else:
+        result.add_info("未配置 JAVA_HOME，首次使用 COMSOL 功能时将自动下载内置 JDK 11 到项目 runtime/java")
     
     # 4. 检查 MODEL_OUTPUT_DIR
     if not settings.model_output_dir:
@@ -163,15 +158,8 @@ def check_environment() -> EnvCheckResult:
         except Exception as e:
             result.add_error(f"输出目录无法访问: {output_dir} ({e})")
     
-    # 5. 检查 Python 依赖
-    if backend == "dashscope":
-        try:
-            import dashscope
-            result.add_info("dashscope 已安装")
-        except ImportError:
-            result.add_error("dashscope 未安装，请运行: pip install dashscope")
-    
-    if backend in ["openai", "openai-compatible"]:
+    # 5. 检查 Python 依赖（deepseek/kimi/openai-compatible 均使用 openai 客户端）
+    if backend in ["deepseek", "kimi", "openai-compatible"]:
         try:
             import openai
             result.add_info("openai 已安装")
@@ -210,28 +198,36 @@ def validate_environment() -> Tuple[bool, str]:
 
 
 def print_check_result(result: EnvCheckResult):
-    """打印检查结果"""
+    """打印检查结果（表格 + 面板）"""
     from rich.console import Console
     from rich.panel import Panel
-    
+    from rich.table import Table
+
     console = Console()
-    
+
     if result.is_valid():
-        console.print(Panel("[green]✅ 环境检查通过[/green]", title="环境检查"))
+        console.print(Panel("[bold green]✅ 环境检查通过[/bold green]", title="环境检查", border_style="green"))
     else:
-        console.print(Panel("[red]❌ 环境检查失败[/red]", title="环境检查"))
-    
+        console.print(Panel("[bold red]❌ 环境检查失败[/bold red]", title="环境检查", border_style="red"))
+
     if result.errors:
-        console.print("\n[red]错误:[/red]")
-        for error in result.errors:
-            console.print(f"  [red]❌[/red] {error}")
-    
+        t = Table(show_header=False, box=None, padding=(0, 1))
+        t.add_column(style="red", width=4)
+        t.add_column(style="white")
+        for e in result.errors:
+            t.add_row("❌", e)
+        console.print(Panel(t, title="[red]错误[/red]", border_style="red"))
     if result.warnings:
-        console.print("\n[yellow]警告:[/yellow]")
-        for warning in result.warnings:
-            console.print(f"  [yellow]⚠️[/yellow] {warning}")
-    
+        t = Table(show_header=False, box=None, padding=(0, 1))
+        t.add_column(style="yellow", width=4)
+        t.add_column(style="white")
+        for w in result.warnings:
+            t.add_row("⚠", w)
+        console.print(Panel(t, title="[yellow]警告[/yellow]", border_style="yellow"))
     if result.info:
-        console.print("\n[cyan]信息:[/cyan]")
-        for info in result.info:
-            console.print(f"  [cyan]ℹ️[/cyan] {info}")
+        t = Table(show_header=False, box=None, padding=(0, 1))
+        t.add_column(style="cyan", width=4)
+        t.add_column(style="white")
+        for i in result.info:
+            t.add_row("ℹ", i)
+        console.print(Panel(t, title="[cyan]信息[/cyan]", border_style="cyan"))

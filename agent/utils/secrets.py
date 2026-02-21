@@ -7,8 +7,8 @@ KEYRING_SERVICE = "comsol-agent"
 
 # provider -> 环境变量名（优先从 env 读取）
 PROVIDER_ENV_KEYS = {
-    "dashscope": "DASHSCOPE_API_KEY",
-    "openai": "OPENAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "kimi": "KIMI_API_KEY",
     "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
@@ -16,7 +16,7 @@ PROVIDER_ENV_KEYS = {
 def get_api_key(provider: str) -> Optional[str]:
     """
     获取 API Key。顺序：先读环境变量，再读 keyring。
-    provider: dashscope | openai | openai-compatible
+    provider: deepseek | kimi | openai-compatible
     """
     env_key = PROVIDER_ENV_KEYS.get(provider)
     if env_key:

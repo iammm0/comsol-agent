@@ -1,10 +1,16 @@
-"""主启动程序 - 用于调试和开发"""
+"""主启动程序 - 用于调试和开发。生产环境推荐直接运行 comsol-agent（无参数）进入全终端交互。"""
 import sys
 from pathlib import Path
 
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
+
+# 与 py_to_mph_minimal 一致：先加载 .env，再在导入 COMSOL/JVM 相关模块前设置 JAVA_HOME
+from dotenv import load_dotenv
+load_dotenv(project_root / ".env")
+from agent.utils.java_runtime import ensure_java_home_from_venv
+ensure_java_home_from_venv(project_root)
 
 from agent.dependencies import get_agent, get_settings
 from agent.executor.comsol_runner import COMSOLRunner
@@ -19,29 +25,31 @@ logger = get_logger(__name__)
 def main():
     """主函数"""
     setup_logging("INFO")
-    
+
+    # 无参数或 --interactive 时进入与 cli 一致的全终端 TUI
+    if len(sys.argv) == 1 or (len(sys.argv) >= 2 and sys.argv[1] in ("--interactive", "-i")):
+        from agent.tui import run_tui
+        if len(sys.argv) > 1:
+            sys.argv = [sys.argv[0]]  # 去掉 -i/--interactive
+        run_tui()
+        return
+
     console.print(Panel.fit(
         "[bold cyan]COMSOL Multiphysics Agent - 调试模式[/bold cyan]",
         border_style="cyan"
     ))
-    
-    # 显示配置信息
     settings = get_settings()
     console.print(f"\n[dim]LLM 后端: {settings.llm_backend}[/dim]")
     console.print(f"[dim]模型输出目录: {settings.model_output_dir}[/dim]")
-    
-    # 示例用法
     console.print("\n[bold]示例用法:[/bold]")
-    console.print("1. 使用 ReAct 架构（推荐）:")
-    console.print("   python main.py --react '创建一个宽1米、高0.5米的矩形'")
-    console.print("\n2. 使用传统架构:")
-    console.print("   python main.py --no-react '创建一个矩形'")
-    console.print("\n3. 交互模式:")
-    console.print("   python main.py --interactive")
-    
+    console.print("  python main.py --react '创建一个宽1米、高0.5米的矩形'")
+    console.print("  python main.py --no-react '创建一个矩形'")
+    console.print("  python main.py --interactive   # 或直接运行 comsol-agent 进入全终端交互")
+    console.print("\n[yellow]推荐: 直接运行 comsol-agent（无参数）进入全终端交互模式[/yellow]\n")
+
     # 解析命令行参数
     if len(sys.argv) < 2:
-        console.print("\n[yellow]提示: 使用 --help 查看帮助信息[/yellow]")
+        print_help()
         return
     
     use_react = True
@@ -79,14 +87,8 @@ def main():
             console.print(f"[red]未知参数: {arg}[/red]")
             i += 1
     
-    # 交互模式
-    if interactive:
-        run_interactive_mode(use_react)
-        return
-    
-    # 非交互模式
     if not user_input:
-        console.print("[red]错误: 请提供用户输入或使用 --interactive 进入交互模式[/red]")
+        console.print("[red]错误: 请提供用户输入，或使用 --interactive / 直接运行 comsol-agent 进入交互模式[/red]")
         return
     
     try:
@@ -113,47 +115,6 @@ def main():
         logger.exception("执行失败")
         console.print(f"\n[red]❌ 错误: {e}[/red]")
         sys.exit(1)
-
-
-def run_interactive_mode(use_react: bool):
-    """运行交互模式"""
-    console.print("\n[bold cyan]进入交互模式[/bold cyan]")
-    console.print("[dim]输入 'quit' 或 'exit' 退出[/dim]\n")
-
-    if use_react:
-        core = get_agent("core", max_iterations=10)
-    else:
-        planner = get_agent("planner")
-        runner = COMSOLRunner()
-
-    while True:
-        try:
-            user_input = input("\n[bold]请输入建模需求:[/bold] ").strip()
-
-            if not user_input:
-                continue
-
-            if user_input.lower() in ["quit", "exit", "q"]:
-                console.print("\n[yellow]退出交互模式[/yellow]")
-                break
-
-            if use_react:
-                console.print("\n[dim]使用 ReAct 架构处理...[/dim]")
-                model_path = core.run(user_input)
-                console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
-            else:
-                console.print("\n[dim]使用传统架构处理...[/dim]")
-                plan = planner.parse(user_input)
-                console.print(f"[green]✅ 解析成功: {len(plan.shapes)} 个形状[/green]")
-                model_path = runner.create_model_from_plan(plan)
-                console.print(f"\n[green]✅ 模型已生成: {model_path}[/green]")
-                
-        except KeyboardInterrupt:
-            console.print("\n[yellow]⚠️  用户中断[/yellow]")
-            break
-        except Exception as e:
-            logger.exception("处理失败")
-            console.print(f"\n[red]❌ 错误: {e}[/red]")
 
 
 def print_help():
