@@ -4,4 +4,4 @@
 
 - **主入口与逻辑** 请使用项目根下的 **agent** 包及 [cli.py](../cli.py)。
 - 测试与示例已迁移为使用 `agent`、`agent.dependencies` 与 `schemas`。
-- 详见 [CONTRIBUTING.md](../docs/CONTRIBUTING.md) 与 [design-paradigms/](../design-paradigms/)。
+- 详见 [CONTRIBUTING.md](../docs/CONTRIBUTING.md) 与 [design-paradigms/](../docs/agent-design-skills/)。
