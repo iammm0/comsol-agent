@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "一个智能 Agent，将自然语言描述的二维几何建模需求自动转换为 COMSOL Multiphysics 模型文件"
 readme = "README.md"
 requires-python = ">=3.8"
-license = {text = "MIT"}
+license = "MIT"
 authors = [
     {name = "Your Name", email = "your.email@example.com"}
 ]
@@ -16,7 +16,6 @@ keywords = ["comsol", "agent", "nlp", "simulation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -34,10 +33,9 @@ dependencies = [
     "rich>=13.7.0",
     "loguru>=0.7.2",
     "tqdm>=4.66.0",
-    "typer>=0.9.0",
     "setuptools>=61.0",
     "questionary>=1.10.0",
-    "textual>=0.40.0",
+    "sqlite-vec>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -46,16 +44,22 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+# 向量检索：安装后可使用 skills 的语义检索（否则仅关键词/trigger 匹配）
+vec = [
+    "sentence-transformers>=2.2.0",
+]
 
 [project.scripts]
 comsol-agent = "cli:main"
 
 [tool.setuptools]
-packages = ["agent", "schemas"]
+packages = ["agent", "schemas", "prompts", "prompts.planner", "prompts.react", "prompts.executor"]
 py-modules = ["cli"]
 
 [tool.setuptools.package-data]
-"*" = ["*.txt", "*.md"]
+agent = ["*.txt", "*.md"]
+schemas = ["*.md"]
+prompts = ["**/*.txt"]
 
 [tool.black]
 line-length = 100

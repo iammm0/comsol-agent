@@ -42,6 +42,7 @@ venv.bak/
 commit-msg-tmp.txt
 do_commits.sh
 do_commits_remaining.sh
+do_one_commit.sh
 
 # Environment variables
 .env
