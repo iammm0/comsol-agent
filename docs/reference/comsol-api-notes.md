@@ -134,7 +134,7 @@ A: 研究配置与求解通过 `model.study().create(studyName, studyType)` 创�
 | `BaseModelBuilder` | 基类：getModel、save、setParam、setVariable、validateModel |
 | `ModelException` | 模型相关异常 |
 
-详见 [java/API_ARCHITECTURE_PSEUDOCODE.md](../java/API_ARCHITECTURE_PSEUDOCODE.md) 与 [java/README.md](../java/README.md)。
+详见 [java/API_ARCHITECTURE_PSEUDOCODE.md](../../java/API_ARCHITECTURE_PSEUDOCODE.md) 与 [java/README.md](../../java/README.md)。
 
 ## 参考资源
 

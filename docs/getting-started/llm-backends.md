@@ -20,10 +20,7 @@ DEEPSEEK_API_KEY=your_api_key
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-**命令行：**
-```bash
-comsol-agent run --backend deepseek --api-key your_key "创建一个矩形"
-```
+在 TUI 中可通过 **`/backend`** 选择后端；或通过 .env 设置默认后端。
 
 ### 2. Kimi（Moonshot）
 
@@ -34,10 +31,7 @@ KIMI_API_KEY=your_api_key
 KIMI_MODEL=moonshot-v1-8k
 ```
 
-**命令行：**
-```bash
-comsol-agent run --backend kimi --api-key your_key "创建一个矩形"
-```
+在 TUI 中可通过 **`/backend`** 选择后端。
 
 ### 3. 符合 OpenAI 规范的中转 API
 
@@ -51,10 +45,7 @@ OPENAI_COMPATIBLE_BASE_URL=https://api.example.com/v1
 OPENAI_COMPATIBLE_MODEL=your-model-name
 ```
 
-**命令行：**
-```bash
-comsol-agent run --backend openai-compatible --api-key your_key --base-url https://api.example.com/v1 "创建一个矩形"
-```
+在 TUI 中可通过 **`/backend`** 选择后端。
 
 ### 4. Ollama
 
@@ -65,11 +56,7 @@ OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=llama3
 ```
 
-**命令行：**
-```bash
-comsol-agent run --backend ollama "创建一个矩形"
-comsol-agent run --backend ollama --ollama-url http://192.168.1.100:11434 "创建一个矩形"
-```
+在 TUI 中可通过 **`/backend`** 选择 Ollama；远程 Ollama 可在 .env 中设置 `OLLAMA_URL`。
 
 详细 Ollama 配置请参考 [ollama-setup.md](ollama-setup.md)。
 

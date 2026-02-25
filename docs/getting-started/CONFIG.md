@@ -46,7 +46,7 @@ JAVA_HOME=C:/Program Files/Java/jdk-17
 ```bash
 MODEL_OUTPUT_DIR=./models
 ```
-- 默认值：`./models`
+- 默认值：**comsol-agent 根目录下的 `models`**（唯一且首要的模型存放位置；项目根目录上一级的 `models` 不再使用）
 - 模型文件（.mph）将保存在此目录
 
 #### 日志级别
@@ -58,18 +58,18 @@ LOG_LEVEL=INFO
 
 ## 验证配置
 
-运行验证脚本检查配置是否正确：
+运行环境诊断检查配置是否正确：
 
 ```bash
-python src/comsol/verify_setup.py
+uv run comsol-agent
 ```
 
-验证脚本会检查：
+在 TUI 内输入 `/doctor`。诊断会检查：
 1. ✅ 配置文件完整性
 2. ✅ COMSOL JAR 文件存在性
 3. ✅ Java 环境配置
 4. ✅ 输出目录可访问性
-5. ✅ Python 依赖安装情况
+5. ✅ LLM 后端与 Python 依赖
 
 ## 常见配置问题
 

@@ -2,45 +2,53 @@
 
 ## 打包和安装
 
-### 1. 构建分发包
+### 1. 构建 Wheel（可 pip 安装的分发包）
 
-#### 方式一：使用 Python 脚本
+**已验证可用的构建命令**（在项目根目录执行）：
+
 ```bash
-python build.py
+uv build
 ```
 
-#### 方式二：使用 shell 脚本（Linux/Mac）
+- 需已安装 [uv](https://docs.astral.sh/uv/)；在项目根执行一次即可。
+- 成功后会在 `dist/` 下生成：
+  - `agent_for_comsol_multiphysics-0.1.0-py3-none-any.whl`（wheel，用于 pip 安装）
+  - `agent_for_comsol_multiphysics-0.1.0.tar.gz`（源码包）
+
+若未使用 uv，可用标准 build 方式：
+
 ```bash
-chmod +x scripts/build.sh
-./scripts/build.sh
+pip install build wheel
+python -m build --wheel
 ```
 
-#### 方式三：使用批处理脚本（Windows）
-```cmd
-scripts\build.bat
-```
+#### 其他构建方式（可选）
 
-#### 方式四：直接使用 build 命令
-```bash
-uv pip install --upgrade build wheel
-uv run python -m build
-```
+- 使用项目脚本：`python scripts/build.py`（需已安装 build）
+- Linux/Mac：`./scripts/build.sh`
+- Windows：`scripts\build.bat`
 
 ### 2. 安装分发包
 
 ```bash
-# 从 wheel 文件安装
-uv pip install dist/agent-for-comsol-multiphysics-*.whl
+# 从 wheel 安装（pip 下载或本地文件）
+pip install dist/agent_for_comsol_multiphysics-*.whl
 
-# 或从源码安装（开发模式）
+# 使用 uv
+uv pip install dist/agent_for_comsol_multiphysics-*.whl
+
+# 从源码可编辑安装（开发模式）
 uv sync
+# 或 pip install -e .
 ```
 
 ### 3. 验证安装
 
 ```bash
-comsol-agent --help
+uv run comsol-agent
 ```
+
+无参数即启动全终端 TUI（需安装 Bun）。若仅需验证可执行，运行后可用 `/quit` 退出。
 
 ## 环境配置
 
@@ -89,7 +97,7 @@ comsol-agent --help
 
 4. **JAVA_DOWNLOAD_MIRROR** - 内置 JDK 下载镜像，国内加速可设为 `tsinghua`（清华 TUNA）
 
-5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为安装目录下的 `models` 文件夹）
+5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为 **comsol-agent 根目录下的 `models`**，该目录为唯一且首要；项目根目录上一级的 `models` 不再使用）
    ```bash
    # Linux/Mac
    export MODEL_OUTPUT_DIR="/path/to/output"
@@ -112,47 +120,29 @@ MODEL_OUTPUT_DIR=/path/to/output
 
 ## 环境检查
 
-安装和配置完成后，运行诊断命令检查环境：
+安装和配置完成后，启动 TUI 并在其中运行诊断：
 
 ```bash
-comsol-agent doctor
+uv run comsol-agent
 ```
 
-如果所有检查通过，会显示：
-```
-✅ 环境检查通过
-```
-
-如果有问题，会显示详细的错误信息。
+在 TUI 底部输入 `/doctor` 进行环境检查。若所有检查通过，会显示通过信息；若有问题，会显示详细错误信息。
 
 ## 使用
 
 ### 基本使用
 
-```bash
-# 运行完整流程
-comsol-agent run "创建一个宽1米、高0.5米的矩形"
-
-# 仅解析自然语言（输出 JSON）
-comsol-agent plan "创建一个矩形" -o plan.json
-
-# 根据 JSON 计划创建模型
-comsol-agent exec plan.json
-
-# 演示功能
-comsol-agent demo
-
-# 环境诊断
-comsol-agent doctor
-```
-
-### 跳过环境检查
-
-如果确定环境已配置正确，可以跳过启动时的环境检查：
+所有功能均通过全终端 TUI 使用：
 
 ```bash
-comsol-agent run --skip-check "创建一个矩形"
+uv run comsol-agent
 ```
+
+进入 TUI 后：
+
+- **默认模式**：在底部输入自然语言建模需求（如「创建一个宽1米、高0.5米的矩形」），直接生成 COMSOL 模型
+- **计划模式**：输入 `/plan` 切换为仅解析模式，下一句输入会解析为 JSON
+- **斜杠命令**：`/demo`（演示）、`/doctor`（环境诊断）、`/context`（上下文摘要/历史/统计/清除）、`/backend`（选择 LLM 后端）、`/output`（设置默认输出文件名）、`/exec`（根据 JSON 创建模型或生成代码）、`/help`（帮助）
 
 ## 故障排除
 

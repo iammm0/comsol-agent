@@ -33,3 +33,8 @@
 
 - 主入口与逻辑以 **agent** 包为准；测试与示例请使用 `agent` 与 `agent.dependencies`，勿依赖已废弃的 **src** 包。
 - 设计范式见 [design-paradigms/](design-paradigms/) 目录。
+
+## 测试
+
+- **每次改动业务代码或数据结构，都需同步更新或补充对应的单元测试。** 测试与模块对应关系、运行方式见 [tests/README.md](../../tests/README.md)。
+- 修改或新增模块后请运行 `uv run pytest tests/` 确保通过。

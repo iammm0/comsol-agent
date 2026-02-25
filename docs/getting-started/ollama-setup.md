@@ -79,30 +79,13 @@ OLLAMA_MODEL=llama3
 # OLLAMA_MODEL=llama3
 ```
 
-### 方式三：命令行参数
+### 方式三：在 TUI 中选择后端
 
-```bash
-# 使用 Ollama 后端
-comsol-agent run --backend ollama "创建一个矩形"
-
-# 指定远程 Ollama 服务
-comsol-agent run --backend ollama --ollama-url http://192.168.1.100:11434 "创建一个矩形"
-
-# 指定模型
-comsol-agent run --backend ollama --model llama3.2 "创建一个矩形"
-```
+启动 TUI 后输入 **`/backend`**，可选择 Ollama 并（若支持）指定 URL 或模型。
 
 ## 验证配置
 
-运行诊断命令检查 Ollama 配置：
-
-```bash
-comsol-agent doctor
-```
-
-如果配置正确，会显示：
-- Ollama 服务可访问
-- 可用模型列表
+启动 TUI 后输入 **`/doctor`** 检查 Ollama 配置。若配置正确，会显示 Ollama 服务可访问及可用模型列表。
 
 ## 推荐模型
 

@@ -1,6 +1,6 @@
 # COMSOL 三模块 Agent 与共享上下文
 
-本文档描述 COMSOL Multiphysics® 三个内置组件与 Agent 模块的对应关系、目录与路由设想、共享上下文字段及 EventBus 使用方式，与 [agent-architecture.md](agent-design-skills/agent-architecture.md)、[session-and-events.md](agent-design-skills/session-and-events.md) 一致。
+本文档描述 COMSOL Multiphysics® 三个内置组件与 Agent 模块的对应关系、目录与路由设想、共享上下文字段及 EventBus 使用方式，与 [agent-architecture.md](../agent-design-skills/agent-architecture.md)、[session-and-events.md](../agent-design-skills/session-and-events.md) 一致。
 
 ## 1. COMSOL 三组件与 Agent 模块对应
 
@@ -29,23 +29,22 @@ flowchart LR
 | **App 开发器（Application Builder）** | 基于模型定制仿真 App：Method 编辑、Form 设计、打包与部署 | **AppDeveloper Agent** | 次要 |
 | **模型管理器（Model Manager）** | 仿真数据管理：模型、辅助数据、仿真 App 的版本与检索等 | **ModelManager Agent** | 次要 |
 
-当前仓库中的 Planner、Executor 及 `comsol` 包（api_wrapper、templates 等）主要服务于「自然语言 → .mph 模型」的建模流程，归属为**模型开发器 Agent** 的现有实现；后续可在此模块内扩展物理场、网格、研究、求解与结果分析。
+当前仓库的**主流程**在 **`agent/`** 下实现：Planner（几何/物理/研究）、Executor（COMSOL Java API 调用与代码生成）、ReAct 与 skills 等，服务于「自然语言 → .mph 模型」的建模流程，归属为**模型开发器 Agent**；后续可在此模块内扩展物理场、网格、研究、求解与结果分析。
 
-## 2. 模块分离：目录与路由
+## 2. 模块分离：目录与路由（设想）
 
-### 2.1 目录/包划分
+### 2.1 目录/包划分（扩展设想）
 
-在 `src/` 下按模块划分，便于职责清晰与后续扩展：
+若按三模块拆分，可在 `agent/` 下或独立包中按职责划分：
 
-- **模型开发器**：`src/agents/model_developer/`  
-  - 负责几何、物理、网格、研究、求解、结果。  
-  - 可将现有 `planner`、`executor`、`comsol` 收拢为该模块子包或通过命名空间/重定向归属。
-- **App 开发器**：`src/agents/app_developer/`  
+- **模型开发器**：当前已实现于 `agent/planner`、`agent/executor`、`agent/react` 等。  
+  - 负责几何、物理、网格、研究、求解、结果。
+- **App 开发器**：预留扩展。  
   - 负责 Method 编辑、Form 设计、App 打包/部署等（后续实现）。
-- **模型管理器**：`src/agents/model_manager/`  
+- **模型管理器**：预留扩展。  
   - 负责模型/App 的列表、打开、保存、版本、检索等（后续实现）。
 
-各模块内部仍可采用「Planner → Core(Executor) → Summary」等分工；模块之间**不直接调用**，仅通过**共享上下文**与**事件/编排**协作。
+各模块内部采用「Planner → Executor → Summary」等分工；模块之间**不直接调用**，仅通过**共享上下文**与**事件/编排**协作。
 
 ### 2.2 路由层与模块分发
 
@@ -108,17 +107,17 @@ flowchart TB
 
 ## 4. 优先级与落地顺序
 
-1. **先巩固模型开发器 Agent**：在现有基础上明确归属到「模型开发器」模块，补齐几何→物理→网格→研究→求解链路，并引用 [comsol-api-links.md](comsol-api-links.md) 中的 API 文档。
-2. **在文档与代码中落地「三模块 + 共享上下文」**：本文档与 [agent-architecture.md](agent-design-skills/agent-architecture.md) 描述三模块划分、路由与 SessionContext/EventBus；代码中预留目录与路由扩展点、SessionContext 与关键事件。
+1. **先巩固模型开发器 Agent**：在现有基础上明确归属到「模型开发器」模块，补齐几何→物理→网格→研究→求解链路，并引用 [comsol-api-links.md](../reference/comsol-api-links.md) 中的 API 文档。
+2. **在文档与代码中落地「三模块 + 共享上下文」**：本文档与 [agent-architecture.md](../agent-design-skills/agent-architecture.md) 描述三模块划分、路由与 SessionContext/EventBus；代码中预留目录与路由扩展点、SessionContext 与关键事件。
 3. **再实现 App 开发器、模型管理器**：按同一上下文协议接入，通过路由与共享上下文与模型开发器协同。
 
 ## 5. 实现位置（代码）
 
-- **SessionContext**、**EventBus**、**Event**、**EventType**：定义于 `src/context/`（[session_context.py](../src/context/session_context.py)、[events.py](../src/context/events.py)）。会话编排器或调用方创建并持有 SessionContext，在关键动作后通过 EventBus 发布事件，订阅方可据此更新 SessionContext 或 UI。
-- **模型保存事件**：`src/comsol/api_wrapper.py` 的 `save_model`、`create_model_from_plan` 支持可选参数 `event_bus`；传入时在保存成功后发布 `EventType.MODEL_SAVED`，payload 含 `path`、`name`。订阅该事件即可同步「当前模型」等上下文。
+- **EventBus**、**EventType**：定义于 `agent/events.py`。会话编排器或调用方创建并持有 EventBus，在关键动作后发布事件，订阅方可据此更新 UI 或上下文。
+- **模型保存与执行**：`agent/executor/comsol_runner.py` 的 `save_model`、`create_model_from_plan` 负责模型创建与保存。ReAct 流程与 TUI 通过 `agent/dependencies`、`agent/actions` 等调用；可选传入 `event_bus` 以发布执行阶段事件。
 
 ## 6. 与现有范式的关系
 
-- **多智能体分工**：每个 COMSOL 模块内部可继续采用 Q&A / Planner / Core / Summary 等角色，见 [agent-architecture.md](agent-design-skills/agent-architecture.md)。
+- **多智能体分工**：每个 COMSOL 模块内部可继续采用 Q&A / Planner / Core / Summary 等角色，见 [agent-architecture.md](../agent-design-skills/agent-architecture.md)。
 - **会话与事件**：会话编排器负责会话生命周期与按路由调用各模块；EventBus 用于状态变更通知，见 [session-and-events.md](agent-design-skills/session-and-events.md)。
 - **技能/插件**：各模块可拥有自己的技能目录（如 `skills/model_developer/`），按需注入，见 [skill-plugin-system.md](agent-design-skills/skill-plugin-system.md)。
