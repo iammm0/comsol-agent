@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Any
 
 from agent.dependencies import get_agent, get_context_manager, get_settings
+from agent.events import EventBus
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
 from agent.utils.env_check import check_environment
@@ -30,6 +31,7 @@ def do_run(
     max_iterations: int = 10,
     skip_check: bool = False,
     verbose: bool = False,
+    event_bus: Optional[EventBus] = None,
 ) -> Tuple[bool, str]:
     """执行默认模式：自然语言 -> 创建模型。返回 (成功, 要显示的文本)。"""
     _ensure_logging(verbose)
@@ -51,6 +53,7 @@ def do_run(
                 ollama_url=ollama_url,
                 model=model,
                 max_iterations=max_iterations,
+                event_bus=event_bus,
             )
             model_path = core.run(user_input, output)
             context_manager.add_conversation(

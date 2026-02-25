@@ -238,7 +238,7 @@ class COMSOLRunner:
         geom.run()
     
     def save_model(self, model, output_path: Path) -> Path:
-        """保存模型到文件，并同步保存到 comsol-agent 项目目录下的 models 文件夹。"""
+        """保存模型到文件；输出目录为 comsol-agent 根目录下的 models（唯一且首要），项目根上一级 models 不再使用。"""
         output_path = Path(output_path).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         # 使用绝对路径 + 正斜杠，避免 Java 在 Windows 下误解析反斜杠或内部使用带空格的模型名
@@ -249,7 +249,7 @@ class COMSOLRunner:
         if not output_path.exists():
             raise RuntimeError(f"模型保存失败: {output_path}")
 
-        # 同步保存到当前项目根目录下的 models（不含虚拟环境内的路径）
+        # 同步保存到 comsol-agent 根目录下的 models（唯一且首要）
         project_models = get_project_root() / "models"
         project_copy = project_models / output_path.name
         if project_copy.resolve() != output_path.resolve():

@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
+from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from schemas.task import ReActTaskPlan, ExecutionStep, ReasoningCheckpoint
 
@@ -92,7 +93,7 @@ class ReasoningEngine:
 - required_steps: 需要的步骤列表
 - parameters: 关键参数
 """
-        
+        prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
         response = self.llm.call(prompt, temperature=0.1)
         
         # 提取 JSON
@@ -299,7 +300,7 @@ class ReasoningEngine:
 - new_steps: 需要添加的新步骤（如果有）
 - modified_steps: 需要修改的步骤（如果有）
 """
-            
+            prompt = get_skill_injector().inject_into_prompt(feedback, prompt)
             response = self.llm.call(prompt, temperature=0.2)
             suggestions = self._extract_json(response)
             

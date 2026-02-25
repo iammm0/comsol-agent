@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from agent.utils.llm import LLMClient
+from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from schemas.task import ReActTaskPlan, Observation, IterationRecord, ExecutionStep
 
@@ -264,7 +265,7 @@ class IterationController:
 - modified_steps: 需要修改的步骤列表（包含 step_id 和修改内容）
 - skip_current: 是否跳过当前步骤（布尔值）
 """
-            
+            prompt = get_skill_injector().inject_into_prompt(feedback, prompt)
             response = self.llm.call(prompt, temperature=0.2)
             
             # 解析响应（简化处理）

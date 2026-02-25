@@ -49,13 +49,19 @@ def get_agent(agent_type: AgentType, **kwargs: Any) -> Any:
     if agent_type not in allowed:
         raise ValueError(f"非法 agent_type: {agent_type}，允许: {allowed}")
 
-    if agent_type not in _agents:
+    # 当 event_bus 非空且为 core 时，不缓存，每次创建新实例（保证每次 run 使用独立 EventBus）
+    bypass_cache = agent_type == "core" and kwargs.get("event_bus") is not None
+
+    if agent_type not in _agents or bypass_cache:
         if agent_type == "qa":
             _agents["qa"] = QAAgent(**kwargs)
         elif agent_type == "planner":
             _agents["planner"] = GeometryAgent(**kwargs)
         elif agent_type == "core":
-            _agents["core"] = ReActAgent(**kwargs)
+            agent = ReActAgent(**kwargs)
+            if bypass_cache:
+                return agent
+            _agents["core"] = agent
         elif agent_type == "summary":
             _agents["summary"] = SummaryAgent(**kwargs)
     return _agents[agent_type]

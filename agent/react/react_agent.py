@@ -65,9 +65,19 @@ class ReActAgent:
         logger.info("开始 ReAct 流程")
         logger.info("=" * 60)
         logger.info(f"用户输入: {user_input}")
-        
+
+        if self._event_bus:
+            self._event_bus.emit_type(EventType.PLAN_START, {"user_input": user_input})
+
         # 初始化任务计划
         plan = self._initial_plan(user_input, output_filename)
+
+        if self._event_bus:
+            steps_summary = [{"action": s.action, "step_type": s.step_type} for s in plan.execution_path]
+            self._event_bus.emit_type(
+                EventType.PLAN_END,
+                {"steps": steps_summary, "model_name": plan.model_name},
+            )
         
         # ReAct 主循环
         for iteration in range(self.max_iterations):

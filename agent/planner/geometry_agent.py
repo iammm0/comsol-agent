@@ -6,6 +6,7 @@ from typing import Optional, Any
 from agent.base import BaseAgent
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
+from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
 from schemas.geometry import GeometryPlan
@@ -96,13 +97,13 @@ class GeometryAgent(BaseAgent):
         else:
             enhanced_input = user_input
         
-        # 加载并格式化 Prompt
+        # 加载并格式化 Prompt，并注入 skills 隐性知识
         prompt = prompt_loader.format(
             "planner",
             "geometry_planner",
             user_input=enhanced_input
         )
-        
+        prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
         # 调用 LLM
         response_text = self.llm.call(prompt, temperature=0.1, max_retries=max_retries)
         

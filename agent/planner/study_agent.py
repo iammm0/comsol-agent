@@ -5,6 +5,7 @@ from typing import Optional
 
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
+from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
 from schemas.study import StudyPlan, StudyType
@@ -71,6 +72,7 @@ class StudyAgent:
 
         try:
             prompt = prompt_loader.format("planner", "study_planner", user_input=user_input)
+            prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
             response_text = self.llm.call(prompt, temperature=0.1, max_retries=2)
             json_data = self._extract_json_from_response(response_text)
             studies_data = json_data.get("studies", [])
