@@ -2,18 +2,15 @@
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
-# 内联默认模板（无外部文件时也可运行）；文件模板覆盖同名项
+# 内联默认模板（无外部文件时也可运行）；文件模板覆盖同名项；占位符与 prompts/*.txt 一致
 DEFAULT_TEMPLATES: Dict[str, str] = {
-    "planner/geometry_planner": """你是一个专业的几何建模助手。请将用户的自然语言描述转换为结构化的 JSON 格式。
-支持的几何形状：rectangle（width, height）、circle（radius）、ellipse（a, b）。位置 position 含 x,y，默认 (0.0, 0.0)。单位默认 m。
-用户输入：{user_input}
-请只输出 JSON，不要其他说明。""",
-    "react/reasoning": """你是 COMSOL 建模助手。分析用户需求并规划步骤。
-用户需求：{user_input}
-以 JSON 返回：task_type, required_steps, parameters, reasoning。""",
-    "react/planning": """规划 COMSOL 建模步骤。用户需求：{user_input}""",
-    "react/validation": """验证建模步骤。{user_input}""",
-    "executor/java_codegen": """根据计划生成 COMSOL Java API 代码。{user_input}""",
+    "planner/geometry_planner": """几何建模助手。将用户描述转为 JSON。支持 rectangle/circle/ellipse，position 含 x,y，单位默认 m。用户输入：{user_input} 请只输出 JSON。""",
+    "planner/physics_planner": """物理场助手。将用户描述转为 JSON。支持 heat/electromagnetic/structural/fluid。用户输入：{user_input} 请只输出 JSON。""",
+    "planner/study_planner": """研究类型助手。将用户描述转为 JSON。支持 stationary/time_dependent/eigenvalue/frequency。用户输入：{user_input} 请只输出 JSON。""",
+    "react/reasoning": """COMSOL 建模助手。分析用户需求并规划步骤。用户需求：{user_input} 以 JSON 返回：task_type, required_steps, parameters, reasoning。""",
+    "react/planning": """根据当前状态规划下一步。模型：{model_name} 需求：{user_input} 已完成：{completed_steps} 当前步骤：{current_step} 观察：{observations} 以 JSON 返回 action, reasoning, parameters, expected_result。""",
+    "react/validation": """验证建模计划。计划 JSON：{plan_json} 以 JSON 返回 valid, errors, warnings, suggestions。""",
+    "executor/java_codegen": """根据计划生成 COMSOL Java API 代码。计划 JSON：{plan_json} 只输出可执行 Java 源码。""",
 }
 
 

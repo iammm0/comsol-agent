@@ -48,7 +48,7 @@ def get_project_root() -> Path:
 
 
 def get_default_output_dir() -> str:
-    """获取默认输出目录（当前项目根目录下的 models 文件夹，而非虚拟环境内）"""
+    """获取默认输出目录（comsol-agent 根目录下的 models，唯一且首要；项目根上一级 models 不再使用）"""
     return str(get_project_root() / "models")
 
 
