@@ -77,3 +77,8 @@ target/
 
 # OS
 Thumbs.db
+
+# Node / TUI
+node_modules/
+tui/node_modules/
+tui/bun.lock
