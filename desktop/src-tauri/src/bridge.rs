@@ -1,17 +1,12 @@
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Command, Child};
+use tokio::sync::Mutex;
 
-pub struct BridgeInner {
-    stdin: ChildStdin,
-    reader: BufReader<ChildStdout>,
-    _child: Child,
-}
-
-pub struct BridgeState(pub Mutex<Option<BridgeInner>>);
+pub type BridgeState = Arc<Mutex<Option<Child>>>;
 
 fn find_project_root() -> Option<PathBuf> {
     if let Ok(mut dir) = std::env::current_dir() {
@@ -71,16 +66,16 @@ fn find_python_cmd(root: &PathBuf) -> (String, Vec<String>) {
     }
 }
 
-pub fn init_bridge() -> Result<BridgeInner, String> {
+pub async fn init_bridge() -> Result<Child, String> {
     let root = find_project_root().ok_or("Cannot find project root (pyproject.toml)")?;
     let (cmd, args) = find_python_cmd(&root);
 
     let mut builder = Command::new(&cmd);
     builder
         .args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
         .current_dir(&root)
         .env("PYTHONIOENCODING", "utf-8");
 
@@ -91,7 +86,7 @@ pub fn init_bridge() -> Result<BridgeInner, String> {
         builder.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = builder.spawn().map_err(|e| {
+    let child = builder.spawn().map_err(|e| {
         format!(
             "Failed to start Python bridge ({} {}): {}",
             cmd,
@@ -100,24 +95,21 @@ pub fn init_bridge() -> Result<BridgeInner, String> {
         )
     })?;
 
-    let stdin = child.stdin.take().ok_or("Failed to capture stdin")?;
-    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    if child.stdin.is_none() || child.stdout.is_none() {
+        return Err("Failed to capture stdin/stdout".to_string());
+    }
 
-    Ok(BridgeInner {
-        stdin,
-        reader: BufReader::new(stdout),
-        _child: child,
-    })
+    Ok(child)
 }
 
 #[tauri::command]
-pub fn bridge_send(
+pub async fn bridge_send(
     state: tauri::State<'_, BridgeState>,
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    let bridge = guard.as_mut().ok_or("Python bridge not initialized")?;
+    let mut guard = state.inner().as_ref().lock().await;
+    let child = guard.as_mut().ok_or("Python bridge not initialized")?;
 
     let mut req = match payload.as_object() {
         Some(obj) => obj.clone(),
@@ -126,34 +118,47 @@ pub fn bridge_send(
     req.insert("cmd".into(), Value::String(cmd));
 
     let line = serde_json::to_string(&Value::Object(req)).map_err(|e| e.to_string())?;
-    writeln!(bridge.stdin, "{}", line).map_err(|e| format!("Write to bridge failed: {}", e))?;
-    bridge
-        .stdin
+    let line_with_newline = format!("{}\n", line);
+
+    let stdin = child.stdin.as_mut().ok_or("Stdin not available")?;
+    stdin
+        .write_all(line_with_newline.as_bytes())
+        .await
+        .map_err(|e| format!("Write to bridge failed: {}", e))?;
+    stdin
         .flush()
+        .await
         .map_err(|e| format!("Flush bridge failed: {}", e))?;
 
+    let stdout = child.stdout.as_mut().ok_or("Stdout not available")?;
+    let mut reader = BufReader::new(stdout);
     let mut resp_line = String::new();
-    bridge
-        .reader
+    let bytes = reader
         .read_line(&mut resp_line)
+        .await
         .map_err(|e| format!("Read from bridge failed: {}", e))?;
 
-    if resp_line.trim().is_empty() {
+    if bytes == 0 {
         return Err("Empty response from bridge".to_string());
     }
 
-    serde_json::from_str(resp_line.trim()).map_err(|e| format!("Invalid JSON response: {}", e))
+    let trimmed = resp_line.trim();
+    if trimmed.is_empty() {
+        return Err("Empty response from bridge".to_string());
+    }
+
+    serde_json::from_str(trimmed).map_err(|e| format!("Invalid JSON response: {}", e))
 }
 
 #[tauri::command]
-pub fn bridge_send_stream(
+pub async fn bridge_send_stream(
     app: AppHandle,
     state: tauri::State<'_, BridgeState>,
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-    let bridge = guard.as_mut().ok_or("Python bridge not initialized")?;
+    let mut guard = state.inner().as_ref().lock().await;
+    let child = guard.as_mut().ok_or("Python bridge not initialized")?;
 
     let mut req = match payload.as_object() {
         Some(obj) => obj.clone(),
@@ -162,17 +167,26 @@ pub fn bridge_send_stream(
     req.insert("cmd".into(), Value::String(cmd));
 
     let line = serde_json::to_string(&Value::Object(req)).map_err(|e| e.to_string())?;
-    writeln!(bridge.stdin, "{}", line).map_err(|e| format!("Write to bridge failed: {}", e))?;
-    bridge
-        .stdin
+    let line_with_newline = format!("{}\n", line);
+
+    let stdin = child.stdin.as_mut().ok_or("Stdin not available")?;
+    stdin
+        .write_all(line_with_newline.as_bytes())
+        .await
+        .map_err(|e| format!("Write to bridge failed: {}", e))?;
+    stdin
         .flush()
+        .await
         .map_err(|e| format!("Flush bridge failed: {}", e))?;
+
+    let stdout = child.stdout.as_mut().ok_or("Stdout not available")?;
+    let mut reader = BufReader::new(stdout);
 
     loop {
         let mut resp_line = String::new();
-        let bytes = bridge
-            .reader
+        let bytes = reader
             .read_line(&mut resp_line)
+            .await
             .map_err(|e| format!("Read from bridge failed: {}", e))?;
 
         if bytes == 0 {
