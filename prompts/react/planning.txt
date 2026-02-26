@@ -23,7 +23,8 @@
 }}
 
 ## 行动标识说明
-- create_geometry：创建几何
+- create_geometry：创建几何（2D/3D）
+- add_material：添加材料
 - add_physics：添加物理场
 - generate_mesh：生成网格
 - configure_study：配置研究
@@ -31,7 +32,7 @@
 - complete：任务结束
 
 ## 规划原则
-1. 严格按建模流程顺序：几何 → 物理场 → 网格 → 研究 → 求解
+1. 严格按建模流程顺序：几何 → 材料 → 物理场 → 网格 → 研究 → 求解
 2. 当前步骤失败时可选择 retry 或 skip
 3. 所有步骤完成后 action 为 complete
 4. 根据观察结果调整后续参数或步骤
