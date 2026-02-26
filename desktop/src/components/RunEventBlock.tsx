@@ -2,7 +2,7 @@ import type { RunEvent } from "../lib/types";
 
 function eventCategory(type: string): string {
   if (type === "plan_start" || type === "plan_end") return "plan";
-  if (type === "think_chunk") return "think";
+  if (type === "think_chunk" || type === "llm_stream_chunk") return "think";
   if (type.startsWith("action") || type === "exec_result") return "action";
   if (type === "material_start" || type === "material_end") return "material";
   if (type === "geometry_3d" || type === "coupling_added") return "geometry";
@@ -15,8 +15,9 @@ function eventLabel(type: string): string {
   const map: Record<string, string> = {
     plan_start: "规划开始",
     plan_end: "规划完成",
-    task_phase: "迭代",
+    task_phase: "阶段",
     think_chunk: "思考",
+    llm_stream_chunk: "思维",
     action_start: "执行",
     action_end: "完成",
     exec_result: "结果",
@@ -47,12 +48,25 @@ function eventContent(event: RunEvent): string {
       return `${model} · ${steps.length} 步: ${steps.map((s) => s.action ?? s.step_type).join(" → ")}`;
     return String(model);
   }
-  if (type === "task_phase")
-    return `${String(d.phase ?? "")} #${event.data.iteration ?? event.iteration ?? "?"}`;
+  if (type === "task_phase") {
+    const phase = d.phase as string | undefined;
+    const labels: Record<string, string> = {
+      planning: "规划中",
+      thinking: "思考中",
+      executing: "执行中",
+      observing: "观察中",
+      iterating: "迭代中",
+    };
+    return labels[phase ?? ""] || String(phase ?? "");
+  }
+  if (type === "llm_stream_chunk") {
+    return String(d.chunk ?? d.text ?? "");
+  }
   if (type === "think_chunk") {
     const t = d.thought as Record<string, unknown> | undefined;
     if (!t) return "";
-    return [t.action, t.reasoning].filter(Boolean).join(" — ");
+    const parts = [t.action, t.reasoning].filter(Boolean) as string[];
+    return parts.join("\n");
   }
   if (type === "action_start") {
     const t = d.thought as Record<string, unknown> | undefined;
@@ -92,14 +106,18 @@ export function RunEventBlock({ event }: { event: RunEvent }) {
   const content = eventContent(event);
 
   return (
-    <div className={`run-event ${cat}`}>
+      <div className={`run-event ${cat}`}>
       <div className="run-event-header">
         <span className="run-event-label">{label}</span>
-        {event.iteration != null && (
-          <span className="run-event-iter">#{event.iteration}</span>
-        )}
       </div>
-      {content && <div className="run-event-content">{content}</div>}
+      {content && (
+        <div className={`run-event-content ${cat === "think" ? "run-event-content--think" : ""}`}>
+          {cat === "think" && content.includes("\n")
+            ? content.split("\n").map((line, i) => <p key={i}>{line}</p>)
+            : content
+          }
+        </div>
+      )}
     </div>
   );
 }

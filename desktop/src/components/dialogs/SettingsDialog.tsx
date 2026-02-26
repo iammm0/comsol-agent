@@ -9,14 +9,16 @@ import {
   type ApiConfig,
   type LLMBackendId,
 } from "../../lib/apiConfig";
+import type { BridgeResponse, MyComsolModel } from "../../lib/types";
 
-type SettingsTab = "theme" | "llm" | "comsol" | "memory";
+type SettingsTab = "theme" | "llm" | "comsol" | "memory" | "models";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "theme", label: "主题风格" },
   { id: "llm", label: "LLM 配置" },
   { id: "comsol", label: "COMSOL 配置" },
   { id: "memory", label: "记忆管理" },
+  { id: "models", label: "我创建的 COMSOL 模型" },
 ];
 
 interface SettingsDialogProps {
@@ -35,6 +37,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [ollamaTestResult, setOllamaTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [syncStatus, setSyncStatus] = useState("");
+  const [modelsList, setModelsList] = useState<MyComsolModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   useEffect(() => {
     setApiConfig(loadApiConfig());
@@ -148,6 +152,43 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       setOllamaTestResult({ ok: false, msg: String(e) });
     }
   }, [ollamaUrl, apiConfig.ollama_url]);
+
+  const loadModelsList = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const res = await invoke<BridgeResponse>("bridge_send", {
+        cmd: "models_list",
+        payload: { limit: 50 },
+      });
+      setModelsList(res.ok && Array.isArray(res.models) ? res.models : []);
+    } catch {
+      setModelsList([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "models") loadModelsList();
+  }, [activeTab, loadModelsList]);
+
+  const openInFolder = useCallback((path: string) => {
+    invoke("open_in_folder", { path }).catch(() => {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(path);
+        alert("已复制路径到剪贴板");
+      }
+    });
+  }, []);
+
+  /** 打开与模型同目录的 operations.md */
+  const openPreviewMd = useCallback((modelPath: string) => {
+    const dir = modelPath.replace(/[/\\][^/\\]*$/, "") || modelPath;
+    const mdPath = dir + (dir.endsWith("/") || dir.endsWith("\\") ? "" : "/") + "operations.md";
+    invoke("open_path", { path: mdPath }).catch(() => {
+      alert("未找到操作记录文件 operations.md，请确认模型所在目录。");
+    });
+  }, []);
 
   const renderRow = (label: string, control: React.ReactNode, rowKey?: string) => (
     <div className={`settings-pane-row ${!label ? "settings-pane-row--full" : ""}`} key={rowKey ?? (label || "action")}>
@@ -477,6 +518,35 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                 {memoryStatus && !memoryStatus.includes("API") && (
                   <div className="settings-status">{memoryStatus}</div>
                 )}
+            </div>
+          )}
+
+          {activeTab === "models" && (
+            <div className="settings-card">
+              <p className="settings-hint">以下为各会话中生成过的 COMSOL 模型，可在此打开模型所在目录。</p>
+              {renderRow(
+                "",
+                <button type="button" className="dialog-btn secondary" onClick={loadModelsList} disabled={modelsLoading}>
+                  {modelsLoading ? "加载中…" : "刷新列表"}
+                </button>,
+                "models-refresh"
+              )}
+              <div className="settings-models-list">
+                {modelsLoading && modelsList.length === 0 && <div className="settings-models-loading">加载中…</div>}
+                {!modelsLoading && modelsList.length === 0 && <div className="settings-models-empty">暂无模型记录</div>}
+                {modelsList.map((m) => (
+                  <div key={m.path} className="settings-models-item">
+                    <span className="settings-models-item-title" title={m.path}>
+                      {m.title}
+                      {m.is_latest && <span className="settings-models-item-latest">最新</span>}
+                    </span>
+                    <div className="settings-models-item-actions">
+                      <button type="button" className="dialog-btn secondary" onClick={() => openInFolder(m.path)}>在文件管理器中打开</button>
+                      <button type="button" className="dialog-btn secondary" onClick={() => openPreviewMd(m.path)}>预览</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

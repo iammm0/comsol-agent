@@ -37,13 +37,13 @@ function nextMsgId(): string {
 interface AppState {
   conversations: Conversation[];
   currentConversationId: string | null;
-  /** conversationId -> messages */
   messagesByConversation: Record<string, ChatMessage[]>;
   mode: "run" | "plan";
   backend: string | null;
   outputDefault: string | null;
   execCodeOnly: boolean;
-  busy: boolean;
+  /** 正在执行 run/stream 的会话 id，null 表示无执行中 */
+  busyConversationId: string | null;
   activeDialog: DialogType;
 }
 
@@ -71,7 +71,7 @@ type AppAction =
   | { type: "SET_BACKEND"; backend: string | null }
   | { type: "SET_OUTPUT"; output: string | null }
   | { type: "SET_EXEC_CODE_ONLY"; value: boolean }
-  | { type: "SET_BUSY"; busy: boolean }
+  | { type: "SET_BUSY_CONVERSATION"; conversationId: string | null }
   | { type: "SET_DIALOG"; dialog: DialogType }
   | { type: "HYDRATE"; state: Partial<AppState> };
 
@@ -102,11 +102,11 @@ function getInitialState(): AppState {
       messagesByConversation: { [first.id]: [] },
       mode: "run",
       backend,
-      outputDefault: null,
-      execCodeOnly: false,
-      busy: false,
-      activeDialog: null,
-    };
+    outputDefault: null,
+    execCodeOnly: false,
+    busyConversationId: null,
+    activeDialog: null,
+  };
   }
 
   const id = currentId && conversations.some((c) => c.id === currentId)
@@ -120,7 +120,7 @@ function getInitialState(): AppState {
     backend,
     outputDefault: null,
     execCodeOnly: false,
-    busy: false,
+    busyConversationId: null,
     activeDialog: null,
   };
 }
@@ -242,8 +242,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, outputDefault: action.output };
     case "SET_EXEC_CODE_ONLY":
       return { ...state, execCodeOnly: action.value };
-    case "SET_BUSY":
-      return { ...state, busy: action.busy };
+    case "SET_BUSY_CONVERSATION":
+      return { ...state, busyConversationId: action.conversationId };
     case "SET_DIALOG":
       return { ...state, activeDialog: action.dialog };
     case "HYDRATE":

@@ -1,6 +1,9 @@
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(target_os = "windows")]
+#[allow(unused_imports)]
+use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Command, Child};
@@ -81,7 +84,6 @@ pub async fn init_bridge() -> Result<Child, String> {
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         builder.creation_flags(CREATE_NO_WINDOW);
     }
@@ -208,4 +210,81 @@ pub async fn bridge_send_stream(
             return Ok(parsed);
         }
     }
+}
+
+/// 使用系统默认应用打开文件（如 .mph 用 COMSOL 打开）
+#[tauri::command]
+pub async fn open_path(path: String) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("路径为空".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 打开模型所在目录（文件管理器中打开该文件夹，不选中文件）
+#[tauri::command]
+pub async fn open_in_folder(path: String) -> Result<(), String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("路径为空".to_string());
+    }
+    let path_buf = std::path::PathBuf::from(path);
+    if !path_buf.exists() {
+        return Err("文件或目录不存在".to_string());
+    }
+    let dir = if path_buf.is_dir() {
+        path_buf
+    } else {
+        path_buf
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(path_buf)
+    };
+    let abs = dir.canonicalize().map_err(|e| e.to_string())?;
+    let dir_str = abs.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }

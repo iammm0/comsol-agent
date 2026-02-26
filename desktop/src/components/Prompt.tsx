@@ -30,11 +30,11 @@ export function Prompt() {
 
   const submit = useCallback(() => {
     const text = value.trim();
-    if (!text || state.busy) return;
+    if (!text || state.busyConversationId != null) return;
     handleSubmit(text);
     setValue("");
     setShowSlash(false);
-  }, [value, state.busy, handleSubmit]);
+  }, [value, state.busyConversationId, handleSubmit]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -113,7 +113,7 @@ export function Prompt() {
           rows={1}
           placeholder="输入建模需求或 / 命令..."
           value={value}
-          disabled={state.busy}
+          disabled={state.busyConversationId != null}
           onChange={(e) => {
             setValue(e.target.value);
             autoResize();
@@ -122,7 +122,7 @@ export function Prompt() {
         />
         <button
           className="prompt-send"
-          disabled={state.busy || !value.trim()}
+          disabled={state.busyConversationId != null || !value.trim()}
           onClick={submit}
           title="发送 (Enter)"
         >

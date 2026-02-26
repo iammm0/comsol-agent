@@ -60,6 +60,22 @@ export function Sidebar() {
     []
   );
 
+  const confirmDelete = useCallback(async () => {
+    if (!deleteConfirmId) return;
+    const id = deleteConfirmId;
+    setDeleteConfirmId(null);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("bridge_send", {
+        cmd: "conversation_delete",
+        payload: { conversation_id: id },
+      });
+    } catch {
+      // 后端失败时仍删除本地会话
+    }
+    dispatch({ type: "DELETE_CONVERSATION", id });
+  }, [deleteConfirmId, dispatch]);
+
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
       <button
@@ -146,14 +162,11 @@ export function Sidebar() {
       <ConfirmDialog
         open={deleteConfirmId !== null}
         title="删除对话"
-        message="确定删除该对话？对话记录将无法恢复。"
+        message="确定删除该对话？对话记录与对应的 COMSOL 模型文件将一并删除且无法恢复。"
         confirmLabel="确定"
         cancelLabel="取消"
         danger
-        onConfirm={() => {
-          if (deleteConfirmId) dispatch({ type: "DELETE_CONVERSATION", id: deleteConfirmId });
-          setDeleteConfirmId(null);
-        }}
+        onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
       />
     </aside>

@@ -12,7 +12,7 @@ export function useBridge() {
   const sendCommand = useCallback(
     async (cmd: string, payload: Record<string, unknown> = {}) => {
       if (!cid) return;
-      dispatch({ type: "SET_BUSY", busy: true });
+      dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: cid });
       try {
         const res = await invoke<BridgeResponse>("bridge_send", {
           cmd,
@@ -22,7 +22,7 @@ export function useBridge() {
       } catch (e) {
         addMessage("assistant", "请求失败: " + String(e), { success: false });
       } finally {
-        dispatch({ type: "SET_BUSY", busy: false });
+        dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
       }
     },
     [cid, dispatch, addMessage]
@@ -31,7 +31,7 @@ export function useBridge() {
   const sendStreamCommand = useCallback(
     async (cmd: string, payload: Record<string, unknown> = {}) => {
       if (!cid) return;
-      dispatch({ type: "SET_BUSY", busy: true });
+      dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: cid });
       dispatch({
         type: "ADD_MESSAGE",
         conversationId: cid,
@@ -64,7 +64,7 @@ export function useBridge() {
         });
       } finally {
         unlisten();
-        dispatch({ type: "SET_BUSY", busy: false });
+        dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
       }
     },
     [cid, dispatch]
