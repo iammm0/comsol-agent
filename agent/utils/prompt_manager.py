@@ -7,7 +7,31 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
     "planner/geometry_planner": """几何建模助手。将用户描述转为 JSON。支持 rectangle/circle/ellipse，position 含 x,y，单位默认 m。用户输入：{user_input} 请只输出 JSON。""",
     "planner/physics_planner": """物理场助手。将用户描述转为 JSON。支持 heat/electromagnetic/structural/fluid。用户输入：{user_input} 请只输出 JSON。""",
     "planner/study_planner": """研究类型助手。将用户描述转为 JSON。支持 stationary/time_dependent/eigenvalue/frequency。用户输入：{user_input} 请只输出 JSON。""",
-    "react/reasoning": """COMSOL 建模助手。分析用户需求并规划步骤。用户需求：{user_input} 以 JSON 返回：task_type, required_steps, parameters, reasoning。""",
+    "react/reasoning": """你是一位 COMSOL 建模规划助手。请根据用户需求，按 COMSOL 实际建模流程给出**具体**规划，不要原样复述用户提示词。
+
+用户需求：{user_input}
+会话记忆（如有）：{memory_context}
+
+请按以下顺序具体说明并输出 JSON：
+1. 几何：创建什么样的几何模型（形状、尺寸、单位，如“长方体 1m×0.5m×0.2m”、“二维矩形 0.1m×0.05m”等）。
+2. 材料：在哪些域/位置添加什么材料；若涉及固体力学/线弹性，需明确杨氏模量 E、泊松比 nu 等。
+3. 物理场：添加什么物理场（热、固体力学、流体等），边界/载荷如何设置。
+4. 网格：生成何种网格（自由四面体/三角形、尺寸或单元数等）。
+5. 研究：配置何种研究（稳态/瞬态/特征值等）及求解思路。
+
+请严格以 JSON 格式返回且仅返回一个 JSON 对象，不要其他文字：
+{{
+  "task_type": "full 或 geometry/physics/study",
+  "required_steps": ["create_geometry", "add_material", "add_physics", "generate_mesh", "configure_study", "solve"],
+  "parameters": {{
+    "geometry_input": "具体几何描述，如：创建 3D 长方体，长宽高 1m、0.5m、0.2m",
+    "material_input": "具体材料描述，如：全部域分配钢材；线弹性需 E=200e9 Pa、nu=0.3",
+    "physics_input": "具体物理场与边界，如：固体力学，底面固定，顶面施加 1e6 Pa 压力",
+    "mesh": {{ "max_element_size": 0.05 }},
+    "study_input": "稳态研究，求解"
+  }},
+  "plan_description": "一段完整的具体规划说明：创建何种几何、在哪些地方添加什么材料、添加什么物理场、生成什么网格、配置什么研究与求解思路。用于展示给用户，不要笼统复述需求。"
+}}""",
     "react/planning": """根据当前状态规划下一步。模型：{model_name} 需求：{user_input} 已完成：{completed_steps} 当前步骤：{current_step} 观察：{observations} 以 JSON 返回 action, reasoning, parameters, expected_result。""",
     "react/validation": """验证建模计划。计划 JSON：{plan_json} 以 JSON 返回 valid, errors, warnings, suggestions。""",
     "executor/java_codegen": """根据计划生成 COMSOL Java API 代码。计划 JSON：{plan_json} 只输出可执行 Java 源码。""",

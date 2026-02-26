@@ -10,6 +10,8 @@ class EventType(str, Enum):
     PLAN_START = "plan_start"
     PLAN_END = "plan_end"
     THINK_CHUNK = "think_chunk"
+    """LLM 流式输出的一小段文本（思维过程），data: { phase, chunk }"""
+    LLM_STREAM_CHUNK = "llm_stream_chunk"
     ACTION_START = "action_start"
     ACTION_END = "action_end"
     EXEC_RESULT = "exec_result"

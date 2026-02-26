@@ -20,10 +20,13 @@ from agent.actions import (
     do_config_save,
 )
 from agent.events import EventBus, Event, EventType
+from agent.executor.java_api_controller import JavaAPIController
+from agent.utils.context_manager import get_all_models_from_context, get_context_manager
 
 
-def _reply(ok: bool, message: str) -> None:
-    line = json.dumps({"ok": ok, "message": message}, ensure_ascii=False) + "\n"
+def _reply(ok: bool, message: str, **extra: Any) -> None:
+    payload: dict = {"ok": ok, "message": message, **extra}
+    line = json.dumps(_json_safe(payload), ensure_ascii=False) + "\n"
     sys.stdout.write(line)
     sys.stdout.flush()
 
@@ -173,6 +176,47 @@ def _handle(req: dict[str, Any]) -> None:
             else:
                 ok, msg = False, "缺少 config"
             _reply(ok, msg)
+            return
+
+        if cmd == "model_preview":
+            path_str = (req.get("path") or req.get("model_path") or "").strip()
+            if not path_str:
+                _reply(False, "缺少 path 或 model_path")
+                return
+            if not Path(path_str).exists():
+                _reply(False, "模型文件不存在", image_base64=None)
+                return
+            try:
+                ctrl = JavaAPIController()
+                width = int(req.get("width") or 640)
+                height = int(req.get("height") or 480)
+                result = ctrl.export_model_preview(path_str, width=width, height=height)
+                ok = result.get("status") == "success"
+                _reply(ok, result.get("message", ""), image_base64=result.get("image_base64"))
+            except Exception as e:
+                _reply(False, str(e), image_base64=None)
+            return
+
+        if cmd == "models_list":
+            limit = int(req.get("limit") or 50)
+            try:
+                models = get_all_models_from_context(limit=limit)
+                _reply(True, "ok", models=models)
+            except Exception as e:
+                _reply(False, str(e), models=[])
+            return
+
+        if cmd == "conversation_delete":
+            conversation_id = (req.get("conversation_id") or "").strip()
+            if not conversation_id:
+                _reply(False, "缺少 conversation_id", deleted_paths=[])
+                return
+            try:
+                cm = get_context_manager(conversation_id=conversation_id)
+                deleted_paths = cm.delete_conversation_and_models()
+                _reply(True, "已删除对话及其关联的 COMSOL 模型", deleted_paths=deleted_paths)
+            except Exception as e:
+                _reply(False, str(e), deleted_paths=[])
             return
 
         _reply(False, f"未知命令: {cmd}")

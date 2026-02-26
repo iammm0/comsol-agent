@@ -68,6 +68,9 @@ def do_run(
     memory_context = None if no_context else context_manager.get_context_for_planner()
     try:
         if use_react:
+            output_dir = context_manager.context_dir if conversation_id else None
+            if conversation_id:
+                context_manager.start_run_log(user_input)
             core = get_agent(
                 "core",
                 backend=backend,
@@ -77,8 +80,14 @@ def do_run(
                 model=model,
                 max_iterations=max_iterations,
                 event_bus=event_bus,
+                context_manager=context_manager if conversation_id else None,
             )
-            model_path = core.run(user_input, output, memory_context=memory_context)
+            model_path = core.run(
+                user_input,
+                output,
+                memory_context=memory_context,
+                output_dir=output_dir,
+            )
             context_manager.add_conversation(
                 user_input=user_input,
                 plan={"architecture": "react"},

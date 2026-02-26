@@ -56,7 +56,53 @@ class ContextManager:
         self.context_dir.mkdir(parents=True, exist_ok=True)
         self.history_file = self.context_dir / "history.json"
         self.summary_file = self.context_dir / "summary.json"
-    
+        self.latest_model_file = self.context_dir / "latest_model.txt"
+        self.operations_file = self.context_dir / "operations.md"
+
+    def set_latest_model(self, model_path: str) -> None:
+        """标记当前会话下最新修改的模型路径，便于用户查看。"""
+        if not model_path:
+            return
+        try:
+            self.latest_model_file.write_text(model_path.strip(), encoding="utf-8")
+            logger.debug("已标记最新模型: %s", model_path)
+        except Exception as e:
+            logger.warning("写入最新模型标记失败: %s", e)
+
+    def get_latest_model_path(self) -> Optional[str]:
+        """读取当前会话下最新模型的路径。"""
+        if not self.latest_model_file.exists():
+            return None
+        try:
+            return self.latest_model_file.read_text(encoding="utf-8").strip() or None
+        except Exception:
+            return None
+
+    def start_run_log(self, user_input: str) -> None:
+        """开始一次建模运行的记录，写入 operations.md 的段落头。"""
+        try:
+            if not self.operations_file.exists():
+                self.operations_file.write_text("# 建模操作记录\n\n", encoding="utf-8")
+            head = f"\n---\n\n## {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} 运行\n\n**用户输入**: {user_input}\n\n"
+            with open(self.operations_file, "a", encoding="utf-8") as f:
+                f.write(head)
+        except Exception as e:
+            logger.warning("写入 operations 运行头失败: %s", e)
+
+    def append_operation(self, step_type: str, message: str, result_summary: str = "", model_path: Optional[str] = None) -> None:
+        """将一次操作追加到 operations.md。"""
+        try:
+            line = f"- **{step_type}** ({datetime.now().strftime('%H:%M:%S')}): {message}"
+            if result_summary:
+                line += f" — {result_summary}"
+            if model_path:
+                line += f"\n  - 模型: `{model_path}`"
+            line += "\n"
+            with open(self.operations_file, "a", encoding="utf-8") as f:
+                f.write(line)
+        except Exception as e:
+            logger.warning("追加 operations 记录失败: %s", e)
+
     def add_conversation(
         self,
         user_input: str,
@@ -99,6 +145,9 @@ class ContextManager:
         
         # 更新摘要
         self.update_summary()
+
+        if model_path:
+            self.set_latest_model(str(model_path))
         
         logger.debug(f"已添加对话记录: {user_input[:50]}...")
         return entry
@@ -290,7 +339,36 @@ class ContextManager:
         if self.summary_file.exists():
             self.summary_file.unlink()
         logger.info("对话历史已清除")
-    
+
+    def delete_conversation_and_models(self) -> List[str]:
+        """
+        删除本会话对应的上下文与所有关联的 COMSOL 模型文件。
+        返回已删除的模型文件路径列表（用于前端清理预览等）。
+        """
+        deleted_paths: List[str] = []
+        history = self.load_history()
+        for entry in history:
+            path = entry.get("model_path")
+            if not path:
+                continue
+            p = Path(path)
+            if p.exists() and p.suffix.lower() == ".mph":
+                try:
+                    p.unlink()
+                    deleted_paths.append(path)
+                    logger.info("已删除对话关联模型: %s", path)
+                except Exception as e:
+                    logger.warning("删除模型文件失败 %s: %s", path, e)
+        self.clear_history()
+        if self.context_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(self.context_dir, ignore_errors=True)
+                logger.info("已删除会话上下文目录: %s", self.context_dir)
+            except Exception as e:
+                logger.warning("删除上下文目录失败: %s", e)
+        return deleted_paths
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         history = self.load_history()
@@ -304,6 +382,70 @@ class ContextManager:
             "recent_shapes": summary.recent_shapes if summary else [],
             "preferences": summary.preferences if summary else {},
         }
+
+    def get_recent_models(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """当前会话最近生成的模型列表。"""
+        history = self.load_history()
+        out = []
+        seen = set()
+        latest_path = self.get_latest_model_path()
+        for entry in reversed(history[-100:]):
+            path = entry.get("model_path")
+            if not path or path in seen or not Path(path).exists():
+                continue
+            seen.add(path)
+            title = (entry.get("user_input") or Path(path).stem or path)[:50]
+            out.append({
+                "path": path,
+                "title": title.strip() or Path(path).name,
+                "timestamp": entry.get("timestamp", ""),
+                "is_latest": path == latest_path,
+            })
+            if len(out) >= limit:
+                break
+        return out
+
+
+def get_all_models_from_context(limit: int = 50) -> List[Dict[str, Any]]:
+    """从所有会话历史汇总「我创建的 COMSOL 模型」列表；含 is_latest 标记。"""
+    base = get_install_dir() / ".context"
+    if not base.exists():
+        return []
+    collected: List[Dict[str, Any]] = []
+    seen = set()
+    for conv_dir in sorted(base.iterdir(), key=lambda p: p.stat().st_mtime if p.is_dir() else 0, reverse=True):
+        if not conv_dir.is_dir():
+            continue
+        hist_file = conv_dir / "history.json"
+        latest_file = conv_dir / "latest_model.txt"
+        latest_path = None
+        if latest_file.exists():
+            try:
+                latest_path = latest_file.read_text(encoding="utf-8").strip() or None
+            except Exception:
+                pass
+        if not hist_file.exists():
+            continue
+        try:
+            with open(hist_file, "r", encoding="utf-8") as f:
+                history = json.load(f)
+        except Exception:
+            continue
+        for entry in reversed(history):
+            path = entry.get("model_path")
+            if not path or path in seen or not Path(path).exists():
+                continue
+            seen.add(path)
+            title = (entry.get("user_input") or Path(path).stem or path)[:50]
+            collected.append({
+                "path": path,
+                "title": title.strip() or Path(path).name,
+                "timestamp": entry.get("timestamp", ""),
+                "is_latest": path == latest_path,
+            })
+            if len(collected) >= limit:
+                return collected
+    return collected
 
 
 # 默认（单会话）上下文管理器实例

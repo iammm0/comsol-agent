@@ -8,6 +8,7 @@ from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
+from agent.events import EventBus, EventType
 from schemas.task import ReActTaskPlan, ExecutionStep, ReasoningCheckpoint
 
 logger = get_logger(__name__)
@@ -15,15 +16,17 @@ logger = get_logger(__name__)
 
 class ReasoningEngine:
     """推理引擎 - 负责推理和规划"""
-    
-    def __init__(self, llm: LLMClient):
+
+    def __init__(self, llm: LLMClient, event_bus: Optional[EventBus] = None):
         """
         初始化推理引擎
-        
+
         Args:
             llm: LLM 客户端
+            event_bus: 可选事件总线，用于流式输出 LLM 思维过程（LLM_STREAM_CHUNK）
         """
         self.llm = llm
+        self._event_bus = event_bus
     
     def understand_and_plan(
         self,
@@ -43,13 +46,16 @@ class ReasoningEngine:
 
         # 使用 LLM 理解需求（可注入记忆上下文）
         understanding = self.understand_requirement(user_input, memory_context=memory_context)
-        
-        # 规划执行链路
+
+        # 规划执行链路（每个步骤带具体参数，而非原样复述用户提示词）
         execution_path = self.plan_execution_path(understanding)
-        
+
         # 规划推理链路
         reasoning_path = self.plan_reasoning_path(execution_path)
-        
+
+        # 具体规划说明（用于展示）
+        plan_description = understanding.get("plan_description") or understanding.get("reasoning") or ""
+
         # 创建任务计划
         plan = ReActTaskPlan(
             task_id=str(uuid4()),
@@ -57,7 +63,8 @@ class ReasoningEngine:
             user_input=user_input,
             execution_path=execution_path,
             reasoning_path=reasoning_path,
-            status="planning"
+            status="planning",
+            plan_description=plan_description.strip() or None,
         )
         
         logger.info(f"规划完成: {len(execution_path)} 个执行步骤, {len(reasoning_path)} 个检查点")
@@ -92,7 +99,16 @@ class ReasoningEngine:
 - parameters: 关键参数
 """
         prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
-        response = self.llm.call(prompt, temperature=0.1)
+        if self._event_bus:
+            def on_chunk(chunk: str):
+                if chunk:
+                    self._event_bus.emit_type(EventType.LLM_STREAM_CHUNK, {"phase": "planning", "chunk": chunk})
+            try:
+                response = self.llm.call_stream(prompt, temperature=0.1, on_chunk=on_chunk)
+            except Exception:
+                response = self.llm.call(prompt, temperature=0.1)
+        else:
+            response = self.llm.call(prompt, temperature=0.1)
         
         # 提取 JSON
         understanding = self._extract_json(response)
@@ -101,20 +117,15 @@ class ReasoningEngine:
     
     def plan_execution_path(self, understanding: Dict[str, Any]) -> List[ExecutionStep]:
         """
-        规划执行链路
-        
-        Args:
-            understanding: 需求理解结果
-        
-        Returns:
-            执行步骤列表
+        规划执行链路，每个步骤携带该步的具体参数（geometry_input / material_input / physics_input 等），
+        按 COMSOL 建模流程灵活安排，而非原样复述用户提示词。
         """
         steps = []
-        
-        task_type = understanding.get("task_type", "geometry")
+
+        task_type = understanding.get("task_type", "full")
         required_steps = understanding.get("required_steps", [])
-        
-        # 如果没有指定步骤，根据任务类型推断
+        params = understanding.get("parameters") or {}
+
         if not required_steps:
             if task_type == "geometry":
                 required_steps = ["create_geometry"]
@@ -122,34 +133,45 @@ class ReasoningEngine:
                 required_steps = ["create_geometry", "add_material", "add_physics"]
             elif task_type == "study":
                 required_steps = ["create_geometry", "add_material", "add_physics", "configure_study"]
-            elif task_type == "full":
+            else:
                 required_steps = [
                     "create_geometry", "add_material", "add_physics",
                     "generate_mesh", "configure_study", "solve",
                 ]
 
-        # 创建执行步骤
+        step_type_map = {
+            "create_geometry": "geometry",
+            "add_material": "material",
+            "add_physics": "physics",
+            "generate_mesh": "mesh",
+            "configure_study": "study",
+            "solve": "solve",
+        }
+
+        # 每步只带该步需要的具体参数
+        step_parameters_map = {
+            "create_geometry": {"geometry_input": params.get("geometry_input", "")},
+            "add_material": {"material_input": params.get("material_input", "")},
+            "add_physics": {"physics_input": params.get("physics_input", "")},
+            "generate_mesh": {"mesh": params.get("mesh", {})},
+            "configure_study": {"study_input": params.get("study_input", "")},
+            "solve": {},
+        }
+
         for i, step_action in enumerate(required_steps):
-            step_type_map = {
-                "create_geometry": "geometry",
-                "add_material": "material",
-                "add_physics": "physics",
-                "generate_mesh": "mesh",
-                "configure_study": "study",
-                "solve": "solve",
-            }
-            
             step_type = step_type_map.get(step_action, "geometry")
-            
+            step_params = step_parameters_map.get(step_action, {})
+            if not step_params and params:
+                step_params = {k: v for k, v in params.items() if k in ("geometry_input", "material_input", "physics_input", "mesh", "study_input")}
             step = ExecutionStep(
                 step_id=f"step_{i+1}",
                 step_type=step_type,
                 action=step_action,
-                parameters=understanding.get("parameters", {}),
+                parameters=step_params if step_params else params,
                 status="pending"
             )
             steps.append(step)
-        
+
         return steps
     
     def plan_reasoning_path(self, execution_path: List[ExecutionStep]) -> List[ReasoningCheckpoint]:

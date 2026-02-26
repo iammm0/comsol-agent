@@ -19,11 +19,12 @@ logger = get_logger(__name__)
 class ActionExecutor:
     """行动执行器 - 执行具体的建模操作"""
 
-    def __init__(self, event_bus: Optional[Any] = None):
+    def __init__(self, event_bus: Optional[Any] = None, context_manager: Optional[Any] = None):
         self.settings = get_settings()
         self.comsol_runner = COMSOLRunner()
         self.java_api_controller = JavaAPIController()
         self._event_bus = event_bus
+        self._context_manager = context_manager
 
         self._geometry_agent = None
         self._physics_agent = None
@@ -97,27 +98,34 @@ class ActionExecutor:
         model_name = getattr(plan, "model_name", None) or "model"
         output_filename = f"{model_name}.mph"
 
+        output_dir = getattr(plan, "output_dir", None)
+        out_path = Path(output_dir) if output_dir else None
         try:
-            model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename)
-            plan.model_path = str(model_path)
-            if self._event_bus:
-                self._event_bus.emit_type(
-                    EventType.GEOMETRY_3D,
-                    {
-                        "message": f"几何建模成功 ({geometry_plan.dimension}D)",
-                        "dimension": geometry_plan.dimension,
-                        "model_path": str(model_path),
-                    },
-                )
-            return {
-                "status": "success",
-                "message": f"几何建模成功 ({geometry_plan.dimension}D)",
-                "model_path": str(model_path),
-                "geometry_plan": geometry_plan.to_dict(),
-            }
+            if out_path is not None:
+                model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename, output_dir=out_path)
+            else:
+                model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename)
         except Exception as e:
             logger.error(f"几何建模失败: {e}")
             return {"status": "error", "message": f"几何建模失败: {e}"}
+        plan.model_path = str(model_path)
+        if self._context_manager:
+            self._context_manager.append_operation("几何建模", f"几何建模成功 ({geometry_plan.dimension}D)", "success", str(model_path))
+        if self._event_bus:
+            self._event_bus.emit_type(
+                EventType.GEOMETRY_3D,
+                {
+                    "message": f"几何建模成功 ({geometry_plan.dimension}D)",
+                    "dimension": geometry_plan.dimension,
+                    "model_path": str(model_path),
+                },
+            )
+        return {
+            "status": "success",
+            "message": f"几何建模成功 ({geometry_plan.dimension}D)",
+            "model_path": str(model_path),
+            "geometry_plan": geometry_plan.to_dict(),
+        }
 
     # ===== Material =====
 
@@ -147,6 +155,8 @@ class ActionExecutor:
                 return {"status": "error", "message": result.get("message", "材料设置失败")}
             if result.get("saved_path"):
                 plan.model_path = result["saved_path"]
+            if self._context_manager:
+                self._context_manager.append_operation("材料设置", "材料设置成功", "success", plan.model_path)
             if self._event_bus:
                 materials = getattr(material_plan, "materials", None) or getattr(material_plan, "items", [])
                 if hasattr(materials, "__iter__") and not isinstance(materials, dict):
@@ -186,6 +196,8 @@ class ActionExecutor:
                 return {"status": "error", "message": result.get("message", "物理场设置失败")}
             if result.get("saved_path"):
                 plan.model_path = result["saved_path"]
+            if self._context_manager:
+                self._context_manager.append_operation("物理场", "物理场设置成功", "success", plan.model_path)
             if self._event_bus:
                 self._event_bus.emit_type(
                     EventType.COUPLING_ADDED,
@@ -221,6 +233,8 @@ class ActionExecutor:
                 return {"status": "error", "message": result.get("message", "网格划分失败")}
             if result.get("saved_path"):
                 plan.model_path = result["saved_path"]
+            if self._context_manager:
+                self._context_manager.append_operation("网格划分", "网格划分成功", "success", plan.model_path)
             self._emit_step_end("网格划分", "网格划分成功", mesh_info=result)
             return {"status": "success", "message": "网格划分成功", "mesh_info": result}
         except Exception as e:
@@ -250,6 +264,8 @@ class ActionExecutor:
                 return {"status": "error", "message": result.get("message", "研究配置失败")}
             if result.get("saved_path"):
                 plan.model_path = result["saved_path"]
+            if self._context_manager:
+                self._context_manager.append_operation("研究配置", "研究配置成功", "success", plan.model_path)
             self._emit_step_end("研究配置", "研究配置成功", study_plan=study_plan.model_dump())
             return {
                 "status": "success",
@@ -280,6 +296,8 @@ class ActionExecutor:
                 return {"status": "error", "message": result.get("message", "求解失败")}
             if result.get("saved_path"):
                 plan.model_path = result["saved_path"]
+            if self._context_manager:
+                self._context_manager.append_operation("求解", "求解成功", "success", plan.model_path)
             self._emit_step_end("求解", "求解成功", solve_info=result)
             return {"status": "success", "message": "求解成功", "solve_info": result}
         except Exception as e:

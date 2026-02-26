@@ -28,9 +28,11 @@ class ReActAgent:
         model: Optional[str] = None,
         max_iterations: int = 10,
         event_bus: Optional[EventBus] = None,
+        context_manager: Optional[Any] = None,
     ):
         settings = get_settings()
         self._event_bus = event_bus
+        self._context_manager = context_manager
 
         self.llm = LLMClient(
             backend=backend or settings.llm_backend,
@@ -40,14 +42,14 @@ class ReActAgent:
             model=model or settings.get_model_for_backend(backend or settings.llm_backend),
         )
 
-        self.reasoning_engine = ReasoningEngine(self.llm)
-        self.action_executor = ActionExecutor(event_bus=event_bus)
+        self.reasoning_engine = ReasoningEngine(self.llm, event_bus=event_bus)
+        self.action_executor = ActionExecutor(event_bus=event_bus, context_manager=context_manager)
         self.observer = Observer()
         self.iteration_controller = IterationController(self.llm)
 
         self.max_iterations = max_iterations
     
-    def run(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None) -> Path:
+    def run(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None, output_dir: Optional[Path] = None) -> Path:
         """
         执行完整的 ReAct 流程
         
@@ -68,28 +70,33 @@ class ReActAgent:
 
         if self._event_bus:
             self._event_bus.emit_type(EventType.PLAN_START, {"user_input": user_input})
+            self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "planning"})
 
         # 初始化任务计划（注入本会话的摘要记忆）
-        plan = self._initial_plan(user_input, output_filename, memory_context)
+        plan = self._initial_plan(user_input, output_filename, memory_context, output_dir=output_dir)
 
         if self._event_bus:
             steps_summary = [{"action": s.action, "step_type": s.step_type} for s in plan.execution_path]
             self._event_bus.emit_type(
                 EventType.PLAN_END,
-                {"steps": steps_summary, "model_name": plan.model_name},
+                {
+                    "steps": steps_summary,
+                    "model_name": plan.model_name,
+                    "plan_description": getattr(plan, "plan_description", None) or "",
+                },
             )
         
         # ReAct 主循环
         for iteration in range(self.max_iterations):
             logger.info("\n--- 迭代 %s/%s ---", iteration + 1, self.max_iterations)
             if self._event_bus:
-                self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "react", "iteration": iteration + 1})
+                self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "thinking"})
 
             try:
                 thought = self.think(plan)
                 logger.info("[Think] %s", thought.get("action", "N/A"))
                 if self._event_bus:
-                    self._event_bus.emit_type(EventType.THINK_CHUNK, {"thought": thought}, iteration=iteration + 1)
+                    self._event_bus.emit_type(EventType.THINK_CHUNK, {"thought": thought})
 
                 if thought.get("action") == "complete":
                     logger.info("[Act] 任务已完成")
@@ -98,25 +105,42 @@ class ReActAgent:
                     break
 
                 if self._event_bus:
-                    self._event_bus.emit_type(EventType.ACTION_START, {"thought": thought}, iteration=iteration + 1)
+                    self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "executing"})
+                    self._event_bus.emit_type(EventType.ACTION_START, {"thought": thought})
                 result = self.act(plan, thought)
                 logger.info("[Act] 执行结果: %s", result.get("status", "N/A"))
                 if self._event_bus:
-                    self._event_bus.emit_type(EventType.EXEC_RESULT, {"result": result}, iteration=iteration + 1)
+                    self._event_bus.emit_type(EventType.EXEC_RESULT, {"result": result})
 
+                if self._event_bus:
+                    self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "observing"})
                 observation = self.observe(plan, result)
                 logger.info("[Observe] %s", observation.message)
                 if self._event_bus:
-                    self._event_bus.emit_type(EventType.OBSERVATION, {"observation": observation.message, "status": observation.status}, iteration=iteration + 1)
+                    self._event_bus.emit_type(EventType.OBSERVATION, {"observation": observation.message, "status": observation.status})
                 
                 # 判断是否完成
                 if observation.status == "success" and self._is_all_steps_complete(plan):
                     plan.status = "completed"
                     logger.info("✅ 所有步骤已完成")
                     break
-                
-                # Iterate: 根据观察结果更新计划
-                if observation.status == "error" or observation.status == "warning":
+
+                # 执行错误：不直接退出，先重新思考与规划；仅当控制器标记为致命错误时才退出
+                if observation.status == "error":
+                    logger.info("检测到错误，将根据错误信息重新规划并继续: %s", (observation.message or "")[:200])
+                    if self._event_bus:
+                        self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "iterating"})
+                    plan = self.iterate(plan, observation)
+                    if plan.status == "failed":
+                        logger.error("迭代控制器判定为不可恢复，已中断: %s", plan.error)
+                        break
+                    logger.info("[Iterate] 计划已更新，将从步骤 %s 重新执行", plan.current_step_index + 1)
+                    continue
+
+                # 警告时尝试迭代更新计划
+                if observation.status == "warning":
+                    if self._event_bus:
+                        self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "iterating"})
                     plan = self.iterate(plan, observation)
                     logger.info(f"[Iterate] 计划已更新，当前步骤: {plan.current_step_index}")
                 
@@ -128,10 +152,17 @@ class ReActAgent:
         
         # 检查最终状态
         if plan.status != "completed":
+            suggestions = self._generate_integration_suggestions(plan)
+            if suggestions:
+                plan.integration_suggestions = suggestions
+                err_text = plan.error or "任务未完成"
+                if hasattr(plan, "integration_suggestions") and plan.integration_suggestions:
+                    err_text = err_text + "\n\n【建议集成的 COMSOL Java API 接口】\n" + plan.integration_suggestions
+                plan.error = err_text
             if plan.status == "failed":
-                raise RuntimeError(f"任务失败: {plan.error}")
+                raise RuntimeError(plan.error or "任务失败")
             else:
-                raise RuntimeError(f"任务未完成（达到最大迭代次数: {self.max_iterations}）")
+                raise RuntimeError(plan.error or f"任务未完成（达到最大迭代次数: {self.max_iterations}）")
         
         # 保存模型
         if plan.model_path:
@@ -258,14 +289,16 @@ class ReActAgent:
         
         return updated_plan
     
-    def _initial_plan(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None) -> ReActTaskPlan:
+    def _initial_plan(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None, output_dir: Optional[Path] = None) -> ReActTaskPlan:
         """
         初始化任务计划
-        
+
         Args:
             user_input: 用户输入
             output_filename: 输出文件名
-        
+            memory_context: 会话摘要等上下文
+            output_dir: 模型与操作记录输出目录（有会话时与 context 同目录）
+
         Returns:
             初始化的任务计划
         """
@@ -274,10 +307,12 @@ class ReActAgent:
 
         # 使用推理引擎理解需求并规划（可注入会话摘要）
         initial_plan = self.reasoning_engine.understand_and_plan(user_input, model_name, memory_context=memory_context)
-        
+
         # 添加 geometry_plan 属性占位符（用于存储几何计划）
         initial_plan.geometry_plan = None
-        
+        if output_dir is not None:
+            initial_plan.output_dir = str(output_dir.resolve())
+
         return initial_plan
     
     def _create_step_from_action(self, action: str, thought: Dict[str, Any]) -> ExecutionStep:
@@ -312,6 +347,29 @@ class ReActAgent:
             parameters=thought.get("parameters", {}),
             status="pending"
         )
+
+    def _is_recoverable_error(self, plan: ReActTaskPlan, observation: Observation) -> bool:
+        """
+        判断是否为可恢复错误：求解/研究/网格/物理/材料等步骤因前置步骤不完整而失败，
+        可通过回退到对应步骤补充后重跑；API 级致命错误则不可恢复。
+        """
+        msg = (observation.message or "").lower()
+        # 致命：Python/Java 属性或环境错误，无法通过重做步骤修复
+        if "object has no attribute" in msg or "has no attribute" in msg:
+            return False
+        if "cannot find" in msg and ("project root" in msg or "jvm" in msg or "jar" in msg):
+            return False
+        # 可恢复：COMSOL 求解或特征报错，通常缺材料属性/边界等，可回退到材料或物理步骤补充
+        if "求解失败" in observation.message or "未定义" in msg or "材料属性" in msg or "所需的" in msg:
+            return True
+        if "flException" in msg or "特征遇到问题" in observation.message:
+            return True
+        # 同一类错误连续迭代过多则不再视为可恢复，避免死循环
+        recent = plan.observations[-4:] if len(plan.observations) >= 4 else plan.observations
+        error_count = sum(1 for o in recent if o.status == "error")
+        if error_count >= 3:
+            return False
+        return False
     
     def _is_all_steps_complete(self, plan: ReActTaskPlan) -> bool:
         """检查是否所有步骤都已完成"""
@@ -319,3 +377,37 @@ class ReActAgent:
             return False
         
         return all(step.status == "completed" for step in plan.execution_path)
+
+    def _generate_integration_suggestions(self, plan: ReActTaskPlan) -> Optional[str]:
+        """
+        在因能力不足结束工作流前，根据用户需求、错误信息与已尝试操作，
+        生成建议集成的 COMSOL Java API 接口说明，供后续开发扩展。
+        """
+        if not plan.execution_path and not plan.error:
+            return None
+        iteration_count = len(plan.iterations) if plan.iterations else 0
+        if iteration_count == 0 and not plan.error:
+            return None
+        steps_desc = [s.action for s in plan.execution_path] if plan.execution_path else []
+        last_errors = []
+        if plan.observations:
+            for o in plan.observations[-3:]:
+                if o.status == "error" and o.message:
+                    last_errors.append(o.message[:300])
+        err_summary = "\n".join(last_errors) if last_errors else (plan.error or "")
+        try:
+            prompt = f"""当前 COMSOL 建模 Agent 已集成的操作包括：几何创建(create_geometry)、材料添加(add_material)、物理场添加(add_physics)、网格生成(generate_mesh)、研究配置(configure_study)、求解(solve)。这些操作无法满足所有场景。
+
+用户需求：{plan.user_input[:500]}
+最后一次错误摘要：{err_summary[:800]}
+已执行步骤：{steps_desc}
+迭代次数：{iteration_count}
+
+请根据上述失败原因与已尝试的操作，简要列出建议集成的 COMSOL Java API 接口（例如：删除或重命名材料节点、查询模型中已有材料/物理场名称、在已有材料上更新属性等），便于后续开发扩展。每条一行，简洁具体。若无法推断可回答：暂无明确建议。"""
+            out = self.llm.call(prompt, temperature=0.1)
+            out = (out or "").strip()
+            if out and "暂无明确建议" not in out:
+                return out[:1500]
+        except Exception as e:
+            logger.warning("生成集成建议失败: %s", e)
+        return None

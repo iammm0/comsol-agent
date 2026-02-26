@@ -1,5 +1,5 @@
 """LLM 工具函数 - 仅支持 DeepSeek、Kimi、Ollama 及符合 OpenAI 规范的中转 API"""
-from typing import Optional, Literal
+from typing import Optional, Literal, Callable
 from abc import ABC, abstractmethod
 
 from agent.utils.logger import get_logger
@@ -16,6 +16,17 @@ class LLMBackend(ABC):
     def call(self, prompt: str, model: str, temperature: float = 0.1, max_retries: int = 3) -> str:
         """调用 LLM API"""
         pass
+
+    def call_stream(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float = 0.1,
+        max_retries: int = 3,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """流式调用；若 on_chunk 为 None 或后端不支持流式，则退化为普通 call。返回完整响应文本。"""
+        return self.call(prompt, model, temperature, max_retries)
 
 
 def _openai_chat(client, prompt: str, model: str, temperature: float, max_retries: int, backend_name: str) -> str:
@@ -38,6 +49,34 @@ def _openai_chat(client, prompt: str, model: str, temperature: float, max_retrie
     raise ValueError(f"{backend_name} API 调用失败，已达到最大重试次数")
 
 
+def _openai_chat_stream(
+    client,
+    prompt: str,
+    model: str,
+    temperature: float,
+    on_chunk: Callable[[str], None],
+    backend_name: str,
+) -> str:
+    """OpenAI 风格流式 chat，每收到一段内容就调用 on_chunk；返回完整响应。"""
+    full = []
+    try:
+        stream = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                text = chunk.choices[0].delta.content
+                full.append(text)
+                on_chunk(text)
+    except Exception as e:
+        logger.warning(f"{backend_name} 流式调用异常: {e}")
+        raise
+    return "".join(full)
+
+
 class DeepSeekBackend(LLMBackend):
     """DeepSeek 后端（OpenAI 兼容）"""
 
@@ -50,6 +89,11 @@ class DeepSeekBackend(LLMBackend):
 
     def call(self, prompt: str, model: str = "deepseek-reasoner", temperature: float = 0.1, max_retries: int = 3) -> str:
         return _openai_chat(self.client, prompt, model, temperature, max_retries, "DeepSeek")
+
+    def call_stream(self, prompt: str, model: str = "deepseek-reasoner", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
+        if not on_chunk:
+            return self.call(prompt, model, temperature, max_retries)
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "DeepSeek")
 
 
 class KimiBackend(LLMBackend):
@@ -64,6 +108,11 @@ class KimiBackend(LLMBackend):
 
     def call(self, prompt: str, model: str = "moonshot-v1-8k", temperature: float = 0.1, max_retries: int = 3) -> str:
         return _openai_chat(self.client, prompt, model, temperature, max_retries, "Kimi")
+
+    def call_stream(self, prompt: str, model: str = "moonshot-v1-8k", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
+        if not on_chunk:
+            return self.call(prompt, model, temperature, max_retries)
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "Kimi")
 
 
 class OpenAICompatibleBackend(LLMBackend):
@@ -80,6 +129,11 @@ class OpenAICompatibleBackend(LLMBackend):
 
     def call(self, prompt: str, model: str = "gpt-3.5-turbo", temperature: float = 0.1, max_retries: int = 3) -> str:
         return _openai_chat(self.client, prompt, model, temperature, max_retries, "OpenAI兼容")
+
+    def call_stream(self, prompt: str, model: str = "gpt-3.5-turbo", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
+        if not on_chunk:
+            return self.call(prompt, model, temperature, max_retries)
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "OpenAI兼容")
 
 
 class OllamaBackend(LLMBackend):
@@ -141,6 +195,43 @@ class OllamaBackend(LLMBackend):
                     raise ValueError(f"Ollama API 调用失败: {e}") from e
         
         raise ValueError("Ollama API 调用失败，已达到最大重试次数")
+    
+    def call_stream(
+        self,
+        prompt: str,
+        model: str = "llama3",
+        temperature: float = 0.1,
+        max_retries: int = 3,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        if not on_chunk:
+            return self.call(prompt, model, temperature, max_retries)
+        api_url = f"{self.base_url}/api/generate"
+        full = []
+        for attempt in range(max_retries):
+            try:
+                payload = {"model": model, "prompt": prompt, "stream": True, "options": {"temperature": temperature}}
+                resp = self.requests.post(api_url, json=payload, timeout=120, stream=True)
+                resp.raise_for_status()
+                for line in resp.iter_lines(decode_unicode=True):
+                    if not line:
+                        continue
+                    try:
+                        obj = __import__("json").loads(line)
+                        piece = obj.get("response", "")
+                        if piece:
+                            full.append(piece)
+                            on_chunk(piece)
+                        if obj.get("done"):
+                            break
+                    except Exception:
+                        pass
+                return "".join(full)
+            except Exception as e:
+                logger.warning("Ollama 流式第 %s 次失败: %s", attempt + 1, e)
+                if attempt == max_retries - 1:
+                    raise ValueError(f"Ollama 流式调用失败: {e}") from e
+        return "".join(full)
     
     def list_models(self) -> list:
         """列出可用的模型"""
@@ -222,3 +313,15 @@ class LLMClient:
         """
         model = model or self.default_model
         return self.backend.call(prompt, model, temperature, max_retries)
+
+    def call_stream(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: float = 0.1,
+        max_retries: int = 3,
+        on_chunk: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        """流式调用；on_chunk 每收到一段内容调用一次。返回完整响应。"""
+        model = model or self.default_model
+        return self.backend.call_stream(prompt, model, temperature, max_retries, on_chunk=on_chunk)

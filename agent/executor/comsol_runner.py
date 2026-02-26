@@ -272,7 +272,7 @@ class COMSOLRunner:
         geom = self._geom(model, geom_name)
         geom.run()
 
-    def save_model(self, model, output_path: Path) -> Path:
+    def save_model(self, model, output_path: Path, copy_to_project: bool = True) -> Path:
         output_path = Path(output_path).resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         save_path_str = output_path.as_posix()
@@ -282,17 +282,18 @@ class COMSOLRunner:
         if not output_path.exists():
             raise RuntimeError(f"模型保存失败: {output_path}")
 
-        project_models = get_project_root() / "models"
-        project_copy = project_models / output_path.name
-        if project_copy.resolve() != output_path.resolve():
-            project_models.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(output_path, project_copy)
-            logger.info(f"已同步保存到项目目录: {project_copy}")
+        if copy_to_project:
+            project_models = get_project_root() / "models"
+            project_copy = project_models / output_path.name
+            if project_copy.resolve() != output_path.resolve():
+                project_models.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(output_path, project_copy)
+                logger.info(f"已同步保存到项目目录: {project_copy}")
 
         logger.info(f"模型已成功保存: {output_path}")
         return output_path
 
-    def create_model_from_plan(self, plan: GeometryPlan, output_filename: Optional[str] = None) -> Path:
+    def create_model_from_plan(self, plan: GeometryPlan, output_filename: Optional[str] = None, output_dir: Optional[Path] = None) -> Path:
         safe_name = (plan.model_name or "model").replace(" ", "_").strip() or "model"
         dimension = plan.dimension
         logger.info(f"根据计划创建 {dimension}D 模型: {safe_name}")
@@ -311,8 +312,13 @@ class COMSOLRunner:
         if output_filename is None:
             output_filename = f"{safe_name}.mph"
 
-        output_path = Path(self.settings.model_output_dir) / output_filename
-        return self.save_model(model, output_path)
+        if output_dir is not None:
+            output_path = Path(output_dir).resolve() / output_filename
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            output_path = Path(self.settings.model_output_dir) / output_filename
+        save_path = self.save_model(model, output_path, copy_to_project=(output_dir is None))
+        return save_path
 
     @classmethod
     def shutdown_jvm(cls):
