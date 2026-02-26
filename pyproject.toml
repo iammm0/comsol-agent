@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-for-comsol-multiphysics"
 version = "0.1.0"
-description = "一个智能 Agent，将自然语言描述的二维几何建模需求自动转换为 COMSOL Multiphysics 模型文件"
+description = "一个智能 Agent，将自然语言描述的 2D/3D 建模需求（几何、材料、物理场）自动转换为 COMSOL Multiphysics 模型文件"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
@@ -47,6 +47,11 @@ dev = [
 # 向量检索：安装后可使用 skills 的语义检索（否则仅关键词/trigger 匹配）
 vec = [
     "sentence-transformers>=2.2.0",
+]
+# 记忆 Agent 后台：Celery + Redis，用于异步更新会话摘要
+memory = [
+    "celery>=5.3.0",
+    "redis>=4.0.0",
 ]
 
 [project.scripts]

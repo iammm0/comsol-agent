@@ -78,7 +78,8 @@ target/
 # OS
 Thumbs.db
 
-# Node / TUI
+# Node / Desktop
 node_modules/
-tui/node_modules/
-tui/bun.lock
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
