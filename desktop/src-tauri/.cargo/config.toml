@@ -1,0 +1,4 @@
+# 使用 rustup 默认工具链（Windows 上推荐 MSVC，无需 dlltool）
+# 若需强制 GNU：取消下面注释并安装 MinGW 的 mingw-w64-x86_64-toolchain
+# [build]
+# target = "x86_64-pc-windows-gnu"
