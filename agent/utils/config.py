@@ -146,6 +146,12 @@ class Settings(BaseSettings):
 _settings: Optional[Settings] = None
 
 
+def reload_settings() -> None:
+    """清空单例，下次 get_settings() 时重新从 .env 加载。"""
+    global _settings
+    _settings = None
+
+
 def get_settings() -> Settings:
     """获取配置实例（单例）"""
     global _settings

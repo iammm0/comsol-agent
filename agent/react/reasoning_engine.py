@@ -28,22 +28,21 @@ class ReasoningEngine:
     def understand_and_plan(
         self,
         user_input: str,
-        model_name: str
+        model_name: str,
+        memory_context: Optional[str] = None,
     ) -> ReActTaskPlan:
         """
         理解用户需求并规划任务
-        
+
         Args:
             user_input: 用户输入
             model_name: 模型名称
-        
-        Returns:
-            初始化的任务计划
+            memory_context: 本会话的摘要记忆（桌面多会话时由记忆 Agent 维护）
         """
         logger.info("理解用户需求并规划任务...")
-        
-        # 使用 LLM 理解需求
-        understanding = self.understand_requirement(user_input)
+
+        # 使用 LLM 理解需求（可注入记忆上下文）
+        understanding = self.understand_requirement(user_input, memory_context=memory_context)
         
         # 规划执行链路
         execution_path = self.plan_execution_path(understanding)
@@ -65,21 +64,20 @@ class ReasoningEngine:
         
         return plan
     
-    def understand_requirement(self, user_input: str) -> Dict[str, Any]:
+    def understand_requirement(self, user_input: str, memory_context: Optional[str] = None) -> Dict[str, Any]:
         """
         理解用户需求
-        
+
         Args:
             user_input: 用户输入
-        
-        Returns:
-            理解结果
+            memory_context: 本会话的摘要记忆（可选）
         """
         try:
             prompt = prompt_loader.format(
                 "react",
                 "reasoning",
-                user_input=user_input
+                user_input=user_input,
+                memory_context=(memory_context or "（无）").strip(),
             )
         except Exception:
             # 如果 Prompt 不存在，使用简单模板
@@ -121,20 +119,24 @@ class ReasoningEngine:
             if task_type == "geometry":
                 required_steps = ["create_geometry"]
             elif task_type == "physics":
-                required_steps = ["create_geometry", "add_physics"]
+                required_steps = ["create_geometry", "add_material", "add_physics"]
             elif task_type == "study":
-                required_steps = ["create_geometry", "add_physics", "configure_study"]
+                required_steps = ["create_geometry", "add_material", "add_physics", "configure_study"]
             elif task_type == "full":
-                required_steps = ["create_geometry", "add_physics", "generate_mesh", "configure_study", "solve"]
-        
+                required_steps = [
+                    "create_geometry", "add_material", "add_physics",
+                    "generate_mesh", "configure_study", "solve",
+                ]
+
         # 创建执行步骤
         for i, step_action in enumerate(required_steps):
             step_type_map = {
                 "create_geometry": "geometry",
+                "add_material": "material",
                 "add_physics": "physics",
                 "generate_mesh": "mesh",
                 "configure_study": "study",
-                "solve": "solve"
+                "solve": "solve",
             }
             
             step_type = step_type_map.get(step_action, "geometry")

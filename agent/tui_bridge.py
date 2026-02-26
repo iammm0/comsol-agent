@@ -11,9 +11,13 @@ from agent.actions import (
     do_demo,
     do_doctor,
     do_context_show,
+    do_context_get_summary,
+    do_context_set_summary,
     do_context_history,
     do_context_stats,
     do_context_clear,
+    do_ollama_ping,
+    do_config_save,
 )
 from agent.events import EventBus, Event, EventType
 
@@ -67,7 +71,12 @@ def _handle(req: dict[str, Any]) -> None:
                     output=req.get("output") or None,
                     use_react=req.get("use_react", True),
                     no_context=req.get("no_context", False),
+                    conversation_id=req.get("conversation_id") or None,
                     backend=req.get("backend") or None,
+                    api_key=req.get("api_key") or None,
+                    base_url=req.get("base_url") or None,
+                    ollama_url=req.get("ollama_url") or None,
+                    model=req.get("model") or None,
                     skip_check=req.get("skip_check", False),
                     verbose=req.get("verbose", False),
                     event_bus=event_bus,
@@ -118,23 +127,51 @@ def _handle(req: dict[str, Any]) -> None:
             return
 
         if cmd == "context_show":
-            ok, msg = do_context_show()
+            ok, msg = do_context_show(conversation_id=req.get("conversation_id") or None)
+            _reply(ok, msg)
+            return
+
+        if cmd == "context_get_summary":
+            ok, msg = do_context_get_summary(conversation_id=req.get("conversation_id") or None)
+            _reply(ok, msg)
+            return
+
+        if cmd == "context_set_summary":
+            text = (req.get("text") or "").strip()
+            ok, msg = do_context_set_summary(
+                conversation_id=req.get("conversation_id") or None,
+                text=text,
+            )
+            _reply(ok, msg)
+            return
+
+        if cmd == "ollama_ping":
+            ok, msg = do_ollama_ping(ollama_url=req.get("ollama_url") or "")
             _reply(ok, msg)
             return
 
         if cmd == "context_history":
             limit = req.get("limit", 10)
-            ok, msg = do_context_history(limit=limit)
+            ok, msg = do_context_history(limit=limit, conversation_id=req.get("conversation_id") or None)
             _reply(ok, msg)
             return
 
         if cmd == "context_stats":
-            ok, msg = do_context_stats()
+            ok, msg = do_context_stats(conversation_id=req.get("conversation_id") or None)
             _reply(ok, msg)
             return
 
         if cmd == "context_clear":
-            ok, msg = do_context_clear()
+            ok, msg = do_context_clear(conversation_id=req.get("conversation_id") or None)
+            _reply(ok, msg)
+            return
+
+        if cmd == "config_save":
+            config = req.get("config")
+            if isinstance(config, dict):
+                ok, msg = do_config_save(config)
+            else:
+                ok, msg = False, "缺少 config"
             _reply(ok, msg)
             return
 

@@ -1,4 +1,5 @@
-"""CLI 入口：无参数启动 TUI；tui-bridge 供 TUI 前端子进程调用。"""
+"""CLI 入口：无参数启动桌面应用；tui-bridge 供 Tauri 后端子进程调用。"""
+import os
 import shutil
 import subprocess
 import sys
@@ -13,36 +14,62 @@ def _project_root() -> Path:
     return Path.cwd()
 
 
-def _launch_tui(root: Path) -> None:
-    """启动 TS TUI（bun run start）。"""
-    tui_dir = root / "tui"
-    if not (tui_dir / "package.json").exists():
-        print("错误: 未找到 tui 项目（tui/package.json），请从仓库根目录运行。", file=sys.stderr)
+def _launch_desktop(root: Path) -> None:
+    """启动 Tauri 桌面应用。开发时用 npm run tauri dev，发布后直接运行可执行文件。"""
+    desktop_dir = root / "desktop"
+
+    # 优先查找打包后的可执行文件
+    if sys.platform == "win32":
+        bundled = desktop_dir / "src-tauri" / "target" / "release" / "comsol-agent-desktop.exe"
+    else:
+        bundled = desktop_dir / "src-tauri" / "target" / "release" / "comsol-agent-desktop"
+
+    if bundled.exists():
+        try:
+            subprocess.run([str(bundled)], cwd=root, check=False)
+        except Exception as e:
+            print(f"桌面应用启动失败: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # 开发模式：npm run tauri dev
+    if not (desktop_dir / "package.json").exists():
+        print("错误: 未找到桌面应用项目（desktop/package.json），请从仓库根目录运行。", file=sys.stderr)
         sys.exit(1)
-    if not shutil.which("bun"):
-        print("错误: 未检测到 Bun，交互 TUI 需要 Bun。请安装后重试: https://bun.sh", file=sys.stderr)
+
+    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+    if not shutil.which(npm_cmd):
+        print("错误: 未检测到 npm，开发模式需要 Node.js。请安装后重试。", file=sys.stderr)
         sys.exit(1)
+
+    if not shutil.which("cargo"):
+        print("错误: 未检测到 cargo，Tauri 开发模式需要 Rust。请安装后重试: https://rustup.rs", file=sys.stderr)
+        sys.exit(1)
+
     try:
+        env = os.environ.copy()
+        env.setdefault("PYTHONIOENCODING", "utf-8")
         subprocess.run(
-            ["bun", "run", "start"],
-            cwd=tui_dir,
+            [npm_cmd, "run", "tauri", "dev"],
+            cwd=desktop_dir,
+            env=env,
             check=False,
         )
     except Exception as e:
-        print(f"TUI 启动失败: {e}", file=sys.stderr)
+        print(f"桌面应用启动失败: {e}", file=sys.stderr)
         sys.exit(1)
 
 
 def main() -> None:
-    """入口：无参数或 --help 启动 TUI；tui-bridge 调用桥接；其它打印用法并退出。"""
+    """入口：无参数启动桌面应用；tui-bridge 供 Tauri 后端调用；其它打印用法并退出。"""
     root = _project_root()
     args = sys.argv[1:]
 
     if not args or (len(args) == 1 and args[0] in ("--help", "-h", "--interactive", "-i")):
         if args and args[0] in ("--help", "-h"):
             print("Usage: comsol-agent  或  comsol-agent tui-bridge")
-            print("  无参数启动全终端 TUI；tui-bridge 供 TUI 内部调用，勿直接使用。")
-        _launch_tui(root)
+            print("  无参数启动桌面应用；tui-bridge 供内部调用，勿直接使用。")
+        _launch_desktop(root)
         return
 
     if args[0] == "tui-bridge":
@@ -56,7 +83,7 @@ def main() -> None:
         return
 
     print("Usage: comsol-agent  或  comsol-agent tui-bridge", file=sys.stderr)
-    print("  无参数启动全终端 TUI；run/plan/exec 等请在 TUI 内使用。", file=sys.stderr)
+    print("  无参数启动桌面应用；run/plan/exec 等请在桌面应用内使用。", file=sys.stderr)
     sys.exit(1)
 
 

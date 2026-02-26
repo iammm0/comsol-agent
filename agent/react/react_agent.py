@@ -47,7 +47,7 @@ class ReActAgent:
 
         self.max_iterations = max_iterations
     
-    def run(self, user_input: str, output_filename: Optional[str] = None) -> Path:
+    def run(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None) -> Path:
         """
         执行完整的 ReAct 流程
         
@@ -69,8 +69,8 @@ class ReActAgent:
         if self._event_bus:
             self._event_bus.emit_type(EventType.PLAN_START, {"user_input": user_input})
 
-        # 初始化任务计划
-        plan = self._initial_plan(user_input, output_filename)
+        # 初始化任务计划（注入本会话的摘要记忆）
+        plan = self._initial_plan(user_input, output_filename, memory_context)
 
         if self._event_bus:
             steps_summary = [{"action": s.action, "step_type": s.step_type} for s in plan.execution_path]
@@ -258,7 +258,7 @@ class ReActAgent:
         
         return updated_plan
     
-    def _initial_plan(self, user_input: str, output_filename: Optional[str] = None) -> ReActTaskPlan:
+    def _initial_plan(self, user_input: str, output_filename: Optional[str] = None, memory_context: Optional[str] = None) -> ReActTaskPlan:
         """
         初始化任务计划
         
@@ -271,9 +271,9 @@ class ReActAgent:
         """
         task_id = str(uuid4())
         model_name = output_filename.replace(".mph", "") if output_filename else f"model_{task_id[:8]}"
-        
-        # 使用推理引擎理解需求并规划
-        initial_plan = self.reasoning_engine.understand_and_plan(user_input, model_name)
+
+        # 使用推理引擎理解需求并规划（可注入会话摘要）
+        initial_plan = self.reasoning_engine.understand_and_plan(user_input, model_name, memory_context=memory_context)
         
         # 添加 geometry_plan 属性占位符（用于存储几何计划）
         initial_plan.geometry_plan = None
@@ -296,10 +296,11 @@ class ReActAgent:
         # 根据 action 确定步骤类型
         step_type_map = {
             "create_geometry": "geometry",
+            "add_material": "material",
             "add_physics": "physics",
             "generate_mesh": "mesh",
             "configure_study": "study",
-            "solve": "solve"
+            "solve": "solve",
         }
         
         step_type = step_type_map.get(action, "geometry")

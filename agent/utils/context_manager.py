@@ -1,4 +1,4 @@
-"""上下文管理模块 - 对话历史和摘要"""
+"""上下文管理模块 - 按会话维度的对话历史和摘要"""
 import json
 from datetime import datetime
 from pathlib import Path
@@ -35,22 +35,25 @@ class ContextSummary:
 class ContextManager:
     """上下文管理器"""
     
-    def __init__(self, context_dir: Optional[Path] = None):
+    def __init__(self, context_dir: Optional[Path] = None, conversation_id: Optional[str] = None):
         """
         初始化上下文管理器
-        
+
         Args:
-            context_dir: 上下文存储目录，如果为 None 则使用默认目录
+            context_dir: 直接指定存储目录时使用
+            conversation_id: 会话 ID，用于桌面多会话时按会话隔离存储（与 context_dir 二选一）
         """
-        if context_dir is None:
-            settings = get_settings()
+        if context_dir is not None:
+            self.context_dir = Path(context_dir)
+        else:
             install_dir = get_install_dir()
-            # 使用安装目录下的 .context 文件夹
-            context_dir = install_dir / ".context"
-        
-        self.context_dir = Path(context_dir)
+            base = install_dir / ".context"
+            if conversation_id:
+                self.context_dir = base / conversation_id
+            else:
+                self.context_dir = base / "default"
+
         self.context_dir.mkdir(parents=True, exist_ok=True)
-        
         self.history_file = self.context_dir / "history.json"
         self.summary_file = self.context_dir / "summary.json"
     
@@ -188,6 +191,29 @@ class ContextManager:
         
         self.save_summary(summary)
         logger.debug("上下文摘要已更新")
+
+    def set_summary_text(self, text: str) -> None:
+        """用户自定义：直接设置摘要文本（用于设置页编辑记忆）。"""
+        current = self.load_summary()
+        if current:
+            summary = ContextSummary(
+                summary=text.strip(),
+                last_updated=datetime.now().isoformat(),
+                total_conversations=current.total_conversations,
+                recent_shapes=current.recent_shapes,
+                preferences=current.preferences,
+            )
+        else:
+            history = self.load_history()
+            summary = ContextSummary(
+                summary=text.strip(),
+                last_updated=datetime.now().isoformat(),
+                total_conversations=len(history),
+                recent_shapes=[],
+                preferences={},
+            )
+        self.save_summary(summary)
+        logger.debug("用户已更新摘要文本")
     
     def _generate_summary_text(
         self,
@@ -280,13 +306,19 @@ class ContextManager:
         }
 
 
-# 全局上下文管理器实例
+# 默认（单会话）上下文管理器实例
 _context_manager: Optional[ContextManager] = None
 
 
-def get_context_manager() -> ContextManager:
-    """获取上下文管理器实例（单例）"""
+def get_context_manager(conversation_id: Optional[str] = None) -> ContextManager:
+    """
+    获取上下文管理器。
+    若提供 conversation_id（桌面多会话），返回该会话专属的 manager；
+    否则返回默认单例（CLI/单会话）。
+    """
     global _context_manager
+    if conversation_id:
+        return ContextManager(conversation_id=conversation_id)
     if _context_manager is None:
         _context_manager = ContextManager()
     return _context_manager

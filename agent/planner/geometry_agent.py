@@ -1,4 +1,4 @@
-"""几何建模 Planner Agent"""
+"""几何建模 Planner Agent — 支持 2D/3D"""
 import json
 import re
 from typing import Optional, Any
@@ -13,9 +13,15 @@ from schemas.geometry import GeometryPlan
 
 logger = get_logger(__name__)
 
+_3D_KEYWORDS = re.compile(
+    r"3[dD]|三维|立方体|长方体|block|圆柱|cylinder|球|sphere|锥|cone|圆环|torus"
+    r"|拉伸|extrude|旋转体|revolve|深度|depth",
+    re.IGNORECASE,
+)
+
 
 class GeometryAgent(BaseAgent):
-    """几何建模 Planner Agent：解析意图、产出几何计划。"""
+    """几何建模 Planner Agent：解析意图、产出几何计划（2D/3D）。"""
 
     def __init__(
         self,
@@ -39,79 +45,70 @@ class GeometryAgent(BaseAgent):
         )
 
     def process(self, user_input: str, **kwargs: Any) -> str:
-        """BaseAgent 接口：解析并返回简短摘要字符串。"""
         plan = self.parse(user_input, context=kwargs.get("context"))
-        return f"解析成功: {len(plan.shapes)} 个形状; model_name={plan.model_name}"
-    
+        dim_label = "3D" if plan.dimension == 3 else "2D"
+        return (
+            f"解析成功: {len(plan.shapes)} 个形状, "
+            f"{len(plan.operations)} 个操作, {dim_label}; "
+            f"model_name={plan.model_name}"
+        )
+
     def _extract_json_from_response(self, response_text: str) -> dict:
-        """从 LLM 响应中提取 JSON"""
-        # 尝试直接解析
         try:
             return json.loads(response_text)
         except json.JSONDecodeError:
             pass
-        
-        # 尝试提取 JSON 代码块
         json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(1))
             except json.JSONDecodeError:
                 pass
-        
-        # 尝试提取第一个 { ... } 块
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
             try:
                 return json.loads(json_match.group(0))
             except json.JSONDecodeError:
                 pass
-        
         raise ValueError(f"无法从响应中提取有效的 JSON: {response_text[:200]}")
-    
+
+    @staticmethod
+    def _infer_dimension(user_input: str) -> int:
+        """根据关键词推断用户需要 2D 还是 3D"""
+        if _3D_KEYWORDS.search(user_input):
+            return 3
+        return 2
+
     def parse(
         self,
         user_input: str,
         max_retries: int = 3,
-        context: Optional[str] = None
+        context: Optional[str] = None,
     ) -> GeometryPlan:
-        """
-        解析自然语言输入为结构化 JSON
-        
-        Args:
-            user_input: 用户自然语言描述
-            max_retries: 最大重试次数
-            context: 上下文信息（可选）
-        
-        Returns:
-            GeometryPlan 对象
-        
-        Raises:
-            ValueError: 解析失败
-        """
         logger.info(f"解析用户输入: {user_input}")
-        
-        # 如果有上下文，添加到用户输入中
+
         if context:
             enhanced_input = f"{context}\n\n用户当前需求: {user_input}"
         else:
             enhanced_input = user_input
-        
-        # 加载并格式化 Prompt，并注入 skills 隐性知识
+
         prompt = prompt_loader.format(
             "planner",
             "geometry_planner",
-            user_input=enhanced_input
+            user_input=enhanced_input,
         )
         prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
-        # 调用 LLM
+
         response_text = self.llm.call(prompt, temperature=0.1, max_retries=max_retries)
-        
-        # 提取 JSON
         json_data = self._extract_json_from_response(response_text)
-        
-        # 验证并创建 GeometryPlan
+
+        # 若 LLM 未输出 dimension，根据关键词自动推断
+        if "dimension" not in json_data:
+            json_data["dimension"] = self._infer_dimension(user_input)
+
         plan = GeometryPlan.from_dict(json_data)
-        
-        logger.info("解析成功: %s 个形状", len(plan.shapes))
+        logger.info(
+            "解析成功: %s 个形状, %s 个操作, %sD",
+            len(plan.shapes), len(plan.operations), plan.dimension,
+        )
         return plan

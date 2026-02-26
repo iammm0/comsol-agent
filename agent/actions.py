@@ -7,11 +7,32 @@ from agent.dependencies import get_agent, get_context_manager, get_settings
 from agent.events import EventBus
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
+from agent.memory_agent import update_conversation_memory
 from agent.utils.env_check import check_environment
 from agent.utils.logger import setup_logging, get_logger
 from schemas.geometry import GeometryPlan
 
 logger = get_logger(__name__)
+
+
+def _update_memory_after_run(
+    conversation_id: Optional[str],
+    user_input: str,
+    assistant_summary: str,
+    success: bool,
+) -> None:
+    """有 conversation_id 时更新会话记忆；优先 Celery 异步，不可用时同步执行。"""
+    if not conversation_id:
+        return
+    try:
+        from agent.memory_tasks import update_memory_task
+        update_memory_task.delay(
+            conversation_id, user_input, assistant_summary, success
+        )
+    except Exception:
+        update_conversation_memory(
+            conversation_id, user_input, assistant_summary, success
+        )
 
 
 def _ensure_logging(verbose: bool = False) -> None:
@@ -23,6 +44,7 @@ def do_run(
     output: Optional[str] = None,
     use_react: bool = True,
     no_context: bool = False,
+    conversation_id: Optional[str] = None,
     backend: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
@@ -33,7 +55,7 @@ def do_run(
     verbose: bool = False,
     event_bus: Optional[EventBus] = None,
 ) -> Tuple[bool, str]:
-    """执行默认模式：自然语言 -> 创建模型。返回 (成功, 要显示的文本)。"""
+    """执行默认模式：自然语言 -> 创建模型。conversation_id 存在时使用该会话的上下文与摘要。"""
     _ensure_logging(verbose)
     from agent.utils.env_check import validate_environment
 
@@ -42,7 +64,8 @@ def do_run(
         if not is_valid:
             return False, f"环境检查未通过: {error_msg}"
 
-    context_manager = get_context_manager()
+    context_manager = get_context_manager(conversation_id)
+    memory_context = None if no_context else context_manager.get_context_for_planner()
     try:
         if use_react:
             core = get_agent(
@@ -55,16 +78,23 @@ def do_run(
                 max_iterations=max_iterations,
                 event_bus=event_bus,
             )
-            model_path = core.run(user_input, output)
+            model_path = core.run(user_input, output, memory_context=memory_context)
             context_manager.add_conversation(
                 user_input=user_input,
                 plan={"architecture": "react"},
                 model_path=str(model_path),
                 success=True,
             )
+            if conversation_id:
+                _update_memory_after_run(
+                    conversation_id,
+                    user_input,
+                    f"模型已生成: {model_path}",
+                    True,
+                )
             return True, f"模型已生成: {model_path}"
         else:
-            context = None if no_context else context_manager.get_context_for_planner()
+            context = memory_context
             planner = get_agent(
                 "planner",
                 backend=backend,
@@ -82,10 +112,19 @@ def do_run(
                 model_path=str(model_path),
                 success=True,
             )
+            if conversation_id:
+                _update_memory_after_run(
+                    conversation_id,
+                    user_input,
+                    f"模型已生成: {model_path}",
+                    True,
+                )
             return True, f"模型已生成: {model_path}"
     except Exception as e:
         logger.exception("do_run 失败")
         context_manager.add_conversation(user_input=user_input, success=False, error=str(e))
+        if conversation_id:
+            _update_memory_after_run(conversation_id, user_input, str(e), False)
         return False, str(e)
 
 
@@ -140,6 +179,8 @@ def do_demo(verbose: bool = False) -> Tuple[bool, str]:
         "创建一个宽1米、高0.5米的矩形",
         "在原点放置一个半径为0.3米的圆",
         "创建一个长轴1米、短轴0.6米的椭圆，中心在(0.5, 0.5)",
+        "创建一个3D长方体，宽1米、高0.5米、深0.3米",
+        "创建一个半径0.2米、高0.5米的3D圆柱",
     ]
     lines = ["COMSOL Agent 演示\n"]
     planner = get_agent("planner")
@@ -174,18 +215,55 @@ def do_doctor(verbose: bool = False) -> Tuple[bool, str]:
     return result.is_valid(), "\n".join(lines)
 
 
-def do_context_show() -> Tuple[bool, str]:
-    """上下文摘要。"""
-    cm = get_context_manager()
+def do_context_show(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
+    """上下文摘要。conversation_id 存在时查看该会话的摘要。"""
+    cm = get_context_manager(conversation_id)
     summary = cm.load_summary()
     if summary:
         return True, f"{summary.summary}\n\n最后更新: {summary.last_updated[:19]}"
     return True, "暂无上下文摘要"
 
 
-def do_context_history(limit: int = 10) -> Tuple[bool, str]:
+def do_context_get_summary(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
+    """仅返回当前会话的摘要原文（供设置页编辑）。"""
+    cm = get_context_manager(conversation_id)
+    summary = cm.load_summary()
+    if summary:
+        return True, summary.summary
+    return True, ""
+
+
+def do_context_set_summary(conversation_id: Optional[str], text: str) -> Tuple[bool, str]:
+    """设置当前会话的摘要原文（用户编辑记忆）。"""
+    if not conversation_id:
+        return False, "缺少 conversation_id"
+    cm = get_context_manager(conversation_id)
+    cm.set_summary_text(text)
+    return True, "记忆已保存"
+
+
+def do_ollama_ping(ollama_url: str) -> Tuple[bool, str]:
+    """测试 Ollama 服务连通性。"""
+    url = (ollama_url or "").strip()
+    if not url:
+        return False, "请填写 Ollama 地址"
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "http://" + url
+    try:
+        import requests
+        r = requests.get(f"{url.rstrip('/')}/api/tags", timeout=5)
+        if r.status_code == 200:
+            models = r.json().get("models", [])
+            names = [m.get("name", "") for m in models[:5]]
+            return True, f"连接成功，可用模型: {', '.join(names) or '无'}"
+        return False, f"响应异常: HTTP {r.status_code}"
+    except Exception as e:
+        return False, f"连接失败: {e}"
+
+
+def do_context_history(limit: int = 10, conversation_id: Optional[str] = None) -> Tuple[bool, str]:
     """对话历史。"""
-    cm = get_context_manager()
+    cm = get_context_manager(conversation_id)
     history_list = cm.get_recent_history(limit)
     lines = [f"最近 {len(history_list)} 条对话历史\n"]
     for i, entry in enumerate(history_list, 1):
@@ -197,9 +275,9 @@ def do_context_history(limit: int = 10) -> Tuple[bool, str]:
     return True, "\n".join(lines)
 
 
-def do_context_stats() -> Tuple[bool, str]:
+def do_context_stats(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
     """上下文统计。"""
-    cm = get_context_manager()
+    cm = get_context_manager(conversation_id)
     data = cm.get_stats()
     lines = [
         f"总对话数: {data['total_conversations']}",
@@ -213,7 +291,62 @@ def do_context_stats() -> Tuple[bool, str]:
     return True, "\n".join(lines)
 
 
-def do_context_clear() -> Tuple[bool, str]:
+def do_context_clear(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
     """清除对话历史。"""
-    get_context_manager().clear_history()
+    get_context_manager(conversation_id).clear_history()
     return True, "对话历史已清除"
+
+
+def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
+    """将配置写入项目根目录的 .env 文件并重载配置，供桌面端保存后同步。"""
+    if not env_updates:
+        return False, "无配置项"
+    from agent.utils.config import get_project_root, reload_settings
+
+    root = get_project_root()
+    env_path = root / ".env"
+    env_keys = [
+        "LLM_BACKEND",
+        "DEEPSEEK_API_KEY",
+        "DEEPSEEK_MODEL",
+        "KIMI_API_KEY",
+        "KIMI_MODEL",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "OPENAI_COMPATIBLE_BASE_URL",
+        "OPENAI_COMPATIBLE_MODEL",
+        "OLLAMA_URL",
+        "OLLAMA_MODEL",
+        "COMSOL_JAR_PATH",
+    ]
+    # 读取已有行
+    if env_path.exists():
+        lines_out = env_path.read_text(encoding="utf-8").splitlines()
+    else:
+        lines_out = []
+    # 键 -> 行索引（只记第一个出现的键）
+    key_to_idx: dict[str, int] = {}
+    for i, line in enumerate(lines_out):
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s:
+            key = s.split("=", 1)[0].strip()
+            if key not in key_to_idx:
+                key_to_idx[key] = i
+    # 更新或追加
+    for k in env_keys:
+        v = env_updates.get(k)
+        if v is None:
+            continue
+        v_str = str(v).strip()
+        new_line = f"{k}={v_str}"
+        if k in key_to_idx:
+            lines_out[key_to_idx[k]] = new_line
+        else:
+            lines_out.append(new_line)
+            key_to_idx[k] = len(lines_out) - 1
+    try:
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
+        reload_settings()
+        return True, "配置已保存并已加载，将应用于后续 comsol-agent 调用"
+    except Exception as e:
+        return False, f"写入 .env 失败: {e}"

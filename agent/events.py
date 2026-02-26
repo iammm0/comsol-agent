@@ -17,6 +17,13 @@ class EventType(str, Enum):
     CONTENT = "content"
     TASK_PHASE = "task_phase"
     ERROR = "error"
+    MATERIAL_START = "material_start"
+    MATERIAL_END = "material_end"
+    GEOMETRY_3D = "geometry_3d"
+    COUPLING_ADDED = "coupling_added"
+    # 具体步骤：开始/结束，便于交互板块逐步渲染
+    STEP_START = "step_start"
+    STEP_END = "step_end"
 
 
 @dataclass
