@@ -179,6 +179,43 @@ uv run comsol-agent
 - 推荐不配置 `JAVA_HOME`，使用项目内置 JDK 11（首次使用 COMSOL 时自动下载到 `runtime/java`）
 - 或确保已安装 JDK（不是 JRE），`JAVA_HOME` 指向正确路径，且版本与 COMSOL 兼容（通常 JDK 8-17）
 
+### 问题 5: Windows 桌面应用构建报错 `linker link.exe not found` 或 `dlltool.exe not found`
+
+**原因**：桌面应用（Tauri）使用 Rust 编译。  
+- `link.exe not found`：当前为 MSVC 工具链，但未安装 Visual Studio 的 C++ 构建工具。  
+- `dlltool.exe not found`：当前为 GNU 工具链（`x86_64-pc-windows-gnu`），但未安装 MinGW 的 binutils 或未加入 PATH。
+
+**推荐：使用 MSVC 工具链**
+
+1. 安装 [Build Tools for Visual Studio](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/)，勾选工作负载 **「使用 C++ 的桌面开发」**。
+2. 将 Rust 默认工具链设为 MSVC（若当前是 GNU）：
+   ```bash
+   rustup default stable-x86_64-pc-windows-msvc
+   ```
+3. 重新打开终端，再执行 `npm run tauri dev` 或 `uv run comsol-agent`。
+
+若已安装 Build Tools 但仍报 `link.exe not found`，可先打开 **「x64 本机工具命令提示」** 再编译。
+
+**备选：继续使用 GNU 工具链**
+
+若已安装 [MSYS2](https://www.msys2.org/) 且希望使用 GNU，需安装完整 MinGW 工具链并确保 `dlltool` 在 PATH 中：
+   ```bash
+   # 在 MSYS2 终端中
+   pacman -S mingw-w64-x86_64-toolchain
+   ```
+   并将 MSYS2 的 `mingw64\bin`（如 `C:\msys64\mingw64\bin`）加入系统 PATH。
+
+## 会话记忆与 Celery（可选）
+
+桌面端支持**多会话**，每个会话对应一个物理模型构建上下文；后端会按会话维护**摘要式记忆**（最近对话、形状类型、偏好等），供后续推理时参考。
+
+- **默认行为**：每次 run 结束后，记忆更新在**当前进程内同步执行**，无需额外服务。
+- **可选：Celery 后台**：若希望将记忆更新放到后台进程执行，可安装可选依赖并启动 worker：
+  1. 安装：`uv sync -e memory`（或 `pip install celery redis`）
+  2. 启动 Redis（默认 `localhost:6379`）
+  3. 启动 worker：`celery -A agent.celery_app worker -l info`
+  此后 `do_run` 会优先将记忆更新任务投递到 Celery，由 worker 异步执行；未安装或未启动时自动回退为同步更新。
+
 ## 开发模式安装
 
 如果要在开发模式下安装（修改代码后立即生效）：

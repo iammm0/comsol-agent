@@ -152,27 +152,27 @@ MODEL_OUTPUT_DIR=/path/to/output
 
 ### 5. 环境就绪与测试
 
-**第一步：启动 TUI**
+**第一步：启动桌面应用**
 
 ```bash
 uv run comsol-agent
 ```
 
-无参数执行即进入全终端 TUI（需安装 [Bun](https://bun.sh/)）。若有环境错误，按 TUI 内提示或使用 `/doctor` 查看诊断。
+无参数执行即启动 Tauri 桌面应用（开发模式需安装 [Node.js](https://nodejs.org/) 和 [Rust](https://rustup.rs/)）。若有环境错误，按应用内提示或使用 `/doctor` 查看诊断。
 
-**第二步：在 TUI 中测试**
+**第二步：在桌面应用中测试**
 
-在 TUI 底部输入自然语言建模需求（如「创建一个宽1米、高0.5米的矩形」）即可生成模型；输入 `/demo` 可运行内置示例。详见 [tui/README.md](tui/README.md)。
+在底部输入框输入自然语言建模需求（如「创建一个宽1米、高0.5米的矩形」）即可生成模型；输入 `/demo` 可运行内置示例。
 
 ## 使用方法
 
-### 全终端交互模式（推荐）
+### 桌面应用交互模式（推荐）
 
 ```bash
 uv run comsol-agent
 ```
 
-无参数启动即进入 **OpenTUI + Solid.js** TUI（需安装 [Bun](https://bun.sh/)）。
+无参数启动即打开 **Tauri + React** 桌面应用（开发模式需 Node.js + Rust 工具链）。
 
 - **默认模式**：在底部输入框输入自然语言建模需求，直接生成 COMSOL 模型（等同 `run`）
 - **计划模式**：输入 `/plan` 切换为计划模式，下一句输入仅解析为 JSON（等同 `plan`）；输入 `/run` 切回默认模式
@@ -310,3 +310,6 @@ A: 项目可自动使用内置 JDK 11；若用系统 Java，请确保 `JAVA_HOME
 
 **Q: API 调用失败？**  
 A: 检查当前 LLM 后端对应的 API Key（如 DEEPSEEK_API_KEY、KIMI_API_KEY）是否已在 `.env` 或环境变量中配置。
+
+**Q: Windows 上桌面应用构建报错 `linker link.exe not found`？**  
+A: Rust 在 Windows 上默认需要 Visual Studio 的 C++ 构建工具。请安装 [Build Tools for Visual Studio](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) 并勾选「使用 C++ 的桌面开发」；或改用 GNU 工具链：`rustup default stable-x86_64-pc-windows-gnu`（需先安装 MSYS2/MinGW）。详见 [docs/getting-started/INSTALL.md](docs/getting-started/INSTALL.md) 故障排除。

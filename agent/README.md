@@ -14,7 +14,7 @@ agent/
 ├── router.py           # 路由：route(user_input) → 技术/执行/Q&A 等
 ├── session.py          # 会话编排：与 TUI/CLI 配合，按路由调用 Agent
 ├── actions.py          # 具体动作：run/plan/exec/demo 等，供 CLI 与 TUI 桥接调用
-├── tui_bridge.py       # TUI 桥接：stdin/stdout JSON 行，供仓库根 tui/（TS）前端调用
+├── tui_bridge.py       # 桥接：stdin/stdout JSON 行，供 Tauri 桌面端（desktop/）后端调用
 ├── tools.py            # 工具函数（供 Agent 或 CLI 使用）
 ├── qa_agent.py         # Q&A Agent（通用问答）
 ├── summary_agent.py    # 摘要 Agent（对执行结果做摘要）
