@@ -111,8 +111,17 @@ class ReActTaskPlan(BaseModel):
     # 模型路径
     model_path: Optional[str] = Field(default=None, description="生成的模型文件路径")
 
+    # 输出目录（有会话时写入会话 context 目录，模型与操作记录同目录）
+    output_dir: Optional[str] = Field(default=None, description="模型与操作记录输出目录")
+
     # 错误信息
     error: Optional[str] = Field(default=None, description="错误信息")
+
+    # 当因能力不足结束工作流时，建议集成的 COMSOL Java API 接口说明（供展示与后续开发参考）
+    integration_suggestions: Optional[str] = Field(default=None, description="建议集成的 COMSOL Java API 接口")
+
+    # 具体规划说明（按 COMSOL 流程：几何、材料、物理场、网格、研究、求解等，用于展示与迭代时参考）
+    plan_description: Optional[str] = Field(default=None, description="具体规划说明，非原样复述用户提示词")
 
     # 子计划（动态属性，由 ActionExecutor 填充）
     geometry_plan: Optional[Any] = None

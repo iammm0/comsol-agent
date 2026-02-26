@@ -55,7 +55,8 @@
 
 ## 规则
 - 若用户未指定材料，默认使用钢（Steel）
-- 若用户明确提到 COMSOL 内置材料名称，设置 builtin_name 并留空 properties
+- **若涉及固体力学、结构力学、线弹性**：必须在 properties 中提供 youngsmodulus（杨氏模量）和 poissonsratio（泊松比），否则 COMSOL 求解会报「未定义 线弹性材料 所需的材料属性 nu」
+- 若用户明确提到 COMSOL 内置材料名称，设置 builtin_name 并留空 properties；若使用内置材料但物理场为固体力学，仍建议在 properties 中补充 youngsmodulus 与 poissonsratio
 - 若用户自定义属性值，builtin_name 设为 null，在 properties 中列出所有属性
 - 多种材料分别定义并通过 assignments 分配到不同域
 - 未指定域分配时，assign_all 设为 true
