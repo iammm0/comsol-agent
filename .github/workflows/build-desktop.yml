@@ -1,5 +1,5 @@
 # Tauri 桌面端：多平台构建并发布到 GitHub Release
-# 触发：推送到 release 分支，或推送 tag desktop-v*
+# 触发：推送到 release 分支、推送 tag desktop-v*、或手动触发
 name: Build and Release Desktop
 
 on:
@@ -32,18 +32,64 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 'lts/*'
           cache: 'npm'
           cache-dependency-path: desktop/package-lock.json
+
+      # 统一解析版本与发布 tag：tag 触发用 tag 版本，否则用 tauri 配置中的版本
+      - name: Resolve version and release tag
+        id: version
+        run: |
+          const ref = process.env.GITHUB_REF || '';
+          const refName = process.env.GITHUB_REF_NAME || '';
+          const fs = require('fs');
+          const path = require('path');
+          let version, releaseTag;
+          if (ref.startsWith('refs/tags/') && refName.startsWith('desktop-v')) {
+            version = refName.replace(/^desktop-v/, '');
+            releaseTag = refName;
+          } else {
+            const confPath = path.join('desktop', 'src-tauri', 'tauri.conf.json');
+            const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'));
+            version = conf.version;
+            releaseTag = 'desktop-v' + version;
+          }
+          const out = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(out, `version=${version}\nrelease_tag=${releaseTag}\n`);
+        env:
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      # 从 tag 触发时，将版本写回项目配置，保证构建产物版本与 release 一致
+      - name: Sync version to project (when triggered by tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          const fs = require('fs');
+          const path = require('path');
+          const v = process.env.VERSION;
+          const confPath = path.join('desktop', 'src-tauri', 'tauri.conf.json');
+          const conf = JSON.parse(fs.readFileSync(confPath, 'utf8'));
+          conf.version = v;
+          fs.writeFileSync(confPath, JSON.stringify(conf, null, 2));
+          const cargoPath = path.join('desktop', 'src-tauri', 'Cargo.toml');
+          let cargo = fs.readFileSync(cargoPath, 'utf8');
+          cargo = cargo.replace(/^version = ".*"/m, `version = "${v}"`);
+          fs.writeFileSync(cargoPath, cargo);
+          const pkgPath = path.join('desktop', 'package.json');
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          pkg.version = v;
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -65,9 +111,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: desktop
-          tagName: desktop-v__VERSION__
-          releaseName: 'COMSOL Agent Desktop v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          tagName: ${{ steps.version.outputs.release_tag }}
+          releaseName: COMSOL Agent Desktop v${{ steps.version.outputs.version }}
+          releaseBody: 'See the assets below to download and install.'
           releaseDraft: true
           prerelease: false
+          appVersion: ${{ steps.version.outputs.version }}
           args: ${{ matrix.args }}

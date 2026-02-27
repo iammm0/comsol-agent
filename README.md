@@ -1,189 +1,131 @@
 # COMSOL Multiphysics Agent
 
-基于 ReAct（Reasoning & Acting）架构的智能 Agent，将自然语言描述的 COMSOL 建模需求自动转换为完整的 COMSOL Multiphysics 模型文件（.mph），支持从几何建模到物理场设置、网格划分、研究配置和求解的完整仿真流程。
+将自然语言描述的 COMSOL 建模需求自动转换为完整 .mph 模型文件的智能 Agent，支持几何、物理场、网格、研究与求解的完整仿真流程。
+
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## 简介
+
+COMSOL Agent 基于 **ReAct（Reasoning & Acting）** 架构：通过自然语言理解需求、规划建模步骤、执行 COMSOL Java API 并观察结果、迭代改进，最终生成可直接在 COMSOL Multiphysics 中打开的 `.mph` 模型文件。提供 **Tauri + React 桌面应用** 与 **Python API** 两种使用方式，支持多种 LLM 后端（DeepSeek、Kimi、Ollama、OpenAI 兼容等）。
+
+---
 
 ## 功能特性
 
-### 核心架构
+- **ReAct 闭环**：推理（理解与规划）→ 执行（几何/物理场/网格/研究）→ 观察 → 迭代，自动生成 .mph
+- **多 LLM 后端**：Dashscope (Qwen)、OpenAI、OpenAI 兼容、Ollama（本地/远程）
+- **COMSOL 集成**：直接调用 Java API 或生成代码执行，支持 6.1+（6.3+ 推荐使用 plugins 目录）
+- **桌面应用**：Tauri 2 + React，支持主题切换、推理任务、记忆管理、LLM 与 COMSOL 环境配置
+- **上下文与记忆**：对话历史、摘要式记忆、自定义别名，提升多轮解析准确性
 
-- **ReAct 架构**：采用 Reasoning & Acting 模式，实现推理链路和执行链路的完整闭环
-  - **推理链路**：需求理解、步骤规划、验证、错误处理、迭代改进
-  - **执行链路**：几何建模、物理场设置、网格划分、研究配置、求解
-  - **自动迭代**：根据执行结果自动改进计划，确保模型质量
+---
 
-### Agent 组件
+## 界面预览
 
-- **Planner Agent**：将自然语言解析为结构化 JSON，支持几何、物理场、研究类型规划
-- **Executor Agent**：自动生成 COMSOL Java API 代码或直接调用 API
-- **Observer**：观察执行结果，验证模型状态
-- **Iteration Controller**：控制迭代流程，根据观察结果改进计划
+| 主要界面 | 推理任务 |
+|----------|----------|
+| ![主要界面](assets/主要界面.png) | ![推理任务页面1](assets/推理任务页面1.png) |
 
-### 技术特性
+| 推理任务（续） | LLM 配置 |
+|----------------|-----------|
+| ![推理任务页面2](assets/推理任务页面2.png) | ![LLM配置页面](assets/LLM配置页面.png) |
 
-- **COMSOL 集成**：直接执行代码并生成 .mph 模型文件
-- **几何支持**：矩形、圆形、椭圆等基础几何形状
-- **完整流程**：支持几何、物理场、网格、研究、求解的完整建模流程
-- **上下文管理**：自动记录对话历史，生成摘要式记忆，提升解析准确性
-- **自定义别名**：支持用户自定义命令别名
-- **多 LLM 后端**：支持 Dashscope (Qwen)、OpenAI、OpenAI 兼容服务、Ollama（本地/远程）
-- **混合 API 控制**：简单操作直接调用 Java API，复杂操作生成代码执行
+| COMSOL 环境配置 | 记忆管理 | 主题切换 |
+|-----------------|----------|----------|
+| ![COMSOL环境配置页面](assets/COMSOL环境配置页面.png) | ![记忆管理页面](assets/记忆管理页面.png) | ![主题切换页面](assets/主题切换页面.png) |
+
+---
 
 ## 安装
 
-### 1. 环境要求
+### 环境要求
 
-- Python 3.8+
-- COMSOL Multiphysics（已安装）
-- Java JDK 8+（与 COMSOL 兼容）
+- **Python 3.8+**
+- **COMSOL Multiphysics**（已安装）
+- **Java JDK 8+**（与 COMSOL 兼容；项目也可使用内置 JDK 11）
 
-### 2. 安装步骤
+### 方式一：桌面版（推荐）
 
-#### 方式一：从源码安装（推荐使用 uv）
+从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载对应平台的安装包（tag 格式为 `desktop-v*`），解压或安装后运行即可，无需单独安装 Python。
+
+### 方式二：从源码运行（含桌面应用）
 
 ```bash
-# 克隆项目
-git clone <repository-url>
+git clone https://github.com/iammm0/comsol-agent.git
 cd comsol-agent
 
-# 使用 uv 安装依赖与可编辑安装（需先安装 uv: https://docs.astral.sh/uv/）
+# 使用 uv 安装依赖（需先安装 uv: https://docs.astral.sh/uv/）
 uv sync
-# 验证
+
+# 启动桌面应用（无参数即启动 Tauri 桌面端）
 uv run comsol-agent
 ```
 
-#### 方式二：构建并安装分发包
+开发模式下需安装 [Node.js](https://nodejs.org/) 与 [Rust](https://rustup.rs/)；若已构建过桌面端，会优先运行本地可执行文件。
+
+### 方式三：仅安装 Python 包（无桌面 UI）
 
 ```bash
-# 构建分发包
-uv run python build.py
-# 或使用脚本: ./scripts/build.sh (Linux/Mac) 或 scripts\build.bat (Windows)
-
-# 安装分发包
-uv pip install dist/agent-for-comsol-multiphysics-*.whl
+uv sync
+# 或构建分发包后安装
+uv build
+uv pip install dist/agent_for_comsol_multiphysics-*.whl
 ```
 
-详细安装说明请参考 [docs/getting-started/INSTALL.md](docs/getting-started/INSTALL.md)
+安装与构建细节见 [docs/getting-started/INSTALL.md](docs/getting-started/INSTALL.md)。
 
-### 3. 环境配置（必需）
+---
 
-安装后，**必须**配置以下环境变量：
+## 环境配置
 
-1. **LLM_BACKEND**：LLM 后端类型（如 `deepseek`、`kimi`、`ollama`、`openai-compatible`，默认 `ollama`）
-2. 根据选择的后端配置相应的 API Key 和 URL（见下方配置示例）
-3. **COMSOL_JAR_PATH**：COMSOL JAR 文件路径或 plugins 目录
-   - **COMSOL 6.3+**（推荐）：配置为 `plugins` 目录，程序会自动加载所有 jar 文件
-   - **COMSOL 6.1 及更早**：配置为单个 jar 文件路径
-4. **JAVA_HOME**：可选。不配置时优先使用系统环境变量；若无，首次使用 COMSOL 功能会自动下载内置 JDK 11 到项目 `runtime/java`
-5. **JAVA_DOWNLOAD_MIRROR**：可选。内置 JDK 下载镜像，国内可设为 `tsinghua`（清华 TUNA 镜像）
-6. **MODEL_OUTPUT_DIR**：模型输出目录（可选，默认为 **comsol-agent 根目录下的 `models`**，该目录为唯一且首要的模型存放位置；项目根目录上一级的 `models` 不再使用）
+安装后需配置 **LLM 后端** 与 **COMSOL 路径**（桌面应用内也可在设置页配置）。
 
-#### 配置方式
+### 必需
 
-**方式一：使用环境变量**
+1. **LLM**：设置 `LLM_BACKEND`（如 `deepseek`、`kimi`、`ollama`、`openai-compatible`），并配置对应 API Key / URL。
+2. **COMSOL**：设置 `COMSOL_JAR_PATH`  
+   - **COMSOL 6.3+**（推荐）：填 `plugins` 目录，例如  
+     `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins` 或 `/opt/comsol63/multiphysics/plugins`  
+   - **6.1 及更早**：填单个 jar 路径，如 `安装目录/lib/win64/comsol.jar`。
 
-```bash
-# Linux/Mac (COMSOL 6.3+ 推荐使用 plugins 目录)
-export DEEPSEEK_API_KEY="your_api_key"
-export COMSOL_JAR_PATH="/opt/comsol63/multiphysics/plugins"
+### 可选
 
-# Windows
-set DEEPSEEK_API_KEY=your_api_key
-set COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
-```
+- **JAVA_HOME**：不配置时优先用系统 Java，或使用项目内置 JDK 11（自动下载到 `runtime/java`）。
+- **JAVA_DOWNLOAD_MIRROR**：国内可设 `tsinghua` 使用清华镜像。
+- **MODEL_OUTPUT_DIR**：模型输出目录，默认项目根目录下的 `models`。
 
-**方式二：使用 .env 文件（推荐）**
+### 配置方式
 
-在项目根目录或用户主目录创建 `.env` 文件：
+**使用 .env 文件（推荐）**：在项目根目录创建 `.env`，例如：
 
-**使用 DeepSeek：**
-```env
-LLM_BACKEND=deepseek
-DEEPSEEK_API_KEY=your_api_key
-COMSOL_JAR_PATH=/opt/comsol63/multiphysics/plugins
-JAVA_HOME=/path/to/java
-MODEL_OUTPUT_DIR=/path/to/output
-```
-
-**使用 Kimi（Moonshot）：**
-```env
-LLM_BACKEND=kimi
-KIMI_API_KEY=your_api_key
-COMSOL_JAR_PATH=/path/to/comsol.jar
-JAVA_HOME=/path/to/java
-MODEL_OUTPUT_DIR=/path/to/output
-```
-
-**使用符合 OpenAI 规范的中转 API：**
-```env
-LLM_BACKEND=openai-compatible
-OPENAI_COMPATIBLE_API_KEY=your_api_key
-OPENAI_COMPATIBLE_BASE_URL=https://api.example.com/v1
-OPENAI_COMPATIBLE_MODEL=your-model-name
-COMSOL_JAR_PATH=/path/to/comsol.jar
-JAVA_HOME=/path/to/java
-MODEL_OUTPUT_DIR=/path/to/output
-```
-
-**使用 Ollama（本地）：**
 ```env
 LLM_BACKEND=ollama
 OLLAMA_URL=http://localhost:11434
 OLLAMA_MODEL=llama3
-COMSOL_JAR_PATH=/path/to/comsol.jar
-JAVA_HOME=/path/to/java
-MODEL_OUTPUT_DIR=/path/to/output
+COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
 ```
 
-**使用 Ollama（远程）：**
-```env
-LLM_BACKEND=ollama
-OLLAMA_URL=http://192.168.1.100:11434
-OLLAMA_MODEL=llama3
-COMSOL_JAR_PATH=/path/to/comsol.jar
-JAVA_HOME=/path/to/java
-MODEL_OUTPUT_DIR=/path/to/output
-```
+更多后端示例（DeepSeek、Kimi、OpenAI 兼容等）见 [docs/getting-started/llm-backends.md](docs/getting-started/llm-backends.md)。  
+在桌面应用内输入 **`/doctor`** 可做环境诊断，详见 [docs/getting-started/CONFIG.md](docs/getting-started/CONFIG.md)。
 
-详细 LLM 后端配置请参考 [docs/getting-started/llm-backends.md](docs/getting-started/llm-backends.md)
-
-### 4. 环境检查
-
-在 TUI 内输入 `/doctor` 可进行环境诊断。详见 [docs/getting-started/CONFIG.md](docs/getting-started/CONFIG.md)。
-
-### 5. 环境就绪与测试
-
-**第一步：启动桌面应用**
-
-```bash
-uv run comsol-agent
-```
-
-无参数执行即启动 Tauri 桌面应用（开发模式需安装 [Node.js](https://nodejs.org/) 和 [Rust](https://rustup.rs/)）。若有环境错误，按应用内提示或使用 `/doctor` 查看诊断。
-
-**第二步：在桌面应用中测试**
-
-在底部输入框输入自然语言建模需求（如「创建一个宽1米、高0.5米的矩形」）即可生成模型；输入 `/demo` 可运行内置示例。
+---
 
 ## 使用方法
 
-### 桌面应用交互模式（推荐）
+### 桌面应用（推荐）
 
 ```bash
 uv run comsol-agent
 ```
 
-无参数启动即打开 **Tauri + React** 桌面应用（开发模式需 Node.js + Rust 工具链）。
+- **默认模式**：底部输入框输入自然语言建模需求（如「创建一个宽 1 米、高 0.5 米的矩形」），直接生成 COMSOL 模型。
+- **计划模式**：输入 `/plan` 切换为仅解析为 JSON；`/run` 切回默认模式。
+- **斜杠命令**：`/demo` 演示、`/doctor` 环境诊断、`/context` 摘要与历史、`/backend` 选择 LLM、`/output` 设置输出文件名、`/help` 帮助、`/quit` 退出。
 
-- **默认模式**：在底部输入框输入自然语言建模需求，直接生成 COMSOL 模型（等同 `run`）
-- **计划模式**：输入 `/plan` 切换为计划模式，下一句输入仅解析为 JSON（等同 `plan`）；输入 `/run` 切回默认模式
-- **退出**：输入 `/quit` 或 `/exit`
-- **斜杠命令**：`/exec`（根据 JSON 创建模型或生成 Java 代码）、`/demo`（演示）、`/doctor`（环境诊断）、`/context`（摘要/历史/统计/清除）、`/backend`（选择 LLM 后端）、`/output`（设置默认输出文件名）、`/help`（帮助）
-
-详见 [docs/getting-started/CONTEXT.md](docs/getting-started/CONTEXT.md)。例如 **Linux/Mac** 可设 `alias ca="comsol-agent"`；**Windows** 可设 `Set-Alias ca comsol-agent`。
-
-### Python 代码使用
-
-#### ReAct 架构（推荐）
+### Python API
 
 ```python
 from agent.react.react_agent import ReActAgent
@@ -193,61 +135,29 @@ model_path = react_agent.run("创建一个宽1米、高0.5米的矩形")
 print(f"模型已生成: {model_path}")
 ```
 
-#### 传统架构
+更多示例见 [docs/getting-started/EXAMPLE.md](docs/getting-started/EXAMPLE.md)。
 
-```python
-from agent.planner.geometry_agent import GeometryAgent
-from agent.executor.comsol_runner import COMSOLRunner
-
-planner = GeometryAgent()
-plan = planner.parse("在原点放置一个半径为0.3米的圆")
-
-runner = COMSOLRunner()
-model_path = runner.create_model_from_plan(plan)
-print(f"模型已生成: {model_path}")
-```
-
-#### ReAct 组件
-
-```python
-from agent.react.reasoning_engine import ReasoningEngine
-from agent.react.action_executor import ActionExecutor
-from agent.react.observer import Observer
-from agent.utils.llm import LLMClient
-
-llm = LLMClient(backend="deepseek", api_key="your_key")
-reasoning_engine = ReasoningEngine(llm)
-action_executor = ActionExecutor()
-observer = Observer()
-
-plan = reasoning_engine.understand_and_plan("创建传热模型", "heat_model")
-result = action_executor.execute(plan, plan.execution_path[0], {})
-observation = observer.observe(plan, plan.execution_path[0], result)
-```
-
-更多示例与 TUI 内用法见 [docs/getting-started/EXAMPLE.md](docs/getting-started/EXAMPLE.md)。开发测试：
-
-```bash
-python scripts/dev_test.py
-```
+---
 
 ## 项目结构
 
 ```
 comsol-agent/
-├── README.md, pyproject.toml, uv.lock, env.example, main.py
-├── docs/           # 文档（索引见 [docs/README.md](docs/README.md)）
-├── prompts/        # 提示词模板（planner / executor / react）
-├── schemas/        # 数据模型（geometry, physics, study, task）
-├── agent/          # 主流程包（目录说明见 [agent/README.md](agent/README.md)）
-├── java/           # COMSOL Java API 源码与脚本
-├── scripts/        # 构建与测试脚本
-└── tests/          # 单元测试
+├── README.md, pyproject.toml, uv.lock, env.example
+├── desktop/          # Tauri 2 + React 桌面应用
+├── docs/             # 文档索引见 docs/README.md
+├── prompts/          # 提示词模板（planner / executor / react）
+├── schemas/           # 数据模型（geometry, physics, study, task）
+├── agent/             # 主流程包（见 agent/README.md）
+├── java/              # COMSOL Java API 相关
+├── scripts/           # 构建与测试脚本
+├── assets/            # README 与文档用截图
+└── tests/             # 单元测试
 ```
 
-## 架构说明
+---
 
-### ReAct 工作流程
+## 架构概览
 
 ```
 用户输入（自然语言）
@@ -263,53 +173,36 @@ comsol-agent/
 完整的 .mph 模型文件
 ```
 
-### 核心组件
+详细架构见 [docs/architecture/architecture.md](docs/architecture/architecture.md)。
 
-- **ReActAgent**：协调推理与执行的主 Agent
-- **ReasoningEngine**：需求理解与步骤规划
-- **ActionExecutor**：具体建模操作执行
-- **Observer**：观察执行结果并验证模型状态
-- **IterationController**：控制迭代与计划改进
-- **JavaAPIController**：混合模式控制 Java API 调用
-
-详细架构见 [docs/architecture/architecture.md](docs/architecture/architecture.md) 与 [java/API_ARCHITECTURE_PSEUDOCODE.md](java/API_ARCHITECTURE_PSEUDOCODE.md)。
+---
 
 ## 开发
 
-提交规范与设计范式见 [docs/project/CONTRIBUTING.md](docs/project/CONTRIBUTING.md) 与 [docs/agent-design-skills/](docs/agent-design-skills/)。
+- **测试**：`pytest tests/`
+- **格式**：`black agent/ tests/ main.py`
+- **贡献**：分支与提交规范见 [docs/project/CONTRIBUTING.md](docs/project/CONTRIBUTING.md)。
 
-### 运行测试
+桌面端发布通过 GitHub Actions 构建多平台安装包，推送到 `release` 分支或打 tag `desktop-v*` 触发，产物见 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases)。
 
-```bash
-pytest tests/
-pytest tests/test_react.py -v
-```
-
-### 调试
-
-```bash
-uv run comsol-agent
-# 或
-python main.py
-python main.py --interactive
-```
-
-### 代码格式
-
-```bash
-black agent/ tests/ main.py
-```
+---
 
 ## 常见问题
 
 **Q: COMSOL JAR 找不到？**  
-A: COMSOL 6.3+ 请配置为 `plugins` 目录（如 `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins`）；6.1 及更早版本配置为单个 jar（如 `安装目录/lib/win64/comsol.jar`）。
+A: 6.3+ 请配置为 `plugins` 目录；6.1 及更早配置为单个 jar 路径。
 
 **Q: Java 环境报错？**  
-A: 项目可自动使用内置 JDK 11；若用系统 Java，请确保 `JAVA_HOME` 指向与 COMSOL 兼容的 JDK。
+A: 可依赖项目内置 JDK 11；若用系统 Java，请确保 `JAVA_HOME` 与 COMSOL 兼容。
 
 **Q: API 调用失败？**  
-A: 检查当前 LLM 后端对应的 API Key（如 DEEPSEEK_API_KEY、KIMI_API_KEY）是否已在 `.env` 或环境变量中配置。
+A: 检查当前 LLM 后端对应的 API Key（如 `DEEPSEEK_API_KEY`、`KIMI_API_KEY`）是否已在 `.env` 或环境变量中配置。
 
-**Q: Windows 上桌面应用构建报错 `linker link.exe not found`？**  
-A: Rust 在 Windows 上默认需要 Visual Studio 的 C++ 构建工具。请安装 [Build Tools for Visual Studio](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) 并勾选「使用 C++ 的桌面开发」；或改用 GNU 工具链：`rustup default stable-x86_64-pc-windows-gnu`（需先安装 MSYS2/MinGW）。详见 [docs/getting-started/INSTALL.md](docs/getting-started/INSTALL.md) 故障排除。
+**Q: Windows 上桌面应用构建报错 linker / link.exe not found？**  
+A: 需安装 [Build Tools for Visual Studio](https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/) 并勾选「使用 C++ 的桌面开发」；或使用 GNU 工具链：`rustup default stable-x86_64-pc-windows-gnu`（需 MSYS2/MinGW）。详见 [docs/getting-started/INSTALL.md](docs/getting-started/INSTALL.md) 故障排除。
+
+---
+
+## 许可证
+
+[MIT](https://opensource.org/licenses/MIT)
