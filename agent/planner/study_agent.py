@@ -54,12 +54,15 @@ class StudyAgent:
                 pass
         raise ValueError(f"无法从响应中提取有效 JSON: {response_text[:200]}")
 
-    def parse(self, user_input: str) -> StudyPlan:
+    def parse(self, user_input: str, context: Optional[str] = None) -> StudyPlan:
         """
         解析自然语言输入为研究计划。
+        可选 context 为编排器注入的「其他 Agent 已完成的修改与错误」摘要。
         成功时返回 StudyPlan；LLM 不可用或解析失败时返回默认稳态研究。
         """
         user_input = (user_input or "").strip()
+        if context:
+            user_input = f"{context}\n\n当前步骤研究/求解需求：{user_input}"
         if not user_input:
             logger.info("研究输入为空，使用默认稳态")
             return DEFAULT_STUDY_PLAN

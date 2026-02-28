@@ -93,8 +93,11 @@ class PhysicsAgent:
             initial_conditions=ics,
         )
 
-    def parse(self, user_input: str) -> PhysicsPlan:
+    def parse(self, user_input: str, context: Optional[str] = None) -> PhysicsPlan:
+        """解析自然语言为物理场计划。可选 context 为编排器注入的「其他 Agent 已完成的修改与错误」摘要。"""
         user_input = (user_input or "").strip()
+        if context:
+            user_input = f"{context}\n\n当前步骤物理场需求：{user_input}"
         if not user_input:
             logger.info("物理场输入为空，使用默认传热")
             return DEFAULT_PHYSICS_PLAN

@@ -3,7 +3,7 @@ import json
 import re
 from typing import Optional, Any
 
-from agent.base import BaseAgent
+from agent.core.base import BaseAgent
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector

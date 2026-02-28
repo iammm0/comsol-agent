@@ -96,7 +96,8 @@ class JavaAPIController:
 
     def _load_model(self, model_path: str):
         COMSOLRunner._ensure_jvm_started()
-        from com.comsol.model.util import ModelUtil
+        # 使用 JClass 加载，避免 "No module named 'com'"（com 为 Java 包，非 Python 模块）
+        ModelUtil = jpype.JClass("com.comsol.model.util.ModelUtil")
         path = Path(model_path)
         return ModelUtil.load(path.stem or "model", str(path.resolve()))
 
@@ -141,15 +142,19 @@ class JavaAPIController:
     # ===== 材料节点：查询 / 删除 / 重命名 / 存在检查 / 更新属性 / 批量删除 =====
 
     def list_material_tags(self, model_path: str) -> Dict[str, Any]:
-        """查询模型中现有材料节点名称列表。API: model.material().tags()。"""
+        """查询模型中现有材料节点名称列表。API: model.material().names() 或 .tags()。"""
         try:
             model = self._load_model(model_path)
             mat_seq = self._materials_api(model)
-            tags = list(mat_seq.tags()) if hasattr(mat_seq, "tags") else []
-            return {"status": "success", "tags": tags}
+            tags = self._tags_or_names(mat_seq)
+            return {"status": "success", "tags": tags, "names": tags}
         except Exception as e:
             logger.warning("list_material_tags 失败: %s", e)
-            return {"status": "error", "message": str(e), "tags": []}
+            return {"status": "error", "message": str(e), "tags": [], "names": []}
+
+    def list_material_names(self, model_path: str) -> Dict[str, Any]:
+        """查询材料名称列表。API: model.material().names() 或 .tags()。"""
+        return self.list_material_tags(model_path)
 
     def remove_material(self, model_path: str, name: str) -> Dict[str, Any]:
         """删除指定名称的材料节点。API: model.material().remove(\"mat1\")."""
@@ -167,14 +172,14 @@ class JavaAPIController:
             return {"status": "error", "message": str(e)}
 
     def has_material(self, model_path: str, name: str) -> Dict[str, Any]:
-        """检查材料节点是否存在。API: model.material().has(\"mat1\")."""
+        """检查材料节点是否存在。API: model.material().has(\"mat1\") 或 names()/tags() 包含。"""
         try:
             model = self._load_model(model_path)
             mat_seq = self._materials_api(model)
             if hasattr(mat_seq, "has"):
                 exists = mat_seq.has(name)
             else:
-                exists = name in (list(mat_seq.tags()) if hasattr(mat_seq, "tags") else [])
+                exists = name in self._tags_or_names(mat_seq)
             return {"status": "success", "exists": bool(exists)}
         except Exception as e:
             logger.warning("has_material 失败: %s", e)
@@ -239,10 +244,14 @@ class JavaAPIController:
             return {"status": "error", "message": str(e)}
 
     def update_material_properties(self, model_path: str, name: str, properties: Dict[str, Any], property_group: str = "Def") -> Dict[str, Any]:
-        """更新现有材料属性（不重新创建节点）。优先使用 model.material(name).property(key, value)，否则 propertyGroup().set()。"""
+        """更新现有材料属性。API: model.material(\"mat1\").propertyGroup(\"def\").set(\"property\", value)。
+        支持 property_group 为 Def / def、SolidMechanics、Thermal 等。"""
         try:
             model = self._load_model(model_path)
             feat = self._material_feature(model, name)
+            group = (property_group or "Def").strip()
+            if group.lower() == "def":
+                group = "Def"
             for k, v in properties.items():
                 key = MATERIAL_PROPERTY_COMSOL_ALIAS.get(k, k)
                 done = False
@@ -258,11 +267,11 @@ class JavaAPIController:
                             pass
                 if not done:
                     try:
-                        group = feat.propertyGroup(property_group)
-                        group.set(key, v)
+                        pg = feat.propertyGroup(group)
+                        pg.set(key, v)
                     except Exception as e1:
                         try:
-                            group.set(k, v)
+                            pg.set(k, v)
                         except Exception as e2:
                             logger.warning("设置属性 %s 失败: %s", k, e2)
             _save_model_avoid_lock(model, Path(model_path))
@@ -272,11 +281,11 @@ class JavaAPIController:
             return {"status": "error", "message": str(e)}
 
     def remove_all_materials(self, model_path: str) -> Dict[str, Any]:
-        """清除模型中所有材料节点（批量删除）。"""
+        """清除模型中所有材料节点（批量删除）。API: model.material().remove(tag) 逐项。"""
         try:
             model = self._load_model(model_path)
             mat_seq = self._materials_api(model)
-            tags = list(mat_seq.tags()) if hasattr(mat_seq, "tags") else []
+            tags = self._tags_or_names(mat_seq)
             if not hasattr(mat_seq, "remove"):
                 return {"status": "error", "message": "当前 COMSOL 版本不支持 materials().remove()", "removed": []}
             for tag in tags:
@@ -291,35 +300,36 @@ class JavaAPIController:
             return {"status": "error", "message": str(e), "removed": []}
 
     def list_model_tree(self, model_path: str) -> Dict[str, Any]:
-        """获取模型树中主要节点信息（材料、物理场、研究、网格、几何）。"""
+        """获取模型树中主要节点信息（材料、物理场、研究、网格、几何）。
+        兼容 model.xxx().tags() 与 model.xxx().names()。"""
         out = {"materials": [], "physics": [], "studies": [], "meshes": [], "geometries": []}
         try:
             model = self._load_model(model_path)
             try:
                 ms = self._materials_api(model)
-                out["materials"] = list(ms.tags()) if hasattr(ms, "tags") else []
+                out["materials"] = self._tags_or_names(ms)
             except Exception:
                 pass
             try:
                 if hasattr(model, "physics"):
-                    out["physics"] = list(model.physics().tags()) if hasattr(model.physics(), "tags") else []
+                    out["physics"] = self._tags_or_names(model.physics())
             except Exception:
                 pass
             try:
                 if hasattr(model, "study"):
-                    out["studies"] = list(model.study().tags()) if hasattr(model.study(), "tags") else []
+                    out["studies"] = self._tags_or_names(model.study())
             except Exception:
                 pass
             try:
                 if hasattr(model, "mesh"):
-                    out["meshes"] = list(model.mesh().tags()) if hasattr(model.mesh(), "tags") else []
+                    out["meshes"] = self._tags_or_names(model.mesh())
             except Exception:
                 pass
             try:
                 if model.component().has("comp1") and hasattr(model.component("comp1").geom(), "tags"):
-                    out["geometries"] = list(model.component("comp1").geom().tags())
+                    out["geometries"] = self._tags_or_names(model.component("comp1").geom())
                 elif hasattr(model, "geom"):
-                    out["geometries"] = list(model.geom().tags()) if hasattr(model.geom(), "tags") else []
+                    out["geometries"] = self._tags_or_names(model.geom())
             except Exception:
                 pass
             return {"status": "success", "tree": out}
@@ -327,16 +337,136 @@ class JavaAPIController:
             logger.warning("list_model_tree 失败: %s", e)
             return {"status": "error", "message": str(e), "tree": out}
 
+    @staticmethod
+    def _tags_or_names(seq) -> List[str]:
+        """COMSOL 部分版本用 .names()，部分用 .tags()，统一返回名称列表。"""
+        if hasattr(seq, "names"):
+            try:
+                n = seq.names()
+                if n is not None:
+                    return list(n) if not isinstance(n, (list, tuple)) else n
+            except Exception:
+                pass
+        if hasattr(seq, "tags"):
+            try:
+                t = seq.tags()
+                if t is not None:
+                    return list(t) if not isinstance(t, (list, tuple)) else t
+            except Exception:
+                pass
+        return []
+
+    # ===== 研究节点：删除 / 查询名称 / 重命名 =====
+
+    def remove_study(self, model_path: str, name: str) -> Dict[str, Any]:
+        """删除研究节点。API: model.study().remove(\"std1\")."""
+        try:
+            model = self._load_model(model_path)
+            st = model.study()
+            if hasattr(st, "remove"):
+                st.remove(name)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 study().remove()"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已删除研究 {name}", "removed": name}
+        except Exception as e:
+            logger.warning("remove_study 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def list_study_names(self, model_path: str) -> Dict[str, Any]:
+        """查询现有研究名称。API: model.study().names() 或 .tags()。"""
+        try:
+            model = self._load_model(model_path)
+            st = model.study()
+            names = self._tags_or_names(st)
+            return {"status": "success", "names": names}
+        except Exception as e:
+            logger.warning("list_study_names 失败: %s", e)
+            return {"status": "error", "message": str(e), "names": []}
+
+    def rename_study(self, model_path: str, old_name: str, new_name: str) -> Dict[str, Any]:
+        """重命名研究节点。API: model.study(\"std1\").name(\"newName\")."""
+        try:
+            model = self._load_model(model_path)
+            st = model.study()
+            if hasattr(st, "has") and not st.has(old_name):
+                return {"status": "error", "message": f"研究节点不存在: {old_name}"}
+            if hasattr(st, "has") and st.has(new_name):
+                return {"status": "error", "message": f"目标名称已存在: {new_name}"}
+            feat = model.study(old_name)
+            if hasattr(feat, "name"):
+                feat.name(new_name)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 study(tag).name(newName)"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已重命名研究 {old_name} -> {new_name}", "old_name": old_name, "new_name": new_name}
+        except Exception as e:
+            logger.warning("rename_study 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def has_node(self, model_path: str, node_path: str) -> Dict[str, Any]:
+        """检查节点是否存在。API: model.hasNode(\"/studies/std1\"). 路径格式如 /studies/std1, /physics/ht0。"""
+        try:
+            model = self._load_model(model_path)
+            path = (node_path or "").strip()
+            if not path.startswith("/"):
+                path = "/" + path
+            if hasattr(model, "hasNode"):
+                exists = model.hasNode(path)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 hasNode(path)", "exists": False}
+            return {"status": "success", "exists": bool(exists), "path": path}
+        except Exception as e:
+            logger.warning("has_node 失败: %s", e)
+            return {"status": "error", "message": str(e), "exists": False}
+
+    def clear_all_results(self, model_path: str) -> Dict[str, Any]:
+        """清除所有结果数据。API: model.result().clearAll()。"""
+        try:
+            model = self._load_model(model_path)
+            if not hasattr(model, "result"):
+                return {"status": "error", "message": "当前 COMSOL 模型无 result() 接口"}
+            res = model.result()
+            if hasattr(res, "clearAll"):
+                res.clearAll()
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 result().clearAll()"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": "已清除所有结果数据"}
+        except Exception as e:
+            logger.warning("clear_all_results 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def get_node_tree(self, model_path: str) -> Dict[str, Any]:
+        """获取模型树结构。API: model.getNodeTree()。若不存在则回退到 list_model_tree。"""
+        try:
+            model = self._load_model(model_path)
+            if hasattr(model, "getNodeTree"):
+                tree = model.getNodeTree()
+                # 若返回 Java 对象，尝试转为可序列化结构
+                if tree is not None and hasattr(tree, "toString"):
+                    return {"status": "success", "node_tree": tree.toString()}
+                return {"status": "success", "node_tree": tree}
+            return self.list_model_tree(model_path)
+        except Exception as e:
+            logger.warning("get_node_tree 失败: %s", e)
+            return {"status": "error", "message": str(e), "node_tree": None}
+
     # ===== 物理场节点：查询 / 删除 / 存在检查 =====
 
     def list_physics_tags(self, model_path: str) -> Dict[str, Any]:
-        """获取所有物理场名称列表。API: model.physics().tags()."""
+        """获取所有物理场名称列表。API: model.physics().names() 或 .tags()。"""
         try:
             model = self._load_model(model_path)
-            tags = list(model.physics().tags()) if hasattr(model.physics(), "tags") else []
-            return {"status": "success", "tags": tags}
+            ph = model.physics()
+            tags = self._tags_or_names(ph)
+            return {"status": "success", "tags": tags, "names": tags}
         except Exception as e:
-            return {"status": "error", "message": str(e), "tags": []}
+            return {"status": "error", "message": str(e), "tags": [], "names": []}
+
+    def list_physics_names(self, model_path: str) -> Dict[str, Any]:
+        """查询物理场名称列表。API: model.physics().names() 或 .tags()。"""
+        return self.list_physics_tags(model_path)
 
     def remove_physics(self, model_path: str, name: str) -> Dict[str, Any]:
         """删除已存在的物理场节点。API: model.physics().remove(\"ht0\")."""
@@ -352,11 +482,14 @@ class JavaAPIController:
             return {"status": "error", "message": str(e)}
 
     def has_physics(self, model_path: str, name: str) -> Dict[str, Any]:
-        """检查物理场节点是否存在。API: model.physics().has(\"ht0\")."""
+        """检查物理场节点是否存在。API: model.physics().has(\"phys1\") 或 names()/tags() 包含。"""
         try:
             model = self._load_model(model_path)
             ph = model.physics()
-            exists = ph.has(name) if hasattr(ph, "has") else (name in list(ph.tags()) if hasattr(ph, "tags") else [])
+            if hasattr(ph, "has"):
+                exists = ph.has(name)
+            else:
+                exists = name in self._tags_or_names(ph)
             return {"status": "success", "exists": bool(exists)}
         except Exception as e:
             return {"status": "error", "message": str(e), "exists": False}
@@ -389,7 +522,7 @@ class JavaAPIController:
             if hasattr(ph, "clear"):
                 ph.clear()
             else:
-                tags = list(ph.tags()) if hasattr(ph, "tags") else []
+                tags = self._tags_or_names(ph)
                 if hasattr(ph, "remove"):
                     for tag in tags:
                         try:
@@ -430,20 +563,501 @@ class JavaAPIController:
     # ===== 几何节点：查询 =====
 
     def list_geometry_tags(self, model_path: str) -> Dict[str, Any]:
+        """查询几何节点名称列表。API: model.geom().names() 或 .tags()；component 下为 component('comp1').geom()。"""
         try:
             model = self._load_model(model_path)
             if model.component().has("comp1"):
-                tags = list(model.component("comp1").geom().tags()) if hasattr(model.component("comp1").geom(), "tags") else []
+                geom_seq = model.component("comp1").geom()
             else:
-                tags = list(model.geom().tags()) if hasattr(model.geom(), "tags") else []
+                geom_seq = model.geom()
+            tags = self._tags_or_names(geom_seq)
+            return {"status": "success", "tags": tags, "names": tags}
+        except Exception as e:
+            return {"status": "error", "message": str(e), "tags": [], "names": []}
+
+    def rename_geometry(self, model_path: str, old_name: str, new_name: str) -> Dict[str, Any]:
+        """重命名几何节点。API: model.geom(\"geom1\").name(\"newGeomName\")。component 下为 component('comp1').geom(\"geom1\").name(\"newName\")。"""
+        try:
+            model = self._load_model(model_path)
+            geom_seq = None
+            if model.component().has("comp1"):
+                geom_seq = model.component("comp1").geom()
+            if geom_seq is None or not hasattr(geom_seq, "has"):
+                geom_seq = model.geom()
+            if hasattr(geom_seq, "has") and not geom_seq.has(old_name):
+                return {"status": "error", "message": f"几何节点不存在: {old_name}"}
+            if hasattr(geom_seq, "has") and geom_seq.has(new_name):
+                return {"status": "error", "message": f"目标名称已存在: {new_name}"}
+            if model.component().has("comp1"):
+                feat = model.component("comp1").geom(old_name)
+            else:
+                feat = model.geom(old_name)
+            if hasattr(feat, "name"):
+                feat.name(new_name)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 geom(tag).name(newName)"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已重命名几何 {old_name} -> {new_name}", "old_name": old_name, "new_name": new_name}
+        except Exception as e:
+            logger.warning("rename_geometry 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    # ===== Selection（选择集）=====
+
+    def _selection_api(self, model):
+        """获取 selection 列表 API：model.selection() 或 component 下 component('comp1').selection()。"""
+        try:
+            if hasattr(model, "selection"):
+                return model.selection()
+            if model.component().has("comp1") and hasattr(model.component("comp1"), "selection"):
+                return model.component("comp1").selection()
+        except Exception as e:
+            raise RuntimeError(f"COMSOL selection API 不可用: {e}") from e
+        raise RuntimeError("当前 COMSOL 模型无 selection() 接口")
+
+    def create_selection(
+        self,
+        model_path: str,
+        tag: str,
+        kind: str = "Explicit",
+        geom_tag: str = "geom1",
+        entity_dim: Optional[int] = None,
+        entities: Optional[List[int]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """创建选择集。API: model.selection().create(tag, \"Explicit\")，再设置 geom/entities 或 all()。"""
+        try:
+            model = self._load_model(model_path)
+            sel_list = self._selection_api(model)
+            if hasattr(sel_list, "has") and sel_list.has(tag):
+                return {"status": "error", "message": f"选择集已存在: {tag}"}
+            sel_list.create(tag, kind or "Explicit")
+            sel = sel_list.get(tag) if hasattr(sel_list, "get") else getattr(sel_list, tag) if hasattr(sel_list, tag) else None
+            if sel is None and hasattr(sel_list, "tags"):
+                tags = self._tags_or_names(sel_list)
+                if tag in tags:
+                    sel = sel_list(tag) if callable(sel_list) else None
+            if sel is not None:
+                if hasattr(sel, "geom"):
+                    sel.geom(geom_tag)
+                if entity_dim is not None and hasattr(sel, "set") and entities is not None:
+                    try:
+                        sel.set(entities)
+                    except Exception:
+                        pass
+                elif kwargs.get("all") and hasattr(sel, "all"):
+                    try:
+                        sel.all()
+                    except Exception:
+                        pass
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已创建选择集 {tag}", "tag": tag}
+        except Exception as e:
+            logger.warning("create_selection 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def list_selection_tags(self, model_path: str) -> Dict[str, Any]:
+        """查询选择集标签列表。"""
+        try:
+            model = self._load_model(model_path)
+            sel_list = self._selection_api(model)
+            tags = self._tags_or_names(sel_list)
             return {"status": "success", "tags": tags}
         except Exception as e:
+            logger.warning("list_selection_tags 失败: %s", e)
             return {"status": "error", "message": str(e), "tags": []}
+
+    def remove_selection(self, model_path: str, tag: str) -> Dict[str, Any]:
+        """删除选择集。API: model.selection().remove(tag)。"""
+        try:
+            model = self._load_model(model_path)
+            sel_list = self._selection_api(model)
+            if hasattr(sel_list, "remove"):
+                sel_list.remove(tag)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 selection().remove()"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已删除选择集 {tag}", "removed": tag}
+        except Exception as e:
+            logger.warning("remove_selection 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def rename_selection(self, model_path: str, old_name: str, new_name: str) -> Dict[str, Any]:
+        """重命名选择集（无直接 API 时用“复制+删除”策略；若支持 name/label 则直接设置）。"""
+        try:
+            model = self._load_model(model_path)
+            sel_list = self._selection_api(model)
+            if hasattr(sel_list, "has") and not sel_list.has(old_name):
+                return {"status": "error", "message": f"选择集不存在: {old_name}"}
+            if hasattr(sel_list, "has") and sel_list.has(new_name):
+                return {"status": "error", "message": f"目标名称已存在: {new_name}"}
+            sel = sel_list(old_name) if callable(sel_list) else sel_list.get(old_name)
+            if sel is not None and hasattr(sel, "name"):
+                sel.name(new_name)
+            elif hasattr(sel_list, "remove"):
+                sel_list.create(new_name, "Explicit")
+                try:
+                    new_sel = sel_list(new_name) if callable(sel_list) else sel_list.get(new_name)
+                    if new_sel is not None and hasattr(sel, "entities") and hasattr(new_sel, "set"):
+                        new_sel.set(sel.entities())
+                except Exception:
+                    pass
+                sel_list.remove(old_name)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持选择集重命名"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已重命名选择集 {old_name} -> {new_name}", "old_name": old_name, "new_name": new_name}
+        except Exception as e:
+            logger.warning("rename_selection 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    # ===== 几何 IO / 几何工具 =====
+
+    def import_geometry(
+        self,
+        model_path: str,
+        file_path: str,
+        geom_tag: str = "geom1",
+        feature_tag: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """导入几何文件（STEP/IGES/STL 等）。在 geom 下创建 Import 特征并 run()。"""
+        try:
+            model = self._load_model(model_path)
+            path = Path(file_path)
+            if not path.is_absolute():
+                path = Path(model_path).parent / path
+            if not path.exists():
+                return {"status": "error", "message": f"文件不存在: {path}"}
+            geom_seq = model.component("comp1").geom() if model.component().has("comp1") else model.geom()
+            if not hasattr(geom_seq, "has") or not geom_seq.has(geom_tag):
+                return {"status": "error", "message": f"几何节点不存在: {geom_tag}"}
+            geom = model.component("comp1").geom(geom_tag) if model.component().has("comp1") else model.geom(geom_tag)
+            feat_tag = feature_tag or "imp1"
+            geom.create(feat_tag, "Import")
+            imp = geom.feature(feat_tag)
+            imp.set("filename", str(path.resolve()))
+            for k, v in kwargs.items():
+                try:
+                    imp.set(k, v)
+                except Exception:
+                    pass
+            geom.run()
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已导入几何 {path.name}", "feature": feat_tag, "path": str(path)}
+        except Exception as e:
+            logger.warning("import_geometry 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def geometry_measure(
+        self,
+        model_path: str,
+        geom_tag: str = "geom1",
+        what: str = "volume",
+        selection: Optional[List[int]] = None,
+    ) -> Dict[str, Any]:
+        """几何测量（体积/面积/长度等）。使用 COMSOL measure 工具；不可用时返回明确错误。"""
+        try:
+            model = self._load_model(model_path)
+            geom_seq = model.component("comp1").geom() if model.component().has("comp1") else model.geom()
+            if not hasattr(geom_seq, "has") or not geom_seq.has(geom_tag):
+                return {"status": "error", "message": f"几何节点不存在: {geom_tag}"}
+            geom = model.component("comp1").geom(geom_tag) if model.component().has("comp1") else model.geom(geom_tag)
+            if not hasattr(geom, "measure"):
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 geom.measure()"}
+            measure = geom.measure()
+            if not hasattr(measure, "getVolume") and not hasattr(measure, "getArea") and not hasattr(measure, "getLength"):
+                return {"status": "error", "message": "measure 接口无 getVolume/getArea/getLength"}
+            if selection:
+                try:
+                    measure.selection().set(selection)
+                except Exception:
+                    pass
+            value = None
+            what_lower = (what or "volume").lower()
+            if "volume" in what_lower and hasattr(measure, "getVolume"):
+                value = measure.getVolume()
+            elif "area" in what_lower and hasattr(measure, "getArea"):
+                value = measure.getArea()
+            elif "length" in what_lower and hasattr(measure, "getLength"):
+                value = measure.getLength()
+            if value is None:
+                return {"status": "error", "message": f"不支持的测量类型: {what}"}
+            return {"status": "success", "value": float(value) if value is not None else None, "what": what}
+        except Exception as e:
+            logger.warning("geometry_measure 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    # ===== 网格高级 =====
+
+    def _mesh_api(self, model):
+        """获取 mesh 列表：model.mesh() 或 component('comp1').mesh()。"""
+        try:
+            if model.component().has("comp1") and hasattr(model.component("comp1"), "mesh"):
+                return model.component("comp1").mesh()
+            if hasattr(model, "mesh"):
+                return model.mesh()
+        except Exception as e:
+            raise RuntimeError(f"COMSOL mesh API 不可用: {e}") from e
+        raise RuntimeError("当前 COMSOL 模型无 mesh() 接口")
+
+    def mesh_create(self, model_path: str, tag: str = "mesh1", geom_tag: str = "geom1") -> Dict[str, Any]:
+        """创建网格序列。API: model.component('comp1').mesh().create(tag, geom_tag)。"""
+        try:
+            model = self._load_model(model_path)
+            mesh_list = self._mesh_api(model)
+            if self._mesh_has(mesh_list, tag):
+                return {"status": "success", "message": f"网格已存在: {tag}", "tag": tag}
+            mesh_list.create(tag, geom_tag)
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已创建网格 {tag}", "tag": tag}
+        except Exception as e:
+            logger.warning("mesh_create 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def mesh_list(self, model_path: str) -> Dict[str, Any]:
+        """列出网格标签。"""
+        try:
+            model = self._load_model(model_path)
+            mesh_list = self._mesh_api(model)
+            tags = self._tags_or_names(mesh_list)
+            return {"status": "success", "tags": tags}
+        except Exception as e:
+            logger.warning("mesh_list 失败: %s", e)
+            return {"status": "error", "message": str(e), "tags": []}
+
+    def mesh_remove(self, model_path: str, tag: str) -> Dict[str, Any]:
+        """删除网格序列。"""
+        try:
+            model = self._load_model(model_path)
+            mesh_list = self._mesh_api(model)
+            if hasattr(mesh_list, "remove"):
+                mesh_list.remove(tag)
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 mesh().remove()"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已删除网格 {tag}", "removed": tag}
+        except Exception as e:
+            logger.warning("mesh_remove 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def mesh_set_size(self, model_path: str, mesh_tag: str = "mesh1", hauto: Optional[int] = None, hmax: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
+        """设置网格尺寸（Size 特征）。"""
+        try:
+            model = self._load_model(model_path)
+            mesh_list = self._mesh_api(model)
+            if not self._mesh_has(mesh_list, mesh_tag):
+                return {"status": "error", "message": f"网格不存在: {mesh_tag}"}
+            mesh = mesh_list(mesh_tag) if callable(mesh_list) else mesh_list.get(mesh_tag)
+            try:
+                mesh.create("size", "Size")
+            except Exception:
+                pass
+            size_feat = mesh.feature("size") if hasattr(mesh, "feature") else None
+            if size_feat is not None:
+                if hauto is not None:
+                    try:
+                        size_feat.set("hauto", hauto)
+                    except Exception:
+                        pass
+                if hmax is not None:
+                    try:
+                        size_feat.set("hmax", hmax)
+                    except Exception:
+                        pass
+                for k, v in kwargs.items():
+                    try:
+                        size_feat.set(k, v)
+                    except Exception:
+                        pass
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已设置网格 {mesh_tag} 尺寸"}
+        except Exception as e:
+            logger.warning("mesh_set_size 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def mesh_stats(self, model_path: str, mesh_tag: str = "mesh1") -> Dict[str, Any]:
+        """返回网格统计（单元数、顶点数等）。"""
+        try:
+            model = self._load_model(model_path)
+            mesh_list = self._mesh_api(model)
+            if not self._mesh_has(mesh_list, mesh_tag):
+                return {"status": "error", "message": f"网格不存在: {mesh_tag}"}
+            mesh = mesh_list(mesh_tag) if callable(mesh_list) else mesh_list.get(mesh_tag)
+            out = {"status": "success", "num_vertex": None, "num_elem": None}
+            if hasattr(mesh, "getNumVertex"):
+                try:
+                    out["num_vertex"] = mesh.getNumVertex()
+                except Exception:
+                    pass
+            if hasattr(mesh, "getNumElem"):
+                try:
+                    out["num_elem"] = mesh.getNumElem()
+                except Exception:
+                    pass
+            if hasattr(mesh, "stat"):
+                try:
+                    st = mesh.stat()
+                    if st is not None:
+                        if hasattr(st, "getNumVertex"):
+                            out["num_vertex"] = st.getNumVertex()
+                        if hasattr(st, "getNumElem"):
+                            out["num_elem"] = st.getNumElem()
+                except Exception:
+                    pass
+            return out
+        except Exception as e:
+            logger.warning("mesh_stats 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    # ===== 研究/求解高级 =====
+
+    def clear_solution_data(self, model_path: str, solver_tag: Optional[str] = None) -> Dict[str, Any]:
+        """清除求解器序列关联的解数据。API: model.sol(solver_tag).clearSolutionData() 或类似。"""
+        try:
+            model = self._load_model(model_path)
+            if not hasattr(model, "sol"):
+                return {"status": "error", "message": "当前 COMSOL 模型无 sol() 接口"}
+            sol_list = model.sol()
+            tags = self._tags_or_names(sol_list)
+            if solver_tag and solver_tag not in tags:
+                return {"status": "error", "message": f"求解器序列不存在: {solver_tag}"}
+            to_clear = [solver_tag] if solver_tag else tags
+            for tag in to_clear:
+                try:
+                    seq = model.sol(tag) if callable(model.sol()) else sol_list.get(tag)
+                    if seq is not None and hasattr(seq, "clearSolutionData"):
+                        seq.clearSolutionData()
+                except Exception as e:
+                    logger.warning("clearSolutionData %s 失败: %s", tag, e)
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": "已清除求解数据"}
+        except Exception as e:
+            logger.warning("clear_solution_data 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    # ===== 结果/后处理与导出 =====
+
+    def export_plot_image(
+        self,
+        model_path: str,
+        plot_group_tag: str,
+        out_path: str,
+        width: int = 800,
+        height: int = 600,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """导出结果图为图片。使用 result 下 export 或 plot 的 image 导出。"""
+        try:
+            model = self._load_model(model_path)
+            if not hasattr(model, "result"):
+                return {"status": "error", "message": "当前 COMSOL 模型无 result() 接口"}
+            res = model.result()
+            if not hasattr(res, "export"):
+                return {"status": "error", "message": "result().export() 不可用"}
+            exp_list = res.export()
+            path = Path(out_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tag = "img1"
+            try:
+                exp_list.create(tag, "Image")
+            except Exception:
+                try:
+                    exp_list.create(tag, "Plot")
+                except Exception as e1:
+                    return {"status": "error", "message": f"无法创建 Image 导出: {e1}"}
+            feat = exp_list(tag) if callable(exp_list) else exp_list.get(tag)
+            if feat is not None:
+                feat.set("filename", str(path.resolve()))
+                feat.set("width", str(width))
+                feat.set("height", str(height))
+                if plot_group_tag:
+                    try:
+                        feat.set("plotgroup", plot_group_tag)
+                    except Exception:
+                        pass
+                for k, v in kwargs.items():
+                    try:
+                        feat.set(k, v)
+                    except Exception:
+                        pass
+                if hasattr(feat, "run"):
+                    feat.run()
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已导出图片到 {out_path}", "path": out_path}
+        except Exception as e:
+            logger.warning("export_plot_image 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def export_data(
+        self,
+        model_path: str,
+        dataset_or_plot_tag: str,
+        out_path: str,
+        export_type: str = "Data",
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """导出数据（表格/数据文件）。result().export().create(tag, type) + set + run()。"""
+        try:
+            model = self._load_model(model_path)
+            if not hasattr(model, "result"):
+                return {"status": "error", "message": "当前 COMSOL 模型无 result() 接口"}
+            res = model.result()
+            if not hasattr(res, "export"):
+                return {"status": "error", "message": "result().export() 不可用"}
+            exp_list = res.export()
+            path = Path(out_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tag = "data1"
+            try:
+                exp_list.create(tag, export_type or "Data")
+            except Exception as e1:
+                return {"status": "error", "message": f"无法创建 Data 导出: {e1}"}
+            feat = exp_list(tag) if callable(exp_list) else exp_list.get(tag)
+            if feat is not None:
+                feat.set("filename", str(path.resolve()))
+                feat.set("data", dataset_or_plot_tag)
+                for k, v in kwargs.items():
+                    try:
+                        feat.set(k, v)
+                    except Exception:
+                        pass
+                if hasattr(feat, "run"):
+                    feat.run()
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已导出数据到 {out_path}", "path": out_path}
+        except Exception as e:
+            logger.warning("export_data 失败: %s", e)
+            return {"status": "error", "message": str(e)}
+
+    def table_export(self, model_path: str, table_tag: str, out_path: str, **kwargs: Any) -> Dict[str, Any]:
+        """导出表格到文件。"""
+        try:
+            model = self._load_model(model_path)
+            if not hasattr(model, "result"):
+                return {"status": "error", "message": "当前 COMSOL 模型无 result() 接口"}
+            res = model.result()
+            if not hasattr(res, "table"):
+                return {"status": "error", "message": "result().table() 不可用"}
+            tbl = res.table(table_tag) if callable(res.table()) else res.table().get(table_tag)
+            if tbl is None:
+                return {"status": "error", "message": f"表格不存在: {table_tag}"}
+            path = Path(out_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if hasattr(tbl, "saveFile"):
+                tbl.saveFile(str(path.resolve()))
+            else:
+                return {"status": "error", "message": "当前 COMSOL 版本表格无 saveFile()"}
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已导出表格到 {out_path}", "path": out_path}
+        except Exception as e:
+            logger.warning("table_export 失败: %s", e)
+            return {"status": "error", "message": str(e)}
 
     def _find_unused_material_name(self, model, base: str) -> str:
         """在模型中找一个未使用的材料名称，如 mat1 -> mat2, mat3 ..."""
         mat_seq = self._materials_api(model)
-        existing = set(mat_seq.tags()) if hasattr(mat_seq, "tags") else set()
+        existing = set(self._tags_or_names(mat_seq))
         if base not in existing:
             return base
         for i in range(1, 100):

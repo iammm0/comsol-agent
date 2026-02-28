@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 import jpype
-import jpype.imports
 
 from agent.utils.config import get_settings, get_project_root
 from agent.utils.java_runtime import ensure_bundled_java
@@ -132,7 +131,8 @@ class COMSOLRunner:
         try:
             jvm_path = comsol_jvm if comsol_jvm else jpype.getDefaultJVMPath()
             jpype.startJVM(jvm_path, *jvm_args)
-            from com.comsol.model.util import ModelUtil
+            # 使用 JClass 加载，避免 "No module named 'com'"（com 为 Java 包，非 Python 模块）
+            ModelUtil = jpype.JClass("com.comsol.model.util.ModelUtil")
             ModelUtil.initStandalone(False)
             logger.info("JVM 启动成功，COMSOL API 已加载")
             cls._jvm_started = True
@@ -141,7 +141,7 @@ class COMSOLRunner:
             raise RuntimeError(f"无法加载 COMSOL API: {e}") from e
 
     def create_model(self, model_name: str):
-        from com.comsol.model.util import ModelUtil
+        ModelUtil = jpype.JClass("com.comsol.model.util.ModelUtil")
         logger.info(f"创建模型: {model_name}")
         return ModelUtil.create(model_name)
 

@@ -87,9 +87,11 @@ class MaterialAgent:
                 pass
         raise ValueError(f"无法从响应中提取有效 JSON: {response_text[:200]}")
 
-    def parse(self, user_input: str) -> MaterialPlan:
-        """解析自然语言输入为材料计划。"""
+    def parse(self, user_input: str, context: Optional[str] = None) -> MaterialPlan:
+        """解析自然语言输入为材料计划。可选 context 为编排器注入的「其他 Agent 已完成的修改与错误」摘要。"""
         user_input = (user_input or "").strip()
+        if context:
+            user_input = f"{context}\n\n当前步骤材料需求：{user_input}"
         if not user_input:
             logger.info("材料输入为空，使用默认钢材")
             return DEFAULT_MATERIAL_PLAN
