@@ -64,8 +64,8 @@ jobs:
             desktop/src-tauri/target/release/bundle/nsis/*.exe
             desktop/src-tauri/target/release/bundle/msi/**/*.msi
 
-  # 仅 push 到 main 时：构建成功后打 tag 并推送，触发 Build and Release Desktop 发布
-  tag-and-release:
+  # 仅 push 到 main 时：构建成功后打 tag，直接创建草稿 Release 并上传 exe/msi（不再触发另一工作流重复构建）
+  create-release:
     needs: build-tauri
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -101,3 +101,26 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "${{ steps.version.outputs.tag }}" -m "Desktop ${{ steps.version.outputs.version }} (auto from CI)"
           git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Download build artifacts
+        if: steps.check-tag.outputs.exists != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-windows-windows-latest
+          path: release-files
+
+      - name: Create Release and upload exe/msi
+        if: steps.check-tag.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: COMSOL Agent Desktop v${{ steps.version.outputs.version }}
+          body: |
+            Windows 安装包（含内嵌 Java 11）。请下载 exe 或 msi 安装后使用。
+            See the assets below to download and install.
+          draft: true
+          files: |
+            release-files/**/*.exe
+            release-files/**/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

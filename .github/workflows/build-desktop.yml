@@ -1,5 +1,5 @@
-# Tauri 桌面端：多平台构建并发布到 GitHub Release
-# 触发：推送到 release 分支、推送 tag desktop-v*、或手动触发
+# Tauri 桌面端：构建并发布（手动或 release 分支）；日常由 CI 构建后直接创建 Release，不由此工作流响应 tag
+# 触发：推送到 release 分支、或手动触发
 name: Build and Release Desktop
 
 on:
@@ -7,8 +7,6 @@ on:
   push:
     branches:
       - release
-    tags:
-      - 'desktop-v*'
 
 jobs:
   publish-tauri:
