@@ -53,7 +53,7 @@ COMSOL Agent 基于 **ReAct（Reasoning & Acting）** 架构：通过自然语�
 
 ### 方式一：桌面版（推荐，仅 Windows）
 
-从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载 Windows 安装包（exe 或 msi，tag 格式为 `desktop-v*`），安装后运行即可，无需单独安装 Python。暂不支持 macOS/Linux 桌面版。
+从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载 Windows 安装包（exe 或 msi，tag 格式为 `desktop-v*`），安装后运行即可。安装包内已包含 **Java 11**，无需单独安装 Python 或 JDK。暂不支持 macOS/Linux 桌面版。
 
 ### 方式二：从源码运行（含桌面应用）
 

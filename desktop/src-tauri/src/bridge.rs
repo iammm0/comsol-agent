@@ -4,15 +4,17 @@ use std::sync::Arc;
 #[cfg(target_os = "windows")]
 #[allow(unused_imports)]
 use std::os::windows::process::CommandExt;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Command, Child};
 use tokio::sync::Mutex;
 
 /// 子进程 + 当前流式调用占用的 PID（便于 abort 时按 PID 杀进程而不持锁）
+/// bundled_java_home: 安装包内嵌的 JDK 路径，启动/重启 Python 子进程时设置 JAVA_HOME
 pub struct BridgeStateInner {
     pub child: Option<Child>,
     pub stream_pid: Option<u32>,
+    pub bundled_java_home: Option<PathBuf>,
 }
 
 pub type BridgeState = Arc<Mutex<BridgeStateInner>>;
@@ -92,7 +94,22 @@ fn find_python_cmd(root: &PathBuf) -> (String, Vec<String>) {
     }
 }
 
-pub async fn init_bridge() -> Result<Child, String> {
+/// 若存在打包的 JDK（runtime/java），则设置 JAVA_HOME 给子进程使用
+pub fn bundled_java_home_from_app(app: &tauri::App) -> Option<PathBuf> {
+    let res_dir = app.path().resource_dir().ok()?;
+    let java_home = res_dir.join("runtime").join("java");
+    #[cfg(target_os = "windows")]
+    let has_java = java_home.join("bin").join("java.exe").exists();
+    #[cfg(not(target_os = "windows"))]
+    let has_java = java_home.join("bin").join("java").exists();
+    if has_java {
+        Some(java_home)
+    } else {
+        None
+    }
+}
+
+pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<Child, String> {
     let root = find_project_root().ok_or("Cannot find project root (pyproject.toml)")?;
     let (cmd, args) = find_python_cmd(&root);
 
@@ -104,6 +121,10 @@ pub async fn init_bridge() -> Result<Child, String> {
         .stderr(std::process::Stdio::null())
         .current_dir(&root)
         .env("PYTHONIOENCODING", "utf-8");
+
+    if let Some(ref jh) = bundled_java_home {
+        builder.env("JAVA_HOME", jh);
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -265,7 +286,11 @@ pub async fn bridge_abort(state: tauri::State<'_, BridgeState>) -> Result<(), St
     if let Some(pid) = stream_pid {
         kill_pid(pid);
     }
-    match init_bridge().await {
+    let java_home = {
+        let guard = state.inner().as_ref().lock().await;
+        guard.bundled_java_home.clone()
+    };
+    match init_bridge(java_home).await {
         Ok(child) => {
             let mut guard = state.inner().as_ref().lock().await;
             guard.child = Some(child);

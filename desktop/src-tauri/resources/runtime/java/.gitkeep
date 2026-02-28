@@ -1,0 +1,2 @@
+# 占位文件，保证 resources/runtime/java 路径存在以便 Tauri 打包。
+# 构建前需运行 desktop/scripts/download-jdk11.ps1 下载 JDK 11 到此目录。

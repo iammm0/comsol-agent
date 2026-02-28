@@ -1,6 +1,6 @@
 mod bridge;
 
-use bridge::{bridge_send, bridge_send_stream, bridge_abort, init_bridge, open_path, open_in_folder, BridgeState, BridgeStateInner};
+use bridge::{bridge_send, bridge_send_stream, bridge_abort, init_bridge, bundled_java_home_from_app, open_path, open_in_folder, BridgeState, BridgeStateInner};
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
@@ -19,6 +19,7 @@ pub fn run() {
         .manage(Arc::new(Mutex::new(BridgeStateInner {
             child: None,
             stream_pid: None,
+            bundled_java_home: None,
         })))
         .invoke_handler(tauri::generate_handler![
             bridge_send,
@@ -30,10 +31,12 @@ pub fn run() {
         ])
         .setup(|app| {
             let state = app.state::<BridgeState>().inner().clone();
+            let java_home = bundled_java_home_from_app(app);
             let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
-            match rt.block_on(init_bridge()) {
+            match rt.block_on(init_bridge(java_home.clone())) {
                 Ok(child) => {
                     let mut guard = state.as_ref().blocking_lock();
+                    guard.bundled_java_home = java_home;
                     guard.child = Some(child);
                 }
                 Err(e) => {

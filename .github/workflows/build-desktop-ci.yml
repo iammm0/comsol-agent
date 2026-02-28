@@ -44,6 +44,10 @@ jobs:
         run: npm ci
         working-directory: desktop
 
+      - name: Download bundled JDK 11 (Windows)
+        run: .\scripts\download-jdk11.ps1
+        working-directory: desktop
+
       - name: Build (no release)
         uses: tauri-apps/tauri-action@v0
         env:
