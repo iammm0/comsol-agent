@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "../context/AppStateContext";
 import { ConfirmDialog } from "./dialogs/ConfirmDialog";
 
@@ -65,7 +66,6 @@ export function Sidebar() {
     const id = deleteConfirmId;
     setDeleteConfirmId(null);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       await invoke("bridge_send", {
         cmd: "conversation_delete",
         payload: { conversation_id: id },

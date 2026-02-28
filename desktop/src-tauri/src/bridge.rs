@@ -36,6 +36,26 @@ fn kill_pid(pid: u32) {
     }
 }
 
+/// 安装包内与 exe 同目录的 bridge 可执行文件（PyInstaller 打的 comsol-agent-bridge-*.exe）
+fn find_bundled_bridge_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let entries = std::fs::read_dir(dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        #[cfg(target_os = "windows")]
+        if name_str.starts_with("comsol-agent-bridge") && name_str.ends_with(".exe") {
+            return Some(entry.path());
+        }
+        #[cfg(not(target_os = "windows"))]
+        if name_str.starts_with("comsol-agent-bridge") {
+            return Some(entry.path());
+        }
+    }
+    None
+}
+
 fn find_project_root() -> Option<PathBuf> {
     if let Ok(mut dir) = std::env::current_dir() {
         for _ in 0..10 {
@@ -110,7 +130,35 @@ pub fn bundled_java_home_from_app(app: &tauri::App) -> Option<PathBuf> {
 }
 
 pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<Child, String> {
-    let root = find_project_root().ok_or("Cannot find project root (pyproject.toml)")?;
+    // 优先使用安装包内打包的 bridge 可执行文件（与 exe 同目录）
+    if let Some(bridge_exe) = find_bundled_bridge_exe() {
+        let mut builder = Command::new(&bridge_exe);
+        builder
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null());
+        if let Some(ref d) = bridge_exe.parent() {
+            builder.current_dir(d);
+        }
+        if let Some(ref jh) = bundled_java_home {
+            builder.env("JAVA_HOME", jh);
+            builder.env("COMSOL_AGENT_USE_BUNDLED_JAVA", "1");
+        }
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            builder.creation_flags(CREATE_NO_WINDOW);
+        }
+        let child = builder.spawn().map_err(|e| {
+            format!("Failed to start bundled bridge ({}): {}", bridge_exe.display(), e)
+        })?;
+        if child.stdin.is_some() && child.stdout.is_some() {
+            return Ok(child);
+        }
+    }
+
+    // 开发环境：从项目根启动 Python cli.py tui-bridge
+    let root = find_project_root().ok_or("Cannot find project root (pyproject.toml). 安装包需包含 bridge 可执行文件；从源码运行需在项目根目录。")?;
     let (cmd, args) = find_python_cmd(&root);
 
     let mut builder = Command::new(&cmd);
@@ -124,6 +172,7 @@ pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<Child, St
 
     if let Some(ref jh) = bundled_java_home {
         builder.env("JAVA_HOME", jh);
+        builder.env("COMSOL_AGENT_USE_BUNDLED_JAVA", "1");
     }
 
     #[cfg(target_os = "windows")]

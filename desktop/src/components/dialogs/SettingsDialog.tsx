@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useTheme, ACCENT_PRESETS } from "../../context/ThemeContext";
 import { useAppState } from "../../context/AppStateContext";
 import {
@@ -189,6 +190,21 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       alert("未找到操作记录文件 operations.md，请确认模型所在目录。");
     });
   }, []);
+
+  /** 打开目录选择器，用于 COMSOL JAR 路径或 JAVA_HOME */
+  const pickDirectory = useCallback(
+    (title: string, currentPath: string, onPick: (path: string) => void) => {
+      open({
+        directory: true,
+        multiple: false,
+        title,
+        defaultPath: currentPath || undefined,
+      }).then((selected) => {
+        if (selected != null) onPick(selected);
+      });
+    },
+    []
+  );
 
   const renderRow = (label: string, control: React.ReactNode, rowKey?: string) => (
     <div className={`settings-pane-row ${!label ? "settings-pane-row--full" : ""}`} key={rowKey ?? (label || "action")}>
@@ -457,19 +473,75 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
           {activeTab === "comsol" && (
             <div className="settings-card">
-              <p className="settings-hint">COMSOL JAR 路径为执行几何/物理/求解时使用；保存后将同步到 .env 并加载。</p>
+              <p className="settings-hint">通过「选择目录」在文件管理器中选择 COMSOL plugins 目录与 Java 8/11 安装目录；留空则使用内置或系统 Java。保存后将同步到 .env 并加载。</p>
               <div className="settings-field">
                 <label>COMSOL JAR 路径 (COMSOL_JAR_PATH)</label>
+                <div className="settings-path-row">
                   <input
                     type="text"
-                    className="dialog-input settings-api-input"
-                    placeholder="D:\comsol\COMSOL63\Multiphysics\plugins"
+                    className="dialog-input settings-api-input settings-path-input"
+                    placeholder="未选择"
                     value={apiConfig.comsol_jar_path}
-                    onChange={(e) =>
-                      setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: e.target.value }))
-                    }
+                    readOnly
                   />
+                  <button
+                    type="button"
+                    className="dialog-btn secondary"
+                    onClick={() =>
+                      pickDirectory(
+                        "选择 COMSOL plugins 目录",
+                        apiConfig.comsol_jar_path,
+                        (path) => setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: path }))
+                      )
+                    }
+                  >
+                    选择目录
+                  </button>
+                  {apiConfig.comsol_jar_path && (
+                    <button
+                      type="button"
+                      className="dialog-btn secondary"
+                      onClick={() => setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: "" }))}
+                    >
+                      清除
+                    </button>
+                  )}
                 </div>
+              </div>
+              <div className="settings-field">
+                <label>Java8/11 环境 (JAVA_HOME)</label>
+                <div className="settings-path-row">
+                  <input
+                    type="text"
+                    className="dialog-input settings-api-input settings-path-input"
+                    placeholder="未选择（使用内置或系统 Java）"
+                    value={apiConfig.java_home}
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    className="dialog-btn secondary"
+                    onClick={() =>
+                      pickDirectory(
+                        "选择 Java 8 或 11 安装目录",
+                        apiConfig.java_home,
+                        (path) => setApiConfig((c: ApiConfig) => ({ ...c, java_home: path }))
+                      )
+                    }
+                  >
+                    选择目录
+                  </button>
+                  {apiConfig.java_home && (
+                    <button
+                      type="button"
+                      className="dialog-btn secondary"
+                      onClick={() => setApiConfig((c: ApiConfig) => ({ ...c, java_home: "" }))}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              </div>
                 {renderRow(
                   "",
                   <>

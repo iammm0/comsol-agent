@@ -16,6 +16,7 @@ fn apply_window_icon(window: tauri::WebviewWindow) {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(Mutex::new(BridgeStateInner {
             child: None,
             stream_pid: None,

@@ -14,6 +14,8 @@ export interface ApiConfig {
   ollama_url: string;
   ollama_model: string;
   comsol_jar_path: string;
+  /** Java 8 或 11 安装目录（JAVA_HOME），留空使用内置或系统 Java */
+  java_home: string;
 }
 
 const defaultConfig: ApiConfig = {
@@ -28,6 +30,7 @@ const defaultConfig: ApiConfig = {
   ollama_url: "http://localhost:11434",
   ollama_model: "llama3",
   comsol_jar_path: "",
+  java_home: "",
 };
 
 export function loadApiConfig(): ApiConfig {
@@ -64,6 +67,7 @@ export function apiConfigToEnv(config: ApiConfig): Record<string, string> {
   if (config.ollama_url) env.OLLAMA_URL = config.ollama_url;
   if (config.ollama_model) env.OLLAMA_MODEL = config.ollama_model;
   if (config.comsol_jar_path) env.COMSOL_JAR_PATH = config.comsol_jar_path;
+  if (config.java_home) env.JAVA_HOME = config.java_home;
   return env;
 }
 

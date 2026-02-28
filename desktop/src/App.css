@@ -1787,6 +1787,19 @@ body {
 .settings-api-input {
   max-width: 100%;
 }
+.settings-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-path-row .settings-path-input {
+  flex: 1;
+  min-width: 120px;
+}
+.settings-path-row .dialog-btn {
+  flex-shrink: 0;
+}
 .settings-status {
   font-size: 12px;
   color: var(--text-muted);

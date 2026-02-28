@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "./context/AppStateContext";
 import { Sidebar } from "./components/Sidebar";
 import { Session } from "./components/Session";
@@ -31,9 +32,7 @@ export default function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    void import("@tauri-apps/api/core")
-      .then((m) => m.invoke("apply_window_icon"))
-      .catch(() => {});
+    invoke("apply_window_icon").catch(() => {});
   }, []);
 
   const dialogContent = (() => {

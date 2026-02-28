@@ -85,22 +85,38 @@ export interface QuickPromptGroup {
   prompts: QuickPromptItem[];
 }
 
+/** 快捷提示：覆盖仅几何、几何+材料、几何+物理场、几何+研究、完整流程，用于测试各链路与中断点 */
 export const QUICK_PROMPT_GROUPS: QuickPromptGroup[] = [
   {
-    title: "几何",
-    hint: "2D/3D",
+    title: "仅几何",
+    hint: "只建几何，不走材料/物理/求解",
     prompts: [
-      { label: "矩形", text: "创建一个宽 1 米、高 0.5 米的矩形" },
-      { label: "圆", text: "创建一个半径为 0.2 米的圆" },
-      { label: "长方体", text: "创建一个 1×0.5×0.3 米的长方体" },
+      { label: "矩形就行", text: "建个宽 1 米、高 0.5 米的矩形就行" },
+      { label: "仅几何-圆", text: "仅几何：创建一个半径为 0.2 米的圆" },
+      { label: "仅几何-长方体", text: "只建几何：创建一个 1×0.5×0.3 米的长方体" },
     ],
   },
   {
-    title: "物理与求解",
-    hint: "传热/稳态",
+    title: "几何 + 材料",
+    hint: "测试材料链路",
     prompts: [
-      { label: "传热稳态", text: "添加固体传热物理场并做稳态研究" },
-      { label: "结构静力学", text: "添加固体力学并做稳态研究" },
+      { label: "矩形+材料", text: "创建一个宽 1 米、高 0.5 米的矩形，并分配材料" },
+    ],
+  },
+  {
+    title: "几何 + 物理场",
+    hint: "测试物理场链路",
+    prompts: [
+      { label: "矩形+传热", text: "创建一个矩形，添加固体传热物理场" },
+      { label: "矩形+力学", text: "创建一个矩形，添加固体力学物理场" },
+    ],
+  },
+  {
+    title: "几何 + 研究/求解",
+    hint: "测试研究与求解链路",
+    prompts: [
+      { label: "传热稳态", text: "创建一个矩形，添加传热物理场并做稳态研究" },
+      { label: "完整流程-传热", text: "创建一个传热模型，包含一个矩形域，设置温度边界条件，进行稳态求解" },
     ],
   },
   {
