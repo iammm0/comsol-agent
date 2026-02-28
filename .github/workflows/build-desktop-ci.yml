@@ -1,4 +1,4 @@
-# Tauri 桌面端：仅构建（不发布），用于 PR 与 main 分支
+# Tauri 桌面端：构建；推 main 且构建成功后打 tag 并推送，触发发布工作流
 # 触发：推送到 main、或向 main/release 提 PR
 name: Build Desktop (CI)
 
@@ -55,3 +55,41 @@ jobs:
         with:
           projectPath: desktop
           args: ${{ matrix.args }}
+
+  # 仅 push 到 main 时：构建成功后打 tag 并推送，触发 Build and Release Desktop 发布
+  tag-and-release:
+    needs: build-tauri
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tauri.conf.json
+        id: version
+        shell: bash
+        run: |
+          V=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          echo "version=$V" >> $GITHUB_OUTPUT
+          echo "tag=desktop-v$V" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        id: check-tag
+        run: |
+          if git ls-remote --exit-code --tags origin refs/tags/${{ steps.version.outputs.tag }}; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check-tag.outputs.exists != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Desktop ${{ steps.version.outputs.version }} (auto from CI)"
+          git push origin "${{ steps.version.outputs.tag }}"
