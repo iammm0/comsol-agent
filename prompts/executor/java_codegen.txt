@@ -49,7 +49,28 @@
 - model.study("std1").create("std", "Stationary")
 - model.study("std1").run()
 
-4. 保存：model.save(filePath)
+### 选择集（Selection）
+- model.component("comp1").selection().create("sel1", "Explicit")
+- model.component("comp1").selection("sel1").geom("geom1")
+- model.component("comp1").selection("sel1").set(new int[]{1, 2}) 或 .all()
+
+### 几何导入（Import）
+- model.component("comp1").geom("geom1").create("imp1", "Import")
+- model.component("comp1").geom("geom1").feature("imp1").set("filename", path)
+- model.component("comp1").geom("geom1").run()
+
+### 网格（标签约定 mesh1 / geom1）
+- model.component("comp1").mesh().create("mesh1", "geom1")
+- model.component("comp1").mesh("mesh1").create("size", "Size")
+- model.component("comp1").mesh("mesh1").feature("size").set("hauto", 5)
+- model.component("comp1").mesh("mesh1").run()
+
+### 结果导出
+- model.result().export().create("img1", "Image")
+- model.result().export("img1").set("filename", path).set("plotgroup", "pg1").run()
+- model.result().export().create("data1", "Data"); ... .set("data", "dset1").run()
+
+5. 保存：model.save(filePath)
 
 ## 输入计划（JSON）
 {plan_json}
@@ -57,7 +78,11 @@
 ## 要求
 - 生成完整 Java 代码：含 import、主类、所有配置步骤、保存及异常处理
 - 语法正确，符合 COMSOL Java API 规范
-- 使用 component("comp1") 路径创建几何和物理场
-- 最后调用 run() 构建几何和网格
+- 标签约定：组件 comp1、几何 geom1、网格 mesh1、研究 std1、选择集 sel1 等
+- 使用 component("comp1") 路径创建几何、物理场、网格、选择集
+- 几何构建后调用 geom("geom1").run()；网格构建后调用 mesh("mesh1").run()
+- 若涉及选择集，先在 selection 下 create 再在物理场/网格中引用
+- 若涉及导入几何，在 geom 下创建 Import 特征并 set("filename", path) 后 run()
+- 若涉及导出结果，使用 result().export().create(tag, "Image"/"Data") 再 set 与 run()
 
 请只输出可执行的 Java 源码，不要输出解释性文字。

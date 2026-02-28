@@ -42,6 +42,30 @@ class TestReasoningEngine:
         assert path[0].action == "create_geometry"
         assert path[1].action == "add_physics"
         assert path[2].action == "solve"
+
+    def test_plan_execution_path_new_actions(self):
+        """规划路径支持 import_geometry / create_selection / export_results。"""
+        mock_llm = Mock()
+        engine = ReasoningEngine(mock_llm)
+        understanding = {
+            "task_type": "full",
+            "required_steps": ["create_geometry", "import_geometry", "create_selection", "export_results"],
+            "parameters": {
+                "geometry_input": "矩形",
+                "file_path": "/data/part.step",
+                "tag": "sel1",
+                "out_path": "/out/result.png",
+            },
+        }
+        path = engine.plan_execution_path(understanding)
+        actions = [s.action for s in path]
+        assert "import_geometry" in actions
+        assert "create_selection" in actions
+        assert "export_results" in actions
+        step_types = [s.step_type for s in path]
+        assert "geometry_io" in step_types
+        assert "selection" in step_types
+        assert "postprocess" in step_types
     
     def test_plan_reasoning_path(self):
         """测试推理路径规划"""
@@ -60,7 +84,44 @@ class TestReasoningEngine:
 
 class TestActionExecutor:
     """测试行动执行器"""
-    
+
+    def test_execute_unknown_action_returns_error(self):
+        """未知 action 返回错误；import_geometry / create_selection / export_results 有对应 handler。"""
+        executor = ActionExecutor()
+        plan = Mock()
+        plan.model_path = None
+        plan.output_dir = None
+        step = ExecutionStep(step_id="s1", step_type="geometry", action="unknown_action", status="pending")
+        result = executor.execute(plan, step, {"parameters": {}})
+        assert result.get("status") == "error"
+        assert "未知" in result.get("message", "")
+
+    def test_execute_import_geometry_without_model_path(self):
+        """import_geometry 在无 model_path 时返回明确错误。"""
+        executor = ActionExecutor()
+        plan = Mock()
+        plan.model_path = None
+        step = ExecutionStep(
+            step_id="s1", step_type="geometry_io", action="import_geometry",
+            parameters={"file_path": "/x.step"}, status="pending",
+        )
+        result = executor.execute(plan, step, {"parameters": {"file_path": "/x.step"}})
+        assert result.get("status") == "error"
+        assert "模型文件不存在" in result.get("message", "")
+
+    def test_execute_export_results_without_model_path(self):
+        """export_results 在无 model_path 时返回明确错误。"""
+        executor = ActionExecutor()
+        plan = Mock()
+        plan.model_path = None
+        step = ExecutionStep(
+            step_id="s1", step_type="postprocess", action="export_results",
+            parameters={"out_path": "/out.png"}, status="pending",
+        )
+        result = executor.execute(plan, step, {"parameters": {"out_path": "/out.png"}})
+        assert result.get("status") == "error"
+        assert "模型文件不存在" in result.get("message", "")
+
     def test_execute_geometry(self):
         """测试几何执行"""
         executor = ActionExecutor()

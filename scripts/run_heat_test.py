@@ -10,7 +10,7 @@ load_dotenv(root / ".env")
 from agent.utils.java_runtime import ensure_java_home_from_venv
 ensure_java_home_from_venv(root)
 
-from agent.dependencies import get_agent, get_context_manager
+from agent.core.dependencies import get_agent, get_context_manager
 from agent.utils.env_check import validate_environment
 from agent.utils.logger import setup_logging, get_logger
 

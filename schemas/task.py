@@ -13,9 +13,10 @@ class ExecutionStep(BaseModel):
     """执行步骤"""
 
     step_id: str = Field(..., description="步骤ID")
-    step_type: Literal["geometry", "material", "physics", "mesh", "study", "solve"] = Field(
-        ..., description="步骤类型"
-    )
+    step_type: Literal[
+        "geometry", "material", "physics", "mesh", "study", "solve",
+        "selection", "geometry_io", "postprocess",
+    ] = Field(..., description="步骤类型")
     action: str = Field(..., description="执行动作")
     parameters: Dict[str, Any] = Field(default={}, description="步骤参数")
     status: Literal["pending", "running", "completed", "failed"] = Field(
@@ -122,6 +123,12 @@ class ReActTaskPlan(BaseModel):
 
     # 具体规划说明（按 COMSOL 流程：几何、材料、物理场、网格、研究、求解等，用于展示与迭代时参考）
     plan_description: Optional[str] = Field(default=None, description="具体规划说明，非原样复述用户提示词")
+
+    # 在该步骤执行完成后保存 .mph 并结束流程；不填或 solve 表示完整流程。用于「仅几何/仅材料/到网格就停」等场景
+    stop_after_step: Optional[str] = Field(
+        default=None,
+        description="执行到该步骤后保存模型并退出，取值：create_geometry/add_material/add_physics/generate_mesh/configure_study/solve",
+    )
 
     # 子计划（动态属性，由 ActionExecutor 填充）
     geometry_plan: Optional[Any] = None

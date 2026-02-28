@@ -140,6 +140,38 @@ class TestTaskPlan:
         assert step.step_type == "geometry"
         assert step.action == "create_geometry"
 
+    def test_execution_step_new_types(self):
+        """ExecutionStep 支持 selection / geometry_io / postprocess 及对应 action。"""
+        step = ExecutionStep(
+            step_id="s1",
+            step_type="selection",
+            action="create_selection",
+            parameters={"tag": "sel1"},
+            status="pending",
+        )
+        assert step.step_type == "selection"
+        assert step.action == "create_selection"
+
+        step2 = ExecutionStep(
+            step_id="s2",
+            step_type="geometry_io",
+            action="import_geometry",
+            parameters={"file_path": "/path/to/file.step"},
+            status="pending",
+        )
+        assert step2.step_type == "geometry_io"
+        assert step2.action == "import_geometry"
+
+        step3 = ExecutionStep(
+            step_id="s3",
+            step_type="postprocess",
+            action="export_results",
+            parameters={"out_path": "/output/plot.png"},
+            status="pending",
+        )
+        assert step3.step_type == "postprocess"
+        assert step3.action == "export_results"
+
     def test_react_task_plan_get_current_step(self):
         plan = ReActTaskPlan(
             task_id="t1",
