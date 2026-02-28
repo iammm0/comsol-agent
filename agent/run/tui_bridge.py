@@ -1,10 +1,10 @@
-"""TUI 桥接：从 stdin 读 JSON 行，调用 agent.actions，向 stdout 写 JSON 行。供 Bun OpenTUI 前端通过子进程调用。"""
+"""TUI 桥接：从 stdin 读 JSON 行，调用 agent.run.actions，向 stdout 写 JSON 行。供 Bun OpenTUI 前端通过子进程调用。"""
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
-from agent.actions import (
+from agent.run.actions import (
     do_run,
     do_plan,
     do_exec_from_file,
@@ -19,7 +19,7 @@ from agent.actions import (
     do_ollama_ping,
     do_config_save,
 )
-from agent.events import EventBus, Event, EventType
+from agent.core.events import EventBus, Event, EventType
 from agent.executor.java_api_controller import JavaAPIController
 from agent.utils.context_manager import get_all_models_from_context, get_context_manager
 

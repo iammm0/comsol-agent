@@ -1,7 +1,7 @@
-"""Q&A Agent：仅对话、介绍、帮助，不调用工具。"""
+"""Summary Agent：对当轮工具执行结果做摘要，供用户与审计。"""
 from typing import Optional, Any
 
-from agent.base import BaseAgent
+from agent.core.base import BaseAgent
 from agent.utils.llm import LLMClient
 from agent.utils.config import get_settings
 from agent.utils.logger import get_logger
@@ -9,14 +9,13 @@ from agent.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class QAAgent(BaseAgent):
-    """轻量 Q&A：只做对话与帮助，响应快、成本低。"""
+class SummaryAgent(BaseAgent):
+    """对当轮执行结果做简短摘要。"""
 
     def _default_system_prompt(self) -> str:
         return (
-            "你是 COMSOL Multiphysics 建模助手。"
-            "回答用户关于 COMSOL 的简介、帮助、概念问题。"
-            "若用户需要实际创建模型或执行操作，请建议他们直接描述建模需求。"
+            "你是 COMSOL 建模助手。根据本轮的建模步骤与执行结果，"
+            "用一两句话总结完成了什么、是否有错误或警告。"
         )
 
     def __init__(
@@ -41,8 +40,11 @@ class QAAgent(BaseAgent):
         )
 
     def process(self, user_input: str, **kwargs: Any) -> str:
-        """仅做对话回复，不调用工具。"""
-        logger.debug("Q&A 处理: %s", user_input[:80])
-        prompt = f"{self.system_prompt}\n\n用户: {user_input}\n\n助手:"
-        reply = self.llm.call(prompt, temperature=0.7)
-        return (reply or "").strip()
+        """
+        对「当轮工具执行结果」做摘要。
+        user_input 可为执行结果文本或结构化摘要描述；kwargs 可传额外上下文。
+        """
+        logger.debug("Summary 处理")
+        prompt = f"{self.system_prompt}\n\n本轮执行结果:\n{user_input}\n\n摘要:"
+        summary = self.llm.call(prompt, temperature=0.3)
+        return (summary or "").strip()

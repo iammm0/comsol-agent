@@ -1,9 +1,9 @@
 """Celery 任务：会话记忆更新（摘要式记忆）。"""
-from agent.celery_app import app
-from agent.memory_agent import update_conversation_memory
+from agent.core.celery_app import app
+from agent.memory.memory_agent import update_conversation_memory
 
 
-@app.task(name="agent.memory_tasks.update_memory_task")
+@app.task(name="agent.memory.tasks.update_memory_task")
 def update_memory_task(
     conversation_id: str,
     user_input: str,

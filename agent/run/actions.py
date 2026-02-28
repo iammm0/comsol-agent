@@ -3,11 +3,11 @@ import json
 from pathlib import Path
 from typing import Optional, Tuple, Any
 
-from agent.dependencies import get_agent, get_context_manager, get_settings
-from agent.events import EventBus
+from agent.core.dependencies import get_agent, get_context_manager, get_settings
+from agent.core.events import EventBus
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_generator import JavaGenerator
-from agent.memory_agent import update_conversation_memory
+from agent.memory import update_conversation_memory
 from agent.utils.env_check import check_environment
 from agent.utils.logger import setup_logging, get_logger
 from schemas.geometry import GeometryPlan
@@ -25,7 +25,7 @@ def _update_memory_after_run(
     if not conversation_id:
         return
     try:
-        from agent.memory_tasks import update_memory_task
+        from agent.memory.tasks import update_memory_task
         update_memory_task.delay(
             conversation_id, user_input, assistant_summary, success
         )

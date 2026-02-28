@@ -2,9 +2,9 @@
 from pathlib import Path
 from typing import Optional, Callable, Any
 
-from agent.events import EventBus, EventType
-from agent.router import route
-from agent.dependencies import get_agent, get_event_bus, get_router
+from agent.core.events import EventBus, EventType
+from agent.core.router import route
+from agent.core.dependencies import get_agent, get_event_bus, get_router
 
 
 class SessionOrchestrator:

@@ -1,7 +1,6 @@
 """Tool 注册表：name/description/parameters，供 ReAct 与 LLM function calling 使用。"""
 from typing import Dict, Any, List, Callable, Optional
-from dataclasses import dataclass, field
-from pydantic import BaseModel, Field
+from dataclasses import dataclass
 
 # 与 LLM 对接时的 parameters 通常为 JSON Schema 字典
 ParametersSchema = Dict[str, Any]
