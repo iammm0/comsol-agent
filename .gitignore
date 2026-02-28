@@ -87,3 +87,5 @@ desktop/src-tauri/target/
 # 桌面安装包内嵌 JDK 11 内容（不提交，保留目录与 .gitkeep）
 desktop/src-tauri/resources/runtime/java/*
 !desktop/src-tauri/resources/runtime/java/.gitkeep
+# 桌面安装包内嵌 Python bridge（PyInstaller 构建，不提交）
+desktop/src-tauri/binaries/
