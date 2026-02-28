@@ -23,6 +23,7 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
 {{
   "task_type": "full 或 geometry/physics/study",
   "required_steps": ["create_geometry", "add_material", "add_physics", "generate_mesh", "configure_study", "solve"],
+  "stop_after_step": "执行到该步后保存 .mph 并结束，取值 create_geometry/add_material/add_physics/generate_mesh/configure_study/solve；不填或 solve 表示完整流程",
   "parameters": {{
     "geometry_input": "具体几何描述，如：创建 3D 长方体，长宽高 1m、0.5m、0.2m",
     "material_input": "具体材料描述，如：全部域分配钢材；线弹性需 E=200e9 Pa、nu=0.3",

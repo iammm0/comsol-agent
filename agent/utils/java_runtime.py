@@ -173,7 +173,7 @@ def is_project_java_path(path: Optional[str]) -> bool:
 def get_effective_java_home() -> Optional[str]:
     """
     解析当前应使用的 JAVA_HOME。
-    顺序：配置/环境变量 JAVA_HOME > 项目内 java11/jdk11/java/jdk 目录 > runtime/java（若已存在）。
+    顺序：配置/环境变量 JAVA_HOME > 项目内 java11/jdk11/jdk 等目录 > runtime/java（若已存在）。
     """
     settings = get_settings()
     if settings.java_home and Path(settings.java_home).exists():

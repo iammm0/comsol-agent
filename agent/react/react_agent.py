@@ -10,7 +10,7 @@ from agent.react.iteration_controller import IterationController
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
-from agent.events import EventBus, EventType
+from agent.core.events import EventBus, EventType
 from schemas.task import ReActTaskPlan, ExecutionStep, Observation
 
 logger = get_logger(__name__)
@@ -83,6 +83,7 @@ class ReActAgent:
                     "steps": steps_summary,
                     "model_name": plan.model_name,
                     "plan_description": getattr(plan, "plan_description", None) or "",
+                    "stop_after_step": getattr(plan, "stop_after_step", None),
                 },
             )
         
@@ -336,6 +337,9 @@ class ReActAgent:
             "generate_mesh": "mesh",
             "configure_study": "study",
             "solve": "solve",
+            "import_geometry": "geometry_io",
+            "create_selection": "selection",
+            "export_results": "postprocess",
         }
         
         step_type = step_type_map.get(action, "geometry")

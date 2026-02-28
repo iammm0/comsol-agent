@@ -78,7 +78,7 @@ def main() -> None:
 
         load_dotenv(root / ".env")
         ensure_java_home_from_venv(root)
-        from agent.tui_bridge import main as bridge_main
+        from agent.run.tui_bridge import main as bridge_main
         bridge_main()
         return
 

@@ -10,7 +10,7 @@ from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_api_controller import JavaAPIController
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
-from agent.events import EventType
+from agent.core.events import EventType
 from schemas.task import ReActTaskPlan, ExecutionStep
 
 logger = get_logger(__name__)
@@ -60,6 +60,9 @@ class ActionExecutor:
             "generate_mesh": self.execute_mesh,
             "configure_study": self.execute_study,
             "solve": self.execute_solve,
+            "import_geometry": self.execute_import_geometry,
+            "create_selection": self.execute_create_selection,
+            "export_results": self.execute_export_results,
             "retry": self.execute_retry,
             "skip": self.execute_skip,
         }
@@ -190,7 +193,9 @@ class ActionExecutor:
         physics_input = thought.get("parameters", {}).get("physics_input", plan.user_input)
 
         try:
-            physics_plan = self._physics_agent.parse(physics_input)
+            physics_plan = getattr(plan, "physics_plan", None)
+            if not physics_plan:
+                physics_plan = self._physics_agent.parse(physics_input)
             result = self.java_api_controller.add_physics(plan.model_path, physics_plan)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "物理场设置失败")}
@@ -206,7 +211,7 @@ class ActionExecutor:
             return {
                 "status": "success",
                 "message": "物理场设置成功",
-                "physics_plan": physics_plan.model_dump(),
+                "physics_plan": physics_plan.model_dump() if hasattr(physics_plan, "model_dump") else physics_plan,
             }
         except NotImplementedError:
             logger.warning("PhysicsAgent 尚未实现，跳过物理场设置")
@@ -258,7 +263,9 @@ class ActionExecutor:
         study_input = thought.get("parameters", {}).get("study_input", plan.user_input)
 
         try:
-            study_plan = self._study_agent.parse(study_input)
+            study_plan = getattr(plan, "study_plan", None)
+            if not study_plan:
+                study_plan = self._study_agent.parse(study_input)
             result = self.java_api_controller.configure_study(plan.model_path, study_plan)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "研究配置失败")}
@@ -266,11 +273,11 @@ class ActionExecutor:
                 plan.model_path = result["saved_path"]
             if self._context_manager:
                 self._context_manager.append_operation("研究配置", "研究配置成功", "success", plan.model_path)
-            self._emit_step_end("研究配置", "研究配置成功", study_plan=study_plan.model_dump())
+            self._emit_step_end("研究配置", "研究配置成功", study_plan=study_plan.model_dump() if hasattr(study_plan, "model_dump") else study_plan)
             return {
                 "status": "success",
                 "message": "研究配置成功",
-                "study_plan": study_plan.model_dump(),
+                "study_plan": study_plan.model_dump() if hasattr(study_plan, "model_dump") else study_plan,
             }
         except NotImplementedError:
             logger.warning("StudyAgent 尚未实现，跳过研究配置")
@@ -303,6 +310,93 @@ class ActionExecutor:
         except Exception as e:
             logger.error(f"求解失败: {e}")
             return {"status": "error", "message": f"求解失败: {e}"}
+
+    # ===== Geometry IO / Selection / Postprocess =====
+
+    def execute_import_geometry(
+        self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """导入几何文件（STEP/IGES/STL 等）。"""
+        if not plan.model_path:
+            return {"status": "error", "message": "模型文件不存在，请先执行几何建模"}
+        params = thought.get("parameters", {}) or step.parameters
+        file_path = params.get("file_path") or params.get("path")
+        if not file_path:
+            return {"status": "error", "message": "缺少 file_path 参数"}
+        self._emit_step_start("几何导入", "正在导入几何文件...")
+        result = self.java_api_controller.import_geometry(
+            plan.model_path,
+            file_path,
+            geom_tag=params.get("geom_tag", "geom1"),
+            feature_tag=params.get("feature_tag"),
+        )
+        if result.get("status") == "error":
+            return result
+        if result.get("saved_path"):
+            plan.model_path = result["saved_path"]
+        self._emit_step_end("几何导入", result.get("message", "几何导入成功"), path=file_path)
+        return {"status": "success", "message": result.get("message", "几何导入成功"), "path": file_path}
+
+    def execute_create_selection(
+        self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """创建选择集。"""
+        if not plan.model_path:
+            return {"status": "error", "message": "模型文件不存在，请先执行几何建模"}
+        params = thought.get("parameters", {}) or step.parameters
+        tag = params.get("tag") or params.get("selection_tag", "sel1")
+        self._emit_step_start("选择集", f"正在创建选择集 {tag}...")
+        result = self.java_api_controller.create_selection(
+            plan.model_path,
+            tag=tag,
+            kind=params.get("kind", "Explicit"),
+            geom_tag=params.get("geom_tag", "geom1"),
+            entity_dim=params.get("entity_dim"),
+            entities=params.get("entities"),
+            all=params.get("all"),
+        )
+        if result.get("status") == "error":
+            return result
+        self._emit_step_end("选择集", result.get("message", "选择集创建成功"), tag=tag)
+        return {"status": "success", "message": result.get("message"), "tag": tag}
+
+    def execute_export_results(
+        self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """导出结果图或数据。"""
+        if not plan.model_path:
+            return {"status": "error", "message": "模型文件不存在"}
+        params = thought.get("parameters", {}) or step.parameters
+        out_path = params.get("out_path") or params.get("output_path") or params.get("path")
+        if not out_path:
+            return {"status": "error", "message": "缺少 out_path 参数"}
+        self._emit_step_start("结果导出", "正在导出结果...")
+        export_type = (params.get("export_type") or "image").lower()
+        if export_type == "data" or params.get("dataset"):
+            result = self.java_api_controller.export_data(
+                plan.model_path,
+                params.get("dataset") or params.get("plot_group_tag", "dset1"),
+                out_path,
+                export_type=params.get("data_type", "Data"),
+                **{k: v for k, v in params.items() if k not in ("out_path", "output_path", "path", "export_type", "dataset", "plot_group_tag", "data_type")},
+            )
+        elif params.get("table_tag"):
+            result = self.java_api_controller.table_export(
+                plan.model_path, params["table_tag"], out_path
+            )
+        else:
+            result = self.java_api_controller.export_plot_image(
+                plan.model_path,
+                params.get("plot_group_tag", "pg1"),
+                out_path,
+                width=params.get("width", 800),
+                height=params.get("height", 600),
+                **{k: v for k, v in params.items() if k not in ("out_path", "output_path", "path", "plot_group_tag", "width", "height")},
+            )
+        if result.get("status") == "error":
+            return result
+        self._emit_step_end("结果导出", result.get("message", "导出成功"), path=out_path)
+        return {"status": "success", "message": result.get("message"), "path": out_path}
 
     # ===== Retry / Skip =====
 

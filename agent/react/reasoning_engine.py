@@ -4,29 +4,122 @@ import re
 from typing import Dict, Any, Optional, List
 from uuid import uuid4
 
+from typing import TYPE_CHECKING
 from agent.utils.llm import LLMClient
 from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
-from agent.events import EventBus, EventType
+from agent.core.events import EventBus, EventType
 from schemas.task import ReActTaskPlan, ExecutionStep, ReasoningCheckpoint
 
+if TYPE_CHECKING:
+    from schemas.task import TaskPlan
+
 logger = get_logger(__name__)
+
+# 用户说「只建几何」「只创建几何」等时，若 LLM 未设定 stop_after_step，用此处推断的步骤截断，避免默认走完整流程
+_GEOMETRY_ONLY_PHRASES = ("只建几何", "只创建几何", "仅几何", "只画几何", "就建几何", "建几何就行", "只要几何")
+_MATERIAL_STOP_PHRASES = ("加完材料就行", "只加材料", "材料加完就停", "赋完材料就结束")
+_PHYSICS_STOP_PHRASES = ("加完物理场就行", "加完物理场就停", "只加物理场", "物理场加完就结束")
+_MESH_STOP_PHRASES = ("划分完网格就停", "划分网格就停", "网格划完就结束", "只划分网格")
+
+
+def _infer_stop_after_from_user_input(user_input: str) -> Optional[str]:
+    """从用户输入推断应在哪一步结束后保存并退出；未识别则返回 None（表示不覆盖 LLM 的 stop_after_step）。"""
+    if not (user_input or "").strip():
+        return None
+    text = (user_input or "").strip()
+    if any(p in text for p in _GEOMETRY_ONLY_PHRASES):
+        return "create_geometry"
+    if any(p in text for p in _MATERIAL_STOP_PHRASES):
+        return "add_material"
+    if any(p in text for p in _PHYSICS_STOP_PHRASES):
+        return "add_physics"
+    if any(p in text for p in _MESH_STOP_PHRASES):
+        return "generate_mesh"
+    return None
+
+
+def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
+    """
+    从 TaskPlan（编排器产出）转为 ReAct 执行链路。
+    严格按 COMSOL 顺序且仅包含指令需要的步骤：几何 → 材料 → 物理场 → 网格 → 研究 → 求解。
+    仅当需要物理场或研究时才添加网格/研究/求解（仅几何或几何+材料时只建模型不求解）。
+    """
+    steps = []
+    idx = 0
+    if task_plan.geometry:
+        idx += 1
+        steps.append(
+            ExecutionStep(
+                step_id=f"step_{idx}",
+                step_type="geometry",
+                action="create_geometry",
+                parameters={"geometry_input": ""},
+                status="pending",
+            )
+        )
+    if task_plan.material:
+        idx += 1
+        steps.append(
+            ExecutionStep(
+                step_id=f"step_{idx}",
+                step_type="material",
+                action="add_material",
+                parameters={"material_input": ""},
+                status="pending",
+            )
+        )
+    if task_plan.physics:
+        idx += 1
+        steps.append(
+            ExecutionStep(
+                step_id=f"step_{idx}",
+                step_type="physics",
+                action="add_physics",
+                parameters={"physics_input": ""},
+                status="pending",
+            )
+        )
+    # 仅当有物理场或研究时才需要网格、研究、求解（COMSOL 逻辑：不先完成几何和材料不能加物理场；不加物理场则不需要网格与求解）
+    need_solve = bool(task_plan.physics or getattr(task_plan, "study", None))
+    if need_solve:
+        idx += 1
+        steps.append(
+            ExecutionStep(step_id=f"step_{idx}", step_type="mesh", action="generate_mesh", parameters={}, status="pending")
+        )
+        idx += 1
+        steps.append(
+            ExecutionStep(
+                step_id=f"step_{idx}",
+                step_type="study",
+                action="configure_study",
+                parameters={"study_input": ""},
+                status="pending",
+            )
+        )
+        idx += 1
+        steps.append(
+            ExecutionStep(step_id=f"step_{idx}", step_type="solve", action="solve", parameters={}, status="pending")
+        )
+    return steps
 
 
 class ReasoningEngine:
     """推理引擎 - 负责推理和规划"""
 
-    def __init__(self, llm: LLMClient, event_bus: Optional[EventBus] = None):
+    def __init__(self, llm: LLMClient, event_bus: Optional[EventBus] = None, use_planner_orchestrator: bool = True):
         """
         初始化推理引擎
 
         Args:
             llm: LLM 客户端
             event_bus: 可选事件总线，用于流式输出 LLM 思维过程（LLM_STREAM_CHUNK）
+            use_planner_orchestrator: 若为 True，使用 PlannerOrchestrator 将用户提示词拆解为串行任务并调用几何/材料/物理场/研究四个 Agent，再转为 ReAct 计划；否则沿用原有 LLM 单次理解+规划。
         """
         self.llm = llm
         self._event_bus = event_bus
+        self._use_planner_orchestrator = use_planner_orchestrator
     
     def understand_and_plan(
         self,
@@ -44,8 +137,44 @@ class ReasoningEngine:
         """
         logger.info("理解用户需求并规划任务...")
 
+        if self._use_planner_orchestrator:
+            try:
+                from agent.planner.orchestrator import PlannerOrchestrator
+                orchestrator = PlannerOrchestrator()
+                task_plan, _, serial_plan = orchestrator.run(user_input, context=memory_context)
+                execution_path = _task_plan_to_execution_path(task_plan)
+                reasoning_path = self.plan_reasoning_path(execution_path)
+                plan_description = (serial_plan.plan_description or "").strip()
+                stop_after = execution_path[-1].action if execution_path else None
+                plan = ReActTaskPlan(
+                    task_id=str(uuid4()),
+                    model_name=model_name,
+                    user_input=user_input,
+                    execution_path=execution_path,
+                    reasoning_path=reasoning_path,
+                    status="planning",
+                    plan_description=plan_description.strip() or None,
+                    stop_after_step=stop_after,
+                )
+                plan.geometry_plan = task_plan.geometry
+                plan.material_plan = task_plan.material
+                plan.physics_plan = getattr(task_plan, "physics", None)
+                plan.study_plan = getattr(task_plan, "study", None)
+                logger.info(f"规划完成（编排器）: {len(execution_path)} 个执行步骤")
+                return plan
+            except Exception as e:
+                logger.warning("Planner 编排器执行失败，回退到 LLM 单次规划: %s", e)
+
         # 使用 LLM 理解需求（可注入记忆上下文）
         understanding = self.understand_requirement(user_input, memory_context=memory_context)
+
+        # 若用户明确说了「只建几何」「只创建几何」等，但 LLM 未设定 stop_after_step，则按用户措辞截断，避免默认走完整流程
+        inferred_stop = _infer_stop_after_from_user_input(user_input)
+        if inferred_stop is not None:
+            current = (understanding.get("stop_after_step") or "solve").strip().lower()
+            if not current or current == "solve":
+                understanding["stop_after_step"] = inferred_stop
+                logger.info("根据用户措辞推断停止步: %s", inferred_stop)
 
         # 规划执行链路（每个步骤带具体参数，而非原样复述用户提示词）
         execution_path = self.plan_execution_path(understanding)
@@ -55,6 +184,7 @@ class ReasoningEngine:
 
         # 具体规划说明（用于展示）
         plan_description = understanding.get("plan_description") or understanding.get("reasoning") or ""
+        stop_after_step = understanding.get("stop_after_step") or "solve"
 
         # 创建任务计划
         plan = ReActTaskPlan(
@@ -65,6 +195,7 @@ class ReasoningEngine:
             reasoning_path=reasoning_path,
             status="planning",
             plan_description=plan_description.strip() or None,
+            stop_after_step=stop_after_step if stop_after_step != "solve" else None,
         )
         
         logger.info(f"规划完成: {len(execution_path)} 个执行步骤, {len(reasoning_path)} 个检查点")
@@ -125,6 +256,7 @@ class ReasoningEngine:
         task_type = understanding.get("task_type", "full")
         required_steps = understanding.get("required_steps", [])
         params = understanding.get("parameters") or {}
+        stop_after_step = understanding.get("stop_after_step") or "solve"
 
         if not required_steps:
             if task_type == "geometry":
@@ -139,6 +271,16 @@ class ReasoningEngine:
                     "generate_mesh", "configure_study", "solve",
                 ]
 
+        # 按 stop_after_step 截断：只执行到该步（含）即保存模型并结束
+        step_order = [
+            "create_geometry", "add_material", "add_physics",
+            "generate_mesh", "configure_study", "solve",
+        ]
+        if stop_after_step and stop_after_step in step_order:
+            idx = step_order.index(stop_after_step)
+            allowed = set(step_order[: idx + 1])
+            required_steps = [s for s in required_steps if s in allowed]
+
         step_type_map = {
             "create_geometry": "geometry",
             "add_material": "material",
@@ -146,6 +288,9 @@ class ReasoningEngine:
             "generate_mesh": "mesh",
             "configure_study": "study",
             "solve": "solve",
+            "import_geometry": "geometry_io",
+            "create_selection": "selection",
+            "export_results": "postprocess",
         }
 
         # 每步只带该步需要的具体参数
@@ -156,6 +301,9 @@ class ReasoningEngine:
             "generate_mesh": {"mesh": params.get("mesh", {})},
             "configure_study": {"study_input": params.get("study_input", "")},
             "solve": {},
+            "import_geometry": {"file_path": params.get("file_path"), "geom_tag": params.get("geom_tag", "geom1")},
+            "create_selection": {"tag": params.get("tag", "sel1"), "geom_tag": params.get("geom_tag", "geom1"), "entities": params.get("entities"), "all": params.get("all")},
+            "export_results": {"out_path": params.get("out_path"), "plot_group_tag": params.get("plot_group_tag"), "export_type": params.get("export_type")},
         }
 
         for i, step_action in enumerate(required_steps):
