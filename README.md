@@ -37,6 +37,10 @@ COMSOL Agent 基于 **ReAct（Reasoning & Acting）** 架构：通过自然语�
 |-----------------|----------|----------|
 | ![COMSOL环境配置页面](assets/COMSOL环境配置页面.png) | ![记忆管理页面](assets/记忆管理页面.png) | ![主题切换页面](assets/主题切换页面.png) |
 
+| 命令浮窗 | 操作帮助 |
+|----------|----------|
+| ![命令浮窗页面](assets/命令浮窗页面.png) | ![操作帮助页面](assets/操作帮助页面.png) |
+
 ---
 
 ## 安装
@@ -47,9 +51,9 @@ COMSOL Agent 基于 **ReAct（Reasoning & Acting）** 架构：通过自然语�
 - **COMSOL Multiphysics**（已安装）
 - **Java JDK 8+**（与 COMSOL 兼容；项目也可使用内置 JDK 11）
 
-### 方式一：桌面版（推荐）
+### 方式一：桌面版（推荐，仅 Windows）
 
-从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载对应平台的安装包（tag 格式为 `desktop-v*`），解压或安装后运行即可，无需单独安装 Python。
+从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载 Windows 安装包（exe 或 msi，tag 格式为 `desktop-v*`），安装后运行即可，无需单独安装 Python。暂不支持 macOS/Linux 桌面版。
 
 ### 方式二：从源码运行（含桌面应用）
 
@@ -149,7 +153,6 @@ comsol-agent/
 ├── prompts/          # 提示词模板（planner / executor / react）
 ├── schemas/           # 数据模型（geometry, physics, study, task）
 ├── agent/             # 主流程包（见 agent/README.md）
-├── java/              # COMSOL Java API 相关
 ├── scripts/           # 构建与测试脚本
 ├── assets/            # README 与文档用截图
 └── tests/             # 单元测试
@@ -183,7 +186,7 @@ comsol-agent/
 - **格式**：`black agent/ tests/ main.py`
 - **贡献**：分支与提交规范见 [docs/project/CONTRIBUTING.md](docs/project/CONTRIBUTING.md)。
 
-桌面端发布通过 GitHub Actions 构建多平台安装包，推送到 `release` 分支或打 tag `desktop-v*` 触发，产物见 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases)。
+桌面端发布通过 GitHub Actions 仅构建 Windows 安装包（exe/msi），推送到 `release` 分支或打 tag `desktop-v*` 触发，产物见 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases)。
 
 ---
 
