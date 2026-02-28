@@ -56,6 +56,14 @@ jobs:
           projectPath: desktop
           args: ${{ matrix.args }}
 
+      - name: Upload desktop build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-${{ matrix.platform }}
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/msi/**/*.msi
+
   # 仅 push 到 main 时：构建成功后打 tag 并推送，触发 Build and Release Desktop 发布
   tag-and-release:
     needs: build-tauri
