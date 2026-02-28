@@ -1,7 +1,7 @@
 import { useAppState } from "../context/AppStateContext";
 
 export function Header() {
-  const { state, dispatch, sessionTitle, messages } = useAppState();
+  const { dispatch, sessionTitle, messages } = useAppState();
 
   return (
     <div className="header">

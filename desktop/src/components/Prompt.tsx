@@ -8,17 +8,25 @@ import {
 import { useAppState } from "../context/AppStateContext";
 import { useBridge } from "../hooks/useBridge";
 import { SLASH_COMMANDS } from "../lib/types";
+import type { SlashCommandItem } from "../lib/types";
 
 export function Prompt() {
-  const { state } = useAppState();
-  const { handleSubmit } = useBridge();
+  const { state, dispatch } = useAppState();
+  const { handleSubmit, abortRun } = useBridge();
   const [value, setValue] = useState("");
   const [showSlash, setShowSlash] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    if (state.editingDraft != null) {
+      setValue(state.editingDraft);
+      dispatch({ type: "SET_EDITING_DRAFT", text: null });
+    }
+  }, [state.editingDraft, dispatch]);
+
   const filteredSlash = value.startsWith("/")
-    ? SLASH_COMMANDS.filter((c) =>
+    ? SLASH_COMMANDS.filter((c: SlashCommandItem) =>
         c.display.startsWith(value.toLowerCase().split(/\s/)[0])
       )
     : [];
@@ -41,17 +49,17 @@ export function Prompt() {
       if (showSlash && filteredSlash.length > 0) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          setSlashIndex((i) => Math.min(i + 1, filteredSlash.length - 1));
+          setSlashIndex((i: number) => Math.min(i + 1, filteredSlash.length - 1));
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          setSlashIndex((i) => Math.max(i - 1, 0));
+          setSlashIndex((i: number) => Math.max(i - 1, 0));
           return;
         }
         if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
           e.preventDefault();
-          const cmd = filteredSlash[slashIndex];
+          const cmd: SlashCommandItem | undefined = filteredSlash[slashIndex];
           if (cmd) {
             handleSubmit(cmd.display);
             setValue("");
@@ -82,7 +90,7 @@ export function Prompt() {
       <div className="prompt-wrapper" style={{ position: "relative" }}>
         {showSlash && (
           <div className="slash-dropdown">
-            {filteredSlash.map((cmd, i) => (
+            {filteredSlash.map((cmd: SlashCommandItem, i: number) => (
               <div
                 key={cmd.name}
                 className={`slash-item ${i === slashIndex ? "active" : ""}`}
@@ -101,11 +109,19 @@ export function Prompt() {
           </div>
         )}
         <div className="prompt-tags">
-          <span
+          <button
+            type="button"
             className={`prompt-tag ${state.mode === "plan" ? "plan" : "run"}`}
+            onClick={() =>
+              dispatch({
+                type: "SET_MODE",
+                mode: state.mode === "plan" ? "run" : "plan",
+              })
+            }
+            title={state.mode === "plan" ? "切换到 Build" : "切换到 Plan"}
           >
             {state.mode === "plan" ? "Plan" : "Build"}
-          </span>
+          </button>
         </div>
         <textarea
           ref={textareaRef}
@@ -128,6 +144,16 @@ export function Prompt() {
         >
           ↑
         </button>
+        {state.busyConversationId != null && (
+          <button
+            type="button"
+            className="prompt-stop"
+            onClick={abortRun}
+            title="停止建模"
+          >
+            停止
+          </button>
+        )}
       </div>
     </div>
   );

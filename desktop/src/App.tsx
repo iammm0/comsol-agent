@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useAppState } from "./context/AppStateContext";
 import { Sidebar } from "./components/Sidebar";
 import { Session } from "./components/Session";
+import { TitleBar } from "./components/TitleBar";
 import { DialogOverlay } from "./components/dialogs/DialogOverlay";
 import { HelpDialog } from "./components/dialogs/HelpDialog";
 import { BackendDialog } from "./components/dialogs/BackendDialog";
@@ -9,6 +10,7 @@ import { ContextDialog } from "./components/dialogs/ContextDialog";
 import { ExecDialog } from "./components/dialogs/ExecDialog";
 import { OutputDialog } from "./components/dialogs/OutputDialog";
 import { SettingsDialog } from "./components/dialogs/SettingsDialog";
+import { ComsolOpsDialog } from "./components/dialogs/ComsolOpsDialog";
 
 export default function App() {
   const { state, dispatch } = useAppState();
@@ -27,6 +29,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [state.activeDialog, closeDialog]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    void import("@tauri-apps/api/core")
+      .then((m) => m.invoke("apply_window_icon"))
+      .catch(() => {});
+  }, []);
+
   const dialogContent = (() => {
     switch (state.activeDialog) {
       case "help":
@@ -39,6 +48,8 @@ export default function App() {
         return <ExecDialog onClose={closeDialog} />;
       case "output":
         return <OutputDialog onClose={closeDialog} />;
+      case "ops":
+        return <ComsolOpsDialog onClose={closeDialog} />;
       case "settings":
         return <SettingsDialog onClose={closeDialog} />;
       default:
@@ -48,9 +59,12 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar />
-      <div className="app-main">
-        <Session />
+      <TitleBar />
+      <div className="app-body">
+        <Sidebar />
+        <div className="app-main">
+          <Session />
+        </div>
       </div>
       {dialogContent && (
         <DialogOverlay onClose={closeDialog}>{dialogContent}</DialogOverlay>

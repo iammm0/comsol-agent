@@ -9,7 +9,30 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Command, Child};
 use tokio::sync::Mutex;
 
-pub type BridgeState = Arc<Mutex<Option<Child>>>;
+/// 子进程 + 当前流式调用占用的 PID（便于 abort 时按 PID 杀进程而不持锁）
+pub struct BridgeStateInner {
+    pub child: Option<Child>,
+    pub stream_pid: Option<u32>,
+}
+
+pub type BridgeState = Arc<Mutex<BridgeStateInner>>;
+
+/// 按 PID 终止进程（用于 bridge_abort 在流式读取期间杀子进程）
+fn kill_pid(pid: u32) {
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .args(["-9", pid.to_string()])
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID"])
+            .arg(pid.to_string())
+            .status();
+    }
+}
 
 fn find_project_root() -> Option<PathBuf> {
     if let Ok(mut dir) = std::env::current_dir() {
@@ -111,7 +134,7 @@ pub async fn bridge_send(
     payload: Value,
 ) -> Result<Value, String> {
     let mut guard = state.inner().as_ref().lock().await;
-    let child = guard.as_mut().ok_or("Python bridge not initialized")?;
+    let child = guard.child.as_mut().ok_or("Python bridge not initialized")?;
 
     let mut req = match payload.as_object() {
         Some(obj) => obj.clone(),
@@ -159,8 +182,15 @@ pub async fn bridge_send_stream(
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let mut guard = state.inner().as_ref().lock().await;
-    let child = guard.as_mut().ok_or("Python bridge not initialized")?;
+    let mut child = {
+        let mut guard = state.inner().as_ref().lock().await;
+        guard.child.take().ok_or("Python bridge not initialized")?
+    };
+    let stream_pid = child.id();
+    {
+        let mut guard = state.inner().as_ref().lock().await;
+        guard.stream_pid = stream_pid;
+    }
 
     let mut req = match payload.as_object() {
         Some(obj) => obj.clone(),
@@ -184,7 +214,7 @@ pub async fn bridge_send_stream(
     let stdout = child.stdout.as_mut().ok_or("Stdout not available")?;
     let mut reader = BufReader::new(stdout);
 
-    loop {
+    let result = loop {
         let mut resp_line = String::new();
         let bytes = reader
             .read_line(&mut resp_line)
@@ -192,7 +222,7 @@ pub async fn bridge_send_stream(
             .map_err(|e| format!("Read from bridge failed: {}", e))?;
 
         if bytes == 0 {
-            return Err("Bridge process closed unexpectedly".to_string());
+            break Err("Bridge process closed unexpectedly".to_string());
         }
 
         let trimmed = resp_line.trim();
@@ -207,8 +237,41 @@ pub async fn bridge_send_stream(
         if is_event {
             let _ = app.emit("bridge-event", &parsed);
         } else {
-            return Ok(parsed);
+            break Ok(parsed);
         }
+    };
+
+    {
+        let mut guard = state.inner().as_ref().lock().await;
+        guard.stream_pid = None;
+        if result.is_ok() {
+            guard.child = Some(child);
+        }
+    }
+    result
+}
+
+/// 中断当前桥接进程并重新启动，供前端「停止」建模时调用。
+#[tauri::command]
+pub async fn bridge_abort(state: tauri::State<'_, BridgeState>) -> Result<(), String> {
+    let stream_pid = {
+        let mut guard = state.inner().as_ref().lock().await;
+        let pid = guard.stream_pid.take();
+        if let Some(mut child) = guard.child.take() {
+            let _ = child.kill().await;
+        }
+        pid
+    };
+    if let Some(pid) = stream_pid {
+        kill_pid(pid);
+    }
+    match init_bridge().await {
+        Ok(child) => {
+            let mut guard = state.inner().as_ref().lock().await;
+            guard.child = Some(child);
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 

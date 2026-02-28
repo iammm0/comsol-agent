@@ -29,7 +29,8 @@ function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
 function getPhaseLabel(events: RunEvent[] | undefined): string {
   if (!events?.length) return "处理中";
   for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].type === "task_phase" && events[i].data?.phase) {
+    const ev = events[i];
+    if (ev?.type === "task_phase" && ev?.data?.phase) {
       const map: Record<string, string> = {
         planning: "规划中",
         thinking: "思考中",
@@ -37,7 +38,7 @@ function getPhaseLabel(events: RunEvent[] | undefined): string {
         observing: "观察中",
         iterating: "迭代中",
       };
-      return map[events[i].data.phase as string] ?? "处理中";
+      return map[ev.data.phase as string] ?? "处理中";
     }
   }
   return "处理中";
@@ -128,7 +129,7 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
               </>
             )}
             <span className="dot">▣</span>
-            <span>{formatTime(message.time)}</span>
+            <span>{formatTime(message.time ?? Date.now())}</span>
           </div>
         </div>
       )}

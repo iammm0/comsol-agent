@@ -31,7 +31,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
   const cid = state.currentConversationId;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("theme");
-  const [apiConfig, setApiConfig] = useState<ApiConfig>(loadApiConfig);
+  const [apiConfig, setApiConfig] = useState<ApiConfig>(() => loadApiConfig());
   const [memoryText, setMemoryText] = useState("");
   const [memoryStatus, setMemoryStatus] = useState("");
   const [ollamaUrl, setOllamaUrl] = useState("");
@@ -74,7 +74,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
 
   const setPreferredBackend = useCallback(
     (value: LLMBackendId | null) => {
-      setApiConfig((c) => ({ ...c, preferred_backend: value }));
+      setApiConfig((c: ApiConfig) => ({ ...c, preferred_backend: value }));
       saveApiConfig({ ...apiConfig, preferred_backend: value });
       dispatch({ type: "SET_BACKEND", backend: value });
     },
@@ -308,7 +308,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="sk-…"
                       value={apiConfig.deepseek_api_key}
                       onChange={(e) =>
-                        setApiConfig((c) => ({ ...c, deepseek_api_key: e.target.value }))
+                        setApiConfig((c: ApiConfig) => ({ ...c, deepseek_api_key: e.target.value }))
                       }
                     />
                   ))}
@@ -319,7 +319,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="deepseek-reasoner"
                       value={apiConfig.deepseek_model}
                       onChange={(e) =>
-                        setApiConfig((c) => ({ ...c, deepseek_model: e.target.value }))
+                        setApiConfig((c: ApiConfig) => ({ ...c, deepseek_model: e.target.value }))
                       }
                     />
                   ))}
@@ -334,7 +334,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="…"
                       value={apiConfig.kimi_api_key}
                       onChange={(e) =>
-                        setApiConfig((c) => ({ ...c, kimi_api_key: e.target.value }))
+                        setApiConfig((c: ApiConfig) => ({ ...c, kimi_api_key: e.target.value }))
                       }
                     />
                   ))}
@@ -345,7 +345,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="moonshot-v1-8k"
                       value={apiConfig.kimi_model}
                       onChange={(e) =>
-                        setApiConfig((c) => ({ ...c, kimi_model: e.target.value }))
+                        setApiConfig((c: ApiConfig) => ({ ...c, kimi_model: e.target.value }))
                       }
                     />
                   ))}
@@ -360,7 +360,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="https://api.example.com/v1"
                       value={apiConfig.openai_compatible_base_url}
                       onChange={(e) =>
-                        setApiConfig((c) => ({
+                        setApiConfig((c: ApiConfig) => ({
                           ...c,
                           openai_compatible_base_url: e.target.value,
                         }))
@@ -374,7 +374,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="…"
                       value={apiConfig.openai_compatible_api_key}
                       onChange={(e) =>
-                        setApiConfig((c) => ({
+                        setApiConfig((c: ApiConfig) => ({
                           ...c,
                           openai_compatible_api_key: e.target.value,
                         }))
@@ -388,7 +388,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="gpt-3.5-turbo"
                       value={apiConfig.openai_compatible_model}
                       onChange={(e) =>
-                        setApiConfig((c) => ({
+                        setApiConfig((c: ApiConfig) => ({
                           ...c,
                           openai_compatible_model: e.target.value,
                         }))
@@ -407,7 +407,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       value={ollamaUrl}
                       onChange={(e) => {
                         setOllamaUrl(e.target.value);
-                        setApiConfig((c) => ({ ...c, ollama_url: e.target.value }));
+                        setApiConfig((c: ApiConfig) => ({ ...c, ollama_url: e.target.value }));
                       }}
                     />
                   ))}
@@ -418,7 +418,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       placeholder="llama3"
                       value={apiConfig.ollama_model}
                       onChange={(e) =>
-                        setApiConfig((c) => ({ ...c, ollama_model: e.target.value }))
+                        setApiConfig((c: ApiConfig) => ({ ...c, ollama_model: e.target.value }))
                       }
                     />
                   ))}
@@ -466,7 +466,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     placeholder="D:\comsol\COMSOL63\Multiphysics\plugins"
                     value={apiConfig.comsol_jar_path}
                     onChange={(e) =>
-                      setApiConfig((c) => ({ ...c, comsol_jar_path: e.target.value }))
+                      setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: e.target.value }))
                     }
                   />
                 </div>

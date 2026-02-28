@@ -311,6 +311,7 @@ dependencies = [
 name = "comsol-agent-desktop"
 version = "0.1.0"
 dependencies = [
+ "ico 0.2.0",
  "serde",
  "serde_json",
  "tauri",
@@ -673,7 +674,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1309,6 +1310,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "ico"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031530fe562d8c8d71c0635013d6d155bbfe8ba0aa4b4d2d24ce8af6b71047bd"
+dependencies = [
+ "byteorder",
+ "png",
 ]
 
 [[package]]
@@ -3252,7 +3263,7 @@ checksum = "aac423e5859d9f9ccdd32e3cf6a5866a15bedbf25aa6630bcb2acde9468f6ae3"
 dependencies = [
  "base64 0.22.1",
  "brotli",
- "ico",
+ "ico 0.5.0",
  "json-patch",
  "plist",
  "png",

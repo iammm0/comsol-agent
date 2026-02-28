@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppState } from "../context/AppStateContext";
@@ -8,6 +8,7 @@ import type { RunEvent, BridgeResponse } from "../lib/types";
 export function useBridge() {
   const { state, dispatch, addMessage, messages } = useAppState();
   const cid = state.currentConversationId;
+  const abortedRef = useRef(false);
 
   const sendCommand = useCallback(
     async (cmd: string, payload: Record<string, unknown> = {}) => {
@@ -31,6 +32,7 @@ export function useBridge() {
   const sendStreamCommand = useCallback(
     async (cmd: string, payload: Record<string, unknown> = {}) => {
       if (!cid) return;
+      abortedRef.current = false;
       dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: cid });
       dispatch({
         type: "ADD_MESSAGE",
@@ -56,12 +58,14 @@ export function useBridge() {
           success: res.ok,
         });
       } catch (e) {
-        dispatch({
-          type: "FINALIZE_LAST",
-          conversationId: cid,
-          text: "请求失败: " + String(e),
-          success: false,
-        });
+        if (!abortedRef.current) {
+          dispatch({
+            type: "FINALIZE_LAST",
+            conversationId: cid,
+            text: "请求失败: " + String(e),
+            success: false,
+          });
+        }
       } finally {
         unlisten();
         dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
@@ -69,6 +73,22 @@ export function useBridge() {
     },
     [cid, dispatch]
   );
+
+  const abortRun = useCallback(async () => {
+    const busyId = state.busyConversationId;
+    if (!busyId) return;
+    abortedRef.current = true;
+    try {
+      await invoke("bridge_abort");
+    } catch (_) {}
+    dispatch({
+      type: "FINALIZE_LAST",
+      conversationId: busyId,
+      text: "已取消",
+      success: false,
+    });
+    dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
+  }, [state.busyConversationId, dispatch]);
 
   const handleSubmit = useCallback(
     (raw: string) => {
@@ -84,16 +104,20 @@ export function useBridge() {
         }
         if (cmd === "/run") {
           dispatch({ type: "SET_MODE", mode: "run" });
-          addMessage("system", "已切换为默认模式（run）");
+          addMessage("system", "已切换为 Build 模式");
           return;
         }
         if (cmd === "/plan") {
           dispatch({ type: "SET_MODE", mode: "plan" });
-          addMessage("system", "已切换为计划模式（plan）");
+          addMessage("system", "已切换为 Plan 模式");
           return;
         }
         if (cmd === "/help") {
           dispatch({ type: "SET_DIALOG", dialog: "help" });
+          return;
+        }
+        if (cmd === "/ops") {
+          dispatch({ type: "SET_DIALOG", dialog: "ops" });
           return;
         }
         if (cmd === "/demo") {
@@ -154,5 +178,5 @@ export function useBridge() {
     [cid, state.mode, state.outputDefault, state.backend, messages, dispatch, addMessage, sendCommand, sendStreamCommand]
   );
 
-  return { handleSubmit, sendCommand, sendStreamCommand };
+  return { handleSubmit, sendCommand, sendStreamCommand, abortRun };
 }

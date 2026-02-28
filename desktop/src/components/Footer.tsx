@@ -3,7 +3,7 @@ import { useAppState } from "../context/AppStateContext";
 export function Footer() {
   const { state } = useAppState();
 
-  const modeLabel = state.mode === "plan" ? "计划模式" : "默认模式";
+  const modeLabel = state.mode === "plan" ? "Plan" : "Build";
   const backendLabel = state.backend ?? "default";
 
   return (

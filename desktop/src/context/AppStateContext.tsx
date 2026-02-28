@@ -44,6 +44,8 @@ interface AppState {
   execCodeOnly: boolean;
   /** 正在执行 run/stream 的会话 id，null 表示无执行中 */
   busyConversationId: string | null;
+  /** 编辑并重新建模时预填输入框的内容，设置后 Prompt 会同步到输入框 */
+  editingDraft: string | null;
   activeDialog: DialogType;
 }
 
@@ -72,6 +74,8 @@ type AppAction =
   | { type: "SET_OUTPUT"; output: string | null }
   | { type: "SET_EXEC_CODE_ONLY"; value: boolean }
   | { type: "SET_BUSY_CONVERSATION"; conversationId: string | null }
+  | { type: "SET_EDITING_DRAFT"; text: string | null }
+  | { type: "REMOVE_MESSAGES_FROM_INDEX"; conversationId: string; fromIndex: number }
   | { type: "SET_DIALOG"; dialog: DialogType }
   | { type: "HYDRATE"; state: Partial<AppState> };
 
@@ -105,11 +109,12 @@ function getInitialState(): AppState {
     outputDefault: null,
     execCodeOnly: false,
     busyConversationId: null,
+    editingDraft: null,
     activeDialog: null,
   };
   }
 
-  const id = currentId && conversations.some((c) => c.id === currentId)
+  const id = currentId && conversations.some((c: Conversation) => c.id === currentId)
     ? currentId
     : conversations[0].id;
   return {
@@ -121,6 +126,7 @@ function getInitialState(): AppState {
     outputDefault: null,
     execCodeOnly: false,
     busyConversationId: null,
+    editingDraft: null,
     activeDialog: null,
   };
 }
@@ -244,6 +250,20 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, execCodeOnly: action.value };
     case "SET_BUSY_CONVERSATION":
       return { ...state, busyConversationId: action.conversationId };
+    case "SET_EDITING_DRAFT":
+      return { ...state, editingDraft: action.text };
+    case "REMOVE_MESSAGES_FROM_INDEX": {
+      const { conversationId, fromIndex } = action;
+      const prev = state.messagesByConversation[conversationId] ?? [];
+      const next = prev.slice(0, fromIndex);
+      return {
+        ...state,
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [conversationId]: next,
+        },
+      };
+    }
     case "SET_DIALOG":
       return { ...state, activeDialog: action.dialog };
     case "HYDRATE":

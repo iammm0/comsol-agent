@@ -23,6 +23,10 @@ export function HelpDialog() {
           <span className="dialog-row-val">显示帮助</span>
         </div>
         <div className="dialog-row">
+          <span className="dialog-row-key">/ops</span>
+          <span className="dialog-row-val">支持的 COMSOL 操作</span>
+        </div>
+        <div className="dialog-row">
           <span className="dialog-row-key">/run</span>
           <span className="dialog-row-val">默认模式（自然语言 → 模型）</span>
         </div>
