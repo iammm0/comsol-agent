@@ -14,6 +14,18 @@ from schemas.geometry import GeometryPlan
 
 logger = get_logger(__name__)
 
+# 与桌面端新会话快捷提示词一致，用于 /demo 与构建/测试时覆盖各链路（仅几何、几何+材料、物理场、研究、完整流程）
+QUICK_TEST_PROMPTS = [
+    "建个宽 1 米、高 0.5 米的矩形就行",
+    "仅几何：创建一个半径为 0.2 米的圆",
+    "只建几何：创建一个 1×0.5×0.3 米的长方体",
+    "创建一个宽 1 米、高 0.5 米的矩形，并分配材料",
+    "创建一个矩形，添加固体传热物理场",
+    "创建一个矩形，添加固体力学物理场",
+    "创建一个矩形，添加传热物理场并做稳态研究",
+    "创建一个传热模型，包含一个矩形域，设置温度边界条件，进行稳态求解",
+]
+
 
 def _update_memory_after_run(
     conversation_id: Optional[str],
@@ -182,22 +194,22 @@ def do_exec_from_file(
 
 
 def do_demo(verbose: bool = False) -> Tuple[bool, str]:
-    """运行演示用例，返回汇总文本。"""
+    """运行演示用例（与桌面端快捷提示词一致，覆盖仅几何、材料、物理场、研究、完整流程），返回汇总文本。"""
     _ensure_logging(verbose)
-    demo_cases = [
-        "创建一个宽1米、高0.5米的矩形",
-        "在原点放置一个半径为0.3米的圆",
-        "创建一个长轴1米、短轴0.6米的椭圆，中心在(0.5, 0.5)",
-        "创建一个3D长方体，宽1米、高0.5米、深0.3米",
-        "创建一个半径0.2米、高0.5米的3D圆柱",
-    ]
-    lines = ["COMSOL Agent 演示\n"]
+    lines = ["COMSOL Agent 演示（测试各链路）\n"]
     planner = get_agent("planner")
-    for i, case in enumerate(demo_cases, 1):
+    for i, case in enumerate(QUICK_TEST_PROMPTS, 1):
         lines.append(f"示例 {i}: {case}")
         try:
             plan = planner.parse(case)
-            lines.append(f"  解析成功: {len(plan.shapes)} 个形状, 模型名: {plan.model_name}, 单位: {plan.units}")
+            shapes = getattr(plan, "shapes", None)
+            if shapes is not None:
+                lines.append(f"  解析成功: {len(shapes)} 个形状, 模型名: {getattr(plan, 'model_name', 'model')}, 单位: {getattr(plan, 'units', 'm')}")
+            else:
+                # 编排器返回 TaskPlan，可能含 geometry/material/physics/study
+                geom = getattr(plan, "geometry", None)
+                n_shapes = len(getattr(geom, "shapes", [])) if geom else 0
+                lines.append(f"  解析成功: 几何 {n_shapes} 个形状, 含 material={getattr(plan, 'material', None) is not None}, physics={getattr(plan, 'physics', None) is not None}, study={getattr(plan, 'study', None) is not None}")
         except Exception as e:
             lines.append(f"  解析失败: {e}")
         lines.append("")
@@ -326,6 +338,7 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         "OLLAMA_URL",
         "OLLAMA_MODEL",
         "COMSOL_JAR_PATH",
+        "JAVA_HOME",
     ]
     # 读取已有行
     if env_path.exists():

@@ -145,11 +145,18 @@ def _has_java_in_dir(path: Path) -> bool:
 
 
 def is_bundled_java_path(path: Optional[str]) -> bool:
-    """判断 path 是否为项目内置的 runtime/java 路径。"""
+    """判断 path 是否为项目/安装包内置的 Java 路径（含桌面安装包内嵌的 resources/runtime/java）。"""
     if not path:
         return False
     try:
-        return Path(path).resolve() == _bundled_java_root().resolve()
+        resolved = Path(path).resolve()
+        if resolved == _bundled_java_root().resolve():
+            return True
+        # 桌面安装包：Bridge 传入的 JAVA_HOME 指向安装包内 resources/runtime/java
+        if _use_bundled_java_only() and os.environ.get("JAVA_HOME"):
+            if resolved == Path(os.environ["JAVA_HOME"]).resolve():
+                return True
+        return False
     except Exception:
         return False
 
@@ -170,11 +177,27 @@ def is_project_java_path(path: Optional[str]) -> bool:
         return False
 
 
+def _use_bundled_java_only() -> bool:
+    """桌面安装包通过 Bridge 传入，表示仅使用打包的 Java，不依赖系统/项目内 JDK、不自动下载。"""
+    return os.environ.get("COMSOL_AGENT_USE_BUNDLED_JAVA", "").strip() == "1"
+
+
 def get_effective_java_home() -> Optional[str]:
     """
     解析当前应使用的 JAVA_HOME。
     顺序：配置/环境变量 JAVA_HOME > 项目内 java11/jdk11/jdk 等目录 > runtime/java（若已存在）。
+    当 COMSOL_AGENT_USE_BUNDLED_JAVA=1（桌面安装包）时，仅使用环境变量 JAVA_HOME，与测试环境一致。
     """
+    # 桌面安装包：优先使用设置里配置的 Java 8/11（.env JAVA_HOME），否则用打包的 Java
+    if _use_bundled_java_only():
+        settings = get_settings()
+        if settings.java_home and Path(settings.java_home).exists():
+            return settings.java_home
+        env_java = os.environ.get("JAVA_HOME")
+        if env_java and Path(env_java).exists():
+            return env_java
+        return None
+
     settings = get_settings()
     if settings.java_home and Path(settings.java_home).exists():
         return settings.java_home
@@ -195,10 +218,17 @@ def ensure_bundled_java() -> str:
     """
     获取可用的 JAVA_HOME；若未配置且无内嵌 JDK，则自动下载 JDK 11 到 runtime/java（可被 JAVA_SKIP_AUTO_DOWNLOAD 禁用）。
     返回用于启动 JVM 的 JAVA_HOME 路径。
+    桌面安装包（COMSOL_AGENT_USE_BUNDLED_JAVA=1）下不自动下载，仅使用打包的 Java。
     """
     effective = get_effective_java_home()
     if effective:
         return effective
+
+    # 桌面安装包应已由 Bridge 设置 JAVA_HOME，此处不应走到
+    if _use_bundled_java_only():
+        raise RuntimeError(
+            "桌面安装包未检测到内嵌 Java。请使用「npm run bundle」重新构建安装程序以包含 JDK 11。"
+        )
 
     bundled_root = _bundled_java_root()
     if _has_java_in_dir(bundled_root):
