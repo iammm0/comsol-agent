@@ -17,15 +17,13 @@
 
 ## 二、架构与设计（architecture/）
 
-系统架构、Agent 设计与模块划分。
+系统架构、ReAct 模式、工作流程与 Agent 职责（含架构图与流程图）。
 
 | 文档 | 说明 |
 |------|------|
-| [architecture.md](architecture/architecture.md) | 架构设计：数据流、Planner/Executor、Schemas 与组件 |
-| [agent-design.md](architecture/agent-design.md) | Agent 设计：GeometryAgent、JavaGenerator、COMSOLRunner 等职责与流程 |
-| [comsol-modules-and-context.md](architecture/comsol-modules-and-context.md) | 三模块与共享上下文：模型开发器/App 开发器/模型管理器、EventBus、SessionContext 设想 |
-| [agent-architecture-pseudocode.md](architecture/agent-architecture-pseudocode.md) | Agent 层架构伪代码（Planner/Executor 设计思路） |
-| [planner-implementation-pseudocode.md](architecture/planner-implementation-pseudocode.md) | Planner Agent 实现伪代码（解析、JSON 提取、验证修正） |
+| [architecture.md](architecture/architecture.md) | **架构设计**：系统总体架构图、路由与 ReAct 模式图、Think→Act→Observe→Iterate 工作流程图、核心组件与技术栈 |
+| [agent-design.md](architecture/agent-design.md) | Agent 设计：ReActAgent、ReasoningEngine、ActionExecutor、Planner/Executor、Q&A 与 Summary 职责与协作 |
+| [comsol-modules-and-context.md](architecture/comsol-modules-and-context.md) | 三模块与共享上下文：模型开发器/App 开发器/模型管理器、EventBus、SessionContext 扩展设想 |
 
 ### 设计范式（agent-design-skills/）
 

@@ -1,73 +1,116 @@
 # Agent 设计文档
 
-## Planner Agent 设计
+本文档描述 **当前已实现** 的 Agent 职责与协作方式：路由、ReAct 核心、Planner、Executor、Q&A/Summary。完整架构与流程图见 [architecture.md](architecture.md)。
 
-### GeometryAgent
+---
 
-**职责**：将自然语言描述的几何建模需求解析为结构化 JSON
+## 一、入口与路由
 
-**工作流程**：
-1. 接收用户自然语言输入
-2. 加载 geometry_planner.txt Prompt 模板
-3. 调用 LLM API（Qwen）
-4. 从响应中提取 JSON
-5. 验证并返回 GeometryPlan 对象
+- **入口**：桌面端通过 TUI Bridge 调用 `agent.actions.do_run` 等；CLI 通过 `cli.py` 调用相同 actions。
+- **路由**：`agent.router.route(user_input)` 返回 `"qa"` 或 `"technical"`。
+  - **qa**：问候、帮助、短句无操作词 → 使用 `QAAgent.process()`，直接返回助手回复。
+  - **technical**：包含操作类动词（创建、添加、建模、几何、物理、网格、求解等）→ 使用 `ReActAgent.run()`，再经 `SummaryAgent.process()` 返回执行结果摘要。
 
-**关键方法**：
-- `parse(user_input: str) -> GeometryPlan` - 解析自然语言
+---
 
-### Executor Agent 设计
+## 二、ReActAgent（Core Agent）
 
-#### JavaGenerator
+**职责**：协调 Think → Act → Observe → Iterate 循环，直至任务完成或失败/达到最大迭代。
 
-**职责**：根据 GeometryPlan 生成 COMSOL Java API 代码
+**主要方法**：
 
-**工作流程**：
-1. 接收 GeometryPlan 对象
-2. 加载 java_codegen.txt Prompt 模板
-3. 格式化 Prompt（可选，也可直接生成）
-4. 返回 Java 代码字符串
+- `run(user_input, output_filename, memory_context, output_dir)`：执行完整 ReAct 流程，返回生成的 .mph 路径。
+- `think(plan)`：调用 ReasoningEngine.reason，返回下一步 thought（含 action、parameters）。
+- `act(plan, thought)`：调用 ActionExecutor.execute，执行当前步骤。
+- `observe(plan, result)`：调用 Observer.observe，得到 Observation。
+- `iterate(plan, observation)`：调用 IterationController.update_plan，更新计划（含错误恢复判断）。
 
-**关键方法**：
-- `generate_from_plan(plan: GeometryPlan) -> str` - 生成 Java 代码
+**依赖**：LLMClient、ReasoningEngine、ActionExecutor、Observer、IterationController；可选 EventBus、ContextManager。
 
-#### COMSOLRunner
+---
 
-**职责**：直接调用 COMSOL Java API 创建模型
+## 三、ReasoningEngine（推理引擎）
 
-**工作流程**：
-1. 启动 JVM 并加载 COMSOL JAR
-2. 创建 COMSOL 模型对象
-3. 根据 GeometryPlan 创建几何形状
-4. 构建几何
-5. 保存为 .mph 文件
+**职责**：理解需求、规划执行路径与推理检查点、在每轮 ReAct 中推理下一步行动。
 
 **关键方法**：
-- `create_model_from_plan(plan: GeometryPlan) -> Path` - 创建并保存模型
 
-## Agent 协作模式
+- `understand_and_plan(user_input, model_name, memory_context)`：理解用户需求并生成初始 ReActTaskPlan（execution_path、reasoning_path、plan_description）。
+- `reason(plan)`：根据当前计划与历史观察，返回 thought（action、parameters 等）；action 为 `complete` 时表示任务完成。
+
+---
+
+## 四、ActionExecutor（行动执行器）
+
+**职责**：根据 thought 中的 action 执行具体建模操作，内部调用 Planner 与 Executor。
+
+**支持的 action**：`create_geometry`、`add_material`、`add_physics`、`generate_mesh`、`configure_study`、`solve`、`retry`、`skip`。
+
+**典型流程**：
+
+- **create_geometry**：若无 geometry_plan 则用 GeometryAgent.parse 解析，再交给 COMSOLRunner 创建几何并保存/更新模型。
+- **add_material**：MaterialAgent 解析 → JavaAPIController / COMSOLRunner 添加材料。
+- **add_physics**：PhysicsAgent 解析 → 执行器添加物理场。
+- **generate_mesh** / **configure_study** / **solve**：调用 COMSOLRunner / JavaAPIController 执行对应步骤。
+
+---
+
+## 五、Planner Agents
+
+| Agent | 职责 | 产出 |
+|-------|------|------|
+| **GeometryAgent** | 自然语言几何需求 → 结构化几何计划 | GeometryPlan |
+| **PhysicsAgent** | 物理场需求 → 物理场计划 | PhysicsPlan |
+| **StudyAgent** | 研究类型与求解需求 → 研究计划 | StudyPlan |
+| **MaterialAgent** | 材料需求 → 材料计划 | 材料相关结构 |
+
+均由 ActionExecutor 按 step 类型按需调用；ReAct 循环中可能多次调用同一 Planner（例如多步几何）。
+
+---
+
+## 六、Executor
+
+- **COMSOLRunner**：启动/复用 JVM、加载 COMSOL JAR、根据 GeometryPlan 等创建模型、构建几何、保存 .mph；对外主要接口如 `create_model_from_plan`、保存/更新模型文件。
+- **JavaAPIController**：封装 COMSOL Java API 的细粒度调用（材料、物理场、网格、研究、求解等），供 ActionExecutor 使用。
+- **JavaGenerator**：根据 GeometryPlan 生成 Java 代码（可选路径，当前主流程以 COMSOLRunner/JavaAPIController 直接调用为主）。
+
+---
+
+## 七、Observer 与 IterationController
+
+- **Observer**：根据 ExecutionStep 的执行结果（result）与计划状态，生成 Observation（status：success / warning / error，message）。
+- **IterationController**：根据 Observation 更新 ReActTaskPlan（修正步骤、回退或重试）；对不可恢复错误设置 plan.status = "failed"，ReActAgent 据此终止循环。
+
+---
+
+## 八、QAAgent 与 SummaryAgent
+
+- **QAAgent**：处理问答、帮助、介绍类输入，不调用工具，快速返回回复。
+- **SummaryAgent**：对技术路径的执行结果（如「模型已生成: path」或异常信息）做摘要，供前端展示。
+
+---
+
+## 九、协作流程概览
 
 ```
 用户输入
-  ↓
-GeometryAgent.parse()
-  ↓
-GeometryPlan (JSON)
-  ↓
-COMSOLRunner.create_model_from_plan()
-  ↓
-.mph 文件
+  → route() → qa ? QAAgent.process() → 回复
+            → technical ? ReActAgent.run() → ActionExecutor 多次调用 Planner + Executor
+                                            → Observer → IterationController（若需）
+                                            → SummaryAgent.process() → 摘要
 ```
 
-## 错误处理
+错误处理与可观测性：
 
-- LLM 调用失败：重试机制（最多 3 次）
-- JSON 解析失败：多种提取策略
-- COMSOL API 错误：异常捕获和日志记录
-- 配置错误：启动时验证
+- LLM 调用失败：重试（在 LLM 客户端或调用处）。
+- JSON/计划解析失败：多策略提取与验证（见各 Planner）。
+- COMSOL/执行错误：Observer 标记为 error/warning，IterationController 决定是否更新计划继续或置为 failed。
+- 事件：通过 EventBus 发送 PLAN_START/END、THINK_CHUNK、ACTION_START、EXEC_RESULT、OBSERVATION、STEP_START/END 等，TUI Bridge 转发给桌面端做流式展示。
 
-## 未来扩展
+---
 
-- PhysicsAgent：物理场建模
-- StudyAgent：研究类型规划
-- Sandbox：安全代码执行
+## 十、参考
+
+- 系统架构与 ReAct 流程图：[architecture.md](architecture.md)
+- 多智能体范式与路由：[agent-design-skills/agent-architecture.md](../agent-design-skills/agent-architecture.md)
+- 会话与 EventBus：[agent-design-skills/session-and-events.md](../agent-design-skills/session-and-events.md)
