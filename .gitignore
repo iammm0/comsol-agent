@@ -10,7 +10,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# 仅忽略仓库根目录的 lib（Python 等），不忽略 desktop/src/lib（前端类型与配置）
+/lib/
 lib64/
 parts/
 sdist/
