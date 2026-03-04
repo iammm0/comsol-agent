@@ -56,25 +56,46 @@ def _openai_chat_stream(
     temperature: float,
     on_chunk: Callable[[str], None],
     backend_name: str,
+    max_retries: int = 3,
 ) -> str:
-    """OpenAI 风格流式 chat，每收到一段内容就调用 on_chunk；返回完整响应。"""
-    full = []
-    try:
-        stream = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            stream=True,
-        )
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content:
-                text = chunk.choices[0].delta.content
-                full.append(text)
-                on_chunk(text)
-    except Exception as e:
-        logger.warning(f"{backend_name} 流式调用异常: {e}")
-        raise
-    return "".join(full)
+    """OpenAI 风格流式 chat，每收到一段内容就调用 on_chunk；返回完整响应。含重试逻辑。"""
+    import time
+
+    last_err = None
+    for attempt in range(max_retries):
+        full: list[str] = []
+        try:
+            stream = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                stream=True,
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    text = chunk.choices[0].delta.content
+                    full.append(text)
+                    on_chunk(text)
+            result = "".join(full)
+            if result.strip():
+                return result
+            raise ValueError("流式响应为空")
+        except Exception as e:
+            last_err = e
+            collected = "".join(full)
+            logger.warning(
+                f"{backend_name} 流式第 {attempt + 1}/{max_retries} 次调用异常: {e}"
+                + (f" (已收到 {len(collected)} 字符)" if collected else "")
+            )
+            if collected.strip() and attempt > 0:
+                logger.info(f"{backend_name} 使用已收到的部分响应 ({len(collected)} 字符)")
+                return collected
+            if attempt < max_retries - 1:
+                wait = min(2 ** attempt, 8)
+                logger.info(f"{backend_name} {wait}s 后重试...")
+                time.sleep(wait)
+
+    raise ValueError(f"{backend_name} 流式调用失败 (重试 {max_retries} 次): {last_err}") from last_err
 
 
 class DeepSeekBackend(LLMBackend):
@@ -93,7 +114,7 @@ class DeepSeekBackend(LLMBackend):
     def call_stream(self, prompt: str, model: str = "deepseek-reasoner", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
         if not on_chunk:
             return self.call(prompt, model, temperature, max_retries)
-        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "DeepSeek")
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "DeepSeek", max_retries=max_retries)
 
 
 class KimiBackend(LLMBackend):
@@ -112,7 +133,7 @@ class KimiBackend(LLMBackend):
     def call_stream(self, prompt: str, model: str = "moonshot-v1-8k", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
         if not on_chunk:
             return self.call(prompt, model, temperature, max_retries)
-        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "Kimi")
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "Kimi", max_retries=max_retries)
 
 
 class OpenAICompatibleBackend(LLMBackend):
@@ -133,7 +154,7 @@ class OpenAICompatibleBackend(LLMBackend):
     def call_stream(self, prompt: str, model: str = "gpt-3.5-turbo", temperature: float = 0.1, max_retries: int = 3, on_chunk: Optional[Callable[[str], None]] = None) -> str:
         if not on_chunk:
             return self.call(prompt, model, temperature, max_retries)
-        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "OpenAI兼容")
+        return _openai_chat_stream(self.client, prompt, model, temperature, on_chunk, "OpenAI兼容", max_retries=max_retries)
 
 
 class OllamaBackend(LLMBackend):
