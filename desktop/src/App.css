@@ -107,6 +107,23 @@ body {
   min-height: 0;
 }
 
+/* Bridge 未就绪时的顶部提示条 */
+.bridge-error-banner {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 16px;
+  background: rgba(var(--error-rgb), 0.12);
+  border-bottom: 1px solid rgba(var(--error-rgb), 0.3);
+  color: var(--error);
+  font-size: 13px;
+}
+.bridge-error-banner .bridge-error-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .app-main {
   flex: 1;
   display: flex;

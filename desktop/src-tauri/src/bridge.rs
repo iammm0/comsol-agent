@@ -6,25 +6,29 @@ use std::sync::Arc;
 use std::os::windows::process::CommandExt;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Command, Child};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 
-/// 子进程 + 当前流式调用占用的 PID（便于 abort 时按 PID 杀进程而不持锁）
-/// bundled_java_home: 安装包内嵌的 JDK 路径，启动/重启 Python 子进程时设置 JAVA_HOME
 pub struct BridgeStateInner {
+    pub stdin: Option<ChildStdin>,
+    pub reader: Option<BufReader<ChildStdout>>,
     pub child: Option<Child>,
-    pub stream_pid: Option<u32>,
+    pub child_pid: Option<u32>,
+    pub stream_active: bool,
     pub bundled_java_home: Option<PathBuf>,
+    pub init_error: Option<String>,
+    pub stderr_buf: Arc<std::sync::Mutex<String>>,
 }
 
 pub type BridgeState = Arc<Mutex<BridgeStateInner>>;
 
-/// 按 PID 终止进程（用于 bridge_abort 在流式读取期间杀子进程）
+const HANDSHAKE_TIMEOUT_SECS: u64 = 30;
+
 fn kill_pid(pid: u32) {
     #[cfg(unix)]
     {
         let _ = std::process::Command::new("kill")
-            .args(["-9", pid.to_string()])
+            .args(["-9", &pid.to_string()])
             .status();
     }
     #[cfg(windows)]
@@ -36,7 +40,20 @@ fn kill_pid(pid: u32) {
     }
 }
 
-/// 安装包内与 exe 同目录的 bridge 可执行文件（PyInstaller 打的 comsol-agent-bridge-*.exe）
+fn read_stderr_snapshot(buf: &Arc<std::sync::Mutex<String>>) -> String {
+    buf.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+fn make_error_with_stderr(base_msg: &str, stderr_buf: &Arc<std::sync::Mutex<String>>) -> String {
+    let stderr = read_stderr_snapshot(stderr_buf);
+    if stderr.trim().is_empty() {
+        base_msg.to_string()
+    } else {
+        let tail: String = stderr.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        format!("{}\n\n--- Python stderr ---\n{}", base_msg, tail)
+    }
+}
+
 fn find_bundled_bridge_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
@@ -114,7 +131,6 @@ fn find_python_cmd(root: &PathBuf) -> (String, Vec<String>) {
     }
 }
 
-/// 若存在打包的 JDK（runtime/java），则设置 JAVA_HOME 给子进程使用
 pub fn bundled_java_home_from_app(app: &tauri::App) -> Option<PathBuf> {
     let res_dir = app.path().resource_dir().ok()?;
     let java_home = res_dir.join("runtime").join("java");
@@ -129,14 +145,160 @@ pub fn bundled_java_home_from_app(app: &tauri::App) -> Option<PathBuf> {
     }
 }
 
-pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<Child, String> {
-    // 优先使用安装包内打包的 bridge 可执行文件（与 exe 同目录）
+pub struct BridgeHandles {
+    pub stdin: ChildStdin,
+    pub reader: BufReader<ChildStdout>,
+    pub child: Child,
+    pub pid: u32,
+    pub stderr_buf: Arc<std::sync::Mutex<String>>,
+}
+
+fn spawn_stderr_reader(
+    stderr: tokio::process::ChildStderr,
+    buf: Arc<std::sync::Mutex<String>>,
+) {
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    eprint!("[bridge-stderr] {}", line);
+                    if let Ok(mut b) = buf.lock() {
+                        b.push_str(&line);
+                        const MAX_STDERR: usize = 64 * 1024;
+                        if b.len() > MAX_STDERR {
+                            let cut = b.len() - MAX_STDERR / 2;
+                            *b = b[cut..].to_string();
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<BridgeHandles, String> {
+    let stderr_buf: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
+
+    let mut child = spawn_bridge_child(&bundled_java_home).await?;
+
+    let pid = child.id().unwrap_or(0);
+    let stdin = child.stdin.take().ok_or("无法获取子进程 stdin")?;
+    let stdout = child.stdout.take().ok_or("无法获取子进程 stdout")?;
+    let stderr = child.stderr.take();
+
+    if let Some(se) = stderr {
+        spawn_stderr_reader(se, stderr_buf.clone());
+    }
+
+    let mut reader = BufReader::new(stdout);
+
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(HANDSHAKE_TIMEOUT_SECS),
+        wait_for_handshake(&mut reader),
+    )
+    .await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            let _ = child.kill().await;
+            return Err(make_error_with_stderr(
+                &format!("Bridge 握手失败: {}", e),
+                &stderr_buf,
+            ));
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            return Err(make_error_with_stderr(
+                &format!(
+                    "Bridge 握手超时 ({}s)：Python 进程未在规定时间内发送就绪信号",
+                    HANDSHAKE_TIMEOUT_SECS
+                ),
+                &stderr_buf,
+            ));
+        }
+    }
+
+    Ok(BridgeHandles {
+        stdin,
+        reader,
+        child,
+        pid,
+        stderr_buf,
+    })
+}
+
+async fn wait_for_handshake(reader: &mut BufReader<ChildStdout>) -> Result<(), String> {
+    let mut line = String::new();
+    let bytes = reader
+        .read_line(&mut line)
+        .await
+        .map_err(|e| format!("读取握手信号失败: {}", e))?;
+
+    if bytes == 0 {
+        return Err("Python 进程在发送握手信号前退出（stdout EOF）".to_string());
+    }
+
+    let trimmed = line.trim();
+    let parsed: Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("握手信号 JSON 解析失败: {} (内容: {})", e, trimmed))?;
+
+    if parsed.get("_ready").and_then(|v| v.as_bool()) == Some(true) {
+        Ok(())
+    } else {
+        Err(format!("收到非握手信号: {}", trimmed))
+    }
+}
+
+async fn spawn_bridge_child(bundled_java_home: &Option<PathBuf>) -> Result<Child, String> {
+    // 开发模式：找到 pyproject.toml 时优先用 Python 脚本
+    if let Some(root) = find_project_root() {
+        let (cmd, args) = find_python_cmd(&root);
+
+        let mut builder = Command::new(&cmd);
+        builder
+            .args(&args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .current_dir(&root)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONUNBUFFERED", "1");
+
+        if let Some(ref jh) = bundled_java_home {
+            builder.env("JAVA_HOME", jh);
+            builder.env("COMSOL_AGENT_USE_BUNDLED_JAVA", "1");
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            builder.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let child = builder.spawn().map_err(|e| {
+            format!(
+                "启动 Python bridge 失败 ({} {}): {}",
+                cmd,
+                args.join(" "),
+                e
+            )
+        })?;
+
+        return Ok(child);
+    }
+
+    // 打包模式：使用安装包内的 bridge 可执行文件
     if let Some(bridge_exe) = find_bundled_bridge_exe() {
         let mut builder = Command::new(&bridge_exe);
         builder
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null());
+            .stderr(std::process::Stdio::piped());
         if let Some(ref d) = bridge_exe.parent() {
             builder.current_dir(d);
         }
@@ -150,51 +312,41 @@ pub async fn init_bridge(bundled_java_home: Option<PathBuf>) -> Result<Child, St
             builder.creation_flags(CREATE_NO_WINDOW);
         }
         let child = builder.spawn().map_err(|e| {
-            format!("Failed to start bundled bridge ({}): {}", bridge_exe.display(), e)
+            format!(
+                "启动打包 bridge 失败 ({}): {}",
+                bridge_exe.display(),
+                e
+            )
         })?;
-        if child.stdin.is_some() && child.stdout.is_some() {
-            return Ok(child);
+        return Ok(child);
+    }
+
+    Err(
+        "找不到项目根目录 (pyproject.toml) 且无打包 bridge 可执行文件。安装包需包含 bridge 可执行文件；从源码运行需在项目根目录。"
+            .to_string(),
+    )
+}
+
+async fn restart_bridge(state: &BridgeState) {
+    let java_home = {
+        let guard = state.lock().await;
+        guard.bundled_java_home.clone()
+    };
+    match init_bridge(java_home).await {
+        Ok(handles) => {
+            let mut g = state.lock().await;
+            g.stdin = Some(handles.stdin);
+            g.reader = Some(handles.reader);
+            g.child = Some(handles.child);
+            g.child_pid = Some(handles.pid);
+            g.stderr_buf = handles.stderr_buf;
+            g.init_error = None;
+        }
+        Err(e) => {
+            let mut g = state.lock().await;
+            g.init_error = Some(e);
         }
     }
-
-    // 开发环境：从项目根启动 Python cli.py tui-bridge
-    let root = find_project_root().ok_or("Cannot find project root (pyproject.toml). 安装包需包含 bridge 可执行文件；从源码运行需在项目根目录。")?;
-    let (cmd, args) = find_python_cmd(&root);
-
-    let mut builder = Command::new(&cmd);
-    builder
-        .args(&args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .current_dir(&root)
-        .env("PYTHONIOENCODING", "utf-8");
-
-    if let Some(ref jh) = bundled_java_home {
-        builder.env("JAVA_HOME", jh);
-        builder.env("COMSOL_AGENT_USE_BUNDLED_JAVA", "1");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        builder.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    let child = builder.spawn().map_err(|e| {
-        format!(
-            "Failed to start Python bridge ({} {}): {}",
-            cmd,
-            args.join(" "),
-            e
-        )
-    })?;
-
-    if child.stdin.is_none() || child.stdout.is_none() {
-        return Err("Failed to capture stdin/stdout".to_string());
-    }
-
-    Ok(child)
 }
 
 #[tauri::command]
@@ -203,8 +355,13 @@ pub async fn bridge_send(
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let mut guard = state.inner().as_ref().lock().await;
-    let child = guard.child.as_mut().ok_or("Python bridge not initialized")?;
+    let (mut stdin, mut reader, stderr_buf) = {
+        let mut guard = state.inner().lock().await;
+        let s = guard.stdin.take().ok_or("Bridge 未初始化")?;
+        let r = guard.reader.take().ok_or("Bridge 未初始化")?;
+        let se = guard.stderr_buf.clone();
+        (s, r, se)
+    };
 
     let mut req = match payload.as_object() {
         Some(obj) => obj.clone(),
@@ -215,34 +372,48 @@ pub async fn bridge_send(
     let line = serde_json::to_string(&Value::Object(req)).map_err(|e| e.to_string())?;
     let line_with_newline = format!("{}\n", line);
 
-    let stdin = child.stdin.as_mut().ok_or("Stdin not available")?;
-    stdin
-        .write_all(line_with_newline.as_bytes())
-        .await
-        .map_err(|e| format!("Write to bridge failed: {}", e))?;
-    stdin
-        .flush()
-        .await
-        .map_err(|e| format!("Flush bridge failed: {}", e))?;
+    if let Err(e) = stdin.write_all(line_with_newline.as_bytes()).await {
+        let err = make_error_with_stderr(&format!("写入 bridge stdin 失败: {}", e), &stderr_buf);
+        restart_bridge(state.inner()).await;
+        return Err(err);
+    }
+    if let Err(e) = stdin.flush().await {
+        let err = make_error_with_stderr(&format!("flush bridge stdin 失败: {}", e), &stderr_buf);
+        restart_bridge(state.inner()).await;
+        return Err(err);
+    }
 
-    let stdout = child.stdout.as_mut().ok_or("Stdout not available")?;
-    let mut reader = BufReader::new(stdout);
     let mut resp_line = String::new();
-    let bytes = reader
-        .read_line(&mut resp_line)
-        .await
-        .map_err(|e| format!("Read from bridge failed: {}", e))?;
+    let bytes = match reader.read_line(&mut resp_line).await {
+        Ok(b) => b,
+        Err(e) => {
+            let err =
+                make_error_with_stderr(&format!("读取 bridge stdout 失败: {}", e), &stderr_buf);
+            restart_bridge(state.inner()).await;
+            return Err(err);
+        }
+    };
 
     if bytes == 0 {
-        return Err("Empty response from bridge".to_string());
+        let err = make_error_with_stderr("Bridge 子进程已退出（EOF）", &stderr_buf);
+        restart_bridge(state.inner()).await;
+        return Err(err);
     }
 
     let trimmed = resp_line.trim();
     if trimmed.is_empty() {
-        return Err("Empty response from bridge".to_string());
+        let err = make_error_with_stderr("Bridge 返回为空", &stderr_buf);
+        restart_bridge(state.inner()).await;
+        return Err(err);
     }
 
-    serde_json::from_str(trimmed).map_err(|e| format!("Invalid JSON response: {}", e))
+    {
+        let mut guard = state.inner().lock().await;
+        guard.stdin = Some(stdin);
+        guard.reader = Some(reader);
+    }
+
+    serde_json::from_str(trimmed).map_err(|e| format!("JSON 解析失败: {} (内容: {})", e, trimmed))
 }
 
 #[tauri::command]
@@ -252,14 +423,19 @@ pub async fn bridge_send_stream(
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let mut child = {
-        let mut guard = state.inner().as_ref().lock().await;
-        guard.child.take().ok_or("Python bridge not initialized")?
+    let (mut stdin, mut reader, stderr_buf, pid) = {
+        let mut guard = state.inner().lock().await;
+        let s = guard.stdin.take().ok_or("Bridge 未初始化")?;
+        let r = guard.reader.take().ok_or("Bridge 未初始化")?;
+        let se = guard.stderr_buf.clone();
+        let p = guard.child_pid;
+        guard.stream_active = true;
+        (s, r, se, p)
     };
-    let stream_pid = child.id();
-    {
-        let mut guard = state.inner().as_ref().lock().await;
-        guard.stream_pid = stream_pid;
+
+    if let Some(p) = pid {
+        let mut guard = state.inner().lock().await;
+        guard.child_pid = Some(p);
     }
 
     let mut req = match payload.as_object() {
@@ -271,28 +447,46 @@ pub async fn bridge_send_stream(
     let line = serde_json::to_string(&Value::Object(req)).map_err(|e| e.to_string())?;
     let line_with_newline = format!("{}\n", line);
 
-    let stdin = child.stdin.as_mut().ok_or("Stdin not available")?;
-    stdin
-        .write_all(line_with_newline.as_bytes())
-        .await
-        .map_err(|e| format!("Write to bridge failed: {}", e))?;
-    stdin
-        .flush()
-        .await
-        .map_err(|e| format!("Flush bridge failed: {}", e))?;
-
-    let stdout = child.stdout.as_mut().ok_or("Stdout not available")?;
-    let mut reader = BufReader::new(stdout);
+    if let Err(e) = stdin.write_all(line_with_newline.as_bytes()).await {
+        let err = make_error_with_stderr(
+            &format!("写入 bridge stdin 失败: {}", e),
+            &stderr_buf,
+        );
+        let mut guard = state.inner().lock().await;
+        guard.stream_active = false;
+        drop(guard);
+        restart_bridge(state.inner()).await;
+        return Err(err);
+    }
+    if let Err(e) = stdin.flush().await {
+        let err = make_error_with_stderr(
+            &format!("flush bridge stdin 失败: {}", e),
+            &stderr_buf,
+        );
+        let mut guard = state.inner().lock().await;
+        guard.stream_active = false;
+        drop(guard);
+        restart_bridge(state.inner()).await;
+        return Err(err);
+    }
 
     let result = loop {
         let mut resp_line = String::new();
-        let bytes = reader
-            .read_line(&mut resp_line)
-            .await
-            .map_err(|e| format!("Read from bridge failed: {}", e))?;
+        let bytes = match reader.read_line(&mut resp_line).await {
+            Ok(b) => b,
+            Err(e) => {
+                break Err(make_error_with_stderr(
+                    &format!("读取 bridge stdout 失败: {}", e),
+                    &stderr_buf,
+                ));
+            }
+        };
 
         if bytes == 0 {
-            break Err("Bridge process closed unexpectedly".to_string());
+            break Err(make_error_with_stderr(
+                "Bridge 子进程已退出，未收到完整响应",
+                &stderr_buf,
+            ));
         }
 
         let trimmed = resp_line.trim();
@@ -300,11 +494,14 @@ pub async fn bridge_send_stream(
             continue;
         }
 
-        let parsed: Value =
-            serde_json::from_str(trimmed).map_err(|e| format!("Invalid JSON: {}", e))?;
+        let parsed: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(e) => {
+                break Err(format!("JSON 解析失败: {} (内容: {})", e, trimmed));
+            }
+        };
 
-        let is_event = parsed.get("_event").and_then(|v| v.as_bool()) == Some(true);
-        if is_event {
+        if parsed.get("_event").and_then(|v| v.as_bool()) == Some(true) {
             let _ = app.emit("bridge-event", &parsed);
         } else {
             break Ok(parsed);
@@ -312,44 +509,60 @@ pub async fn bridge_send_stream(
     };
 
     {
-        let mut guard = state.inner().as_ref().lock().await;
-        guard.stream_pid = None;
+        let mut guard = state.inner().lock().await;
+        guard.stream_active = false;
         if result.is_ok() {
-            guard.child = Some(child);
+            guard.stdin = Some(stdin);
+            guard.reader = Some(reader);
+        } else {
+            guard.stdin.take();
+            guard.reader.take();
+            guard.child.take();
+            guard.child_pid.take();
+            drop(guard);
+            restart_bridge(state.inner()).await;
         }
     }
+
     result
 }
 
-/// 中断当前桥接进程并重新启动，供前端「停止」建模时调用。
 #[tauri::command]
 pub async fn bridge_abort(state: tauri::State<'_, BridgeState>) -> Result<(), String> {
-    let stream_pid = {
-        let mut guard = state.inner().as_ref().lock().await;
-        let pid = guard.stream_pid.take();
+    let pid = {
+        let mut guard = state.inner().lock().await;
+        let p = guard.child_pid.take();
+        guard.stdin.take();
+        guard.reader.take();
         if let Some(mut child) = guard.child.take() {
             let _ = child.kill().await;
         }
-        pid
+        guard.stream_active = false;
+        p
     };
-    if let Some(pid) = stream_pid {
-        kill_pid(pid);
+    if let Some(p) = pid {
+        kill_pid(p);
     }
-    let java_home = {
-        let guard = state.inner().as_ref().lock().await;
-        guard.bundled_java_home.clone()
-    };
-    match init_bridge(java_home).await {
-        Ok(child) => {
-            let mut guard = state.inner().as_ref().lock().await;
-            guard.child = Some(child);
-            Ok(())
-        }
-        Err(e) => Err(e),
+    restart_bridge(state.inner()).await;
+    let guard = state.inner().lock().await;
+    if let Some(ref e) = guard.init_error {
+        Err(e.clone())
+    } else {
+        Ok(())
     }
 }
 
-/// 使用系统默认应用打开文件（如 .mph 用 COMSOL 打开）
+#[tauri::command]
+pub async fn bridge_init_status(
+    state: tauri::State<'_, BridgeState>,
+) -> Result<serde_json::Value, String> {
+    let guard = state.inner().lock().await;
+    let ready = guard.stdin.is_some() && guard.reader.is_some();
+    let error = guard.init_error.clone();
+    drop(guard);
+    Ok(serde_json::json!({ "ready": ready, "error": error }))
+}
+
 #[tauri::command]
 pub async fn open_path(path: String) -> Result<(), String> {
     let path = path.trim();
@@ -380,7 +593,6 @@ pub async fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 打开模型所在目录（文件管理器中打开该文件夹，不选中文件）
 #[tauri::command]
 pub async fn open_in_folder(path: String) -> Result<(), String> {
     let path = path.trim();

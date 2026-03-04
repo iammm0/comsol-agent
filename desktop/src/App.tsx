@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "./context/AppStateContext";
 import { Sidebar } from "./components/Sidebar";
@@ -13,8 +13,14 @@ import { OutputDialog } from "./components/dialogs/OutputDialog";
 import { SettingsDialog } from "./components/dialogs/SettingsDialog";
 import { ComsolOpsDialog } from "./components/dialogs/ComsolOpsDialog";
 
+interface BridgeInitStatus {
+  ready: boolean;
+  error: string | null;
+}
+
 export default function App() {
   const { state, dispatch } = useAppState();
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeInitStatus | null>(null);
 
   const closeDialog = useCallback(() => {
     dispatch({ type: "SET_DIALOG", dialog: null });
@@ -33,6 +39,12 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     invoke("apply_window_icon").catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    invoke<{ ready: boolean; error: string | null }>("bridge_init_status")
+      .then((res) => setBridgeStatus({ ready: res.ready, error: res.error ?? null }))
+      .catch(() => setBridgeStatus({ ready: false, error: "无法获取 Bridge 状态" }));
   }, []);
 
   const dialogContent = (() => {
@@ -59,6 +71,14 @@ export default function App() {
   return (
     <div className="app">
       <TitleBar />
+      {bridgeStatus && !bridgeStatus.ready && bridgeStatus.error && (
+        <div className="bridge-error-banner" role="alert">
+          Bridge 未就绪：{bridgeStatus.error}
+          <span className="bridge-error-hint">
+            请从项目根目录启动应用，或设置 COMSOL_AGENT_BRIDGE_DEBUG=1 后查看 %TEMP%\comsol-agent-bridge-debug.log
+          </span>
+        </div>
+      )}
       <div className="app-body">
         <Sidebar />
         <div className="app-main">

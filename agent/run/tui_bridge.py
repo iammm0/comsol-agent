@@ -1,27 +1,80 @@
 """TUI 桥接：从 stdin 读 JSON 行，调用 agent.run.actions，向 stdout 写 JSON 行。供 Bun OpenTUI 前端通过子进程调用。"""
 import json
+import os
 import sys
+import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, TextIO
 
-from agent.run.actions import (
-    do_run,
-    do_plan,
-    do_exec_from_file,
-    do_demo,
-    do_doctor,
-    do_context_show,
-    do_context_get_summary,
-    do_context_set_summary,
-    do_context_history,
-    do_context_stats,
-    do_context_clear,
-    do_ollama_ping,
-    do_config_save,
-)
-from agent.core.events import EventBus, Event, EventType
-from agent.executor.java_api_controller import JavaAPIController
-from agent.utils.context_manager import get_all_models_from_context, get_context_manager
+# 进程一启动就写一条日志（不依赖 COMSOL_AGENT_BRIDGE_DEBUG），便于确认进程是否曾启动；若 import 失败也能在下面捕获并写入同一文件
+def _early_log_path() -> str:
+    return os.path.join(os.environ.get("TEMP", os.environ.get("TMP", "/tmp")), "comsol-agent-bridge-debug.log")
+
+def _early_log(msg: str) -> None:
+    try:
+        with open(_early_log_path(), "a", encoding="utf-8") as f:
+            f.write(msg)
+            f.flush()
+    except OSError:
+        pass
+
+_early_log("Bridge process started\n")
+_early_log(f"cwd={os.getcwd()!r} executable={sys.executable!r}\n")
+
+try:
+    from agent.run.actions import (
+        do_run,
+        do_plan,
+        do_exec_from_file,
+        do_demo,
+        do_doctor,
+        do_context_show,
+        do_context_get_summary,
+        do_context_set_summary,
+        do_context_history,
+        do_context_stats,
+        do_context_clear,
+        do_ollama_ping,
+        do_config_save,
+    )
+    from agent.core.events import EventBus, Event, EventType
+    from agent.executor.java_api_controller import JavaAPIController
+    from agent.utils.context_manager import get_all_models_from_context, get_context_manager
+except Exception as e:
+    _early_log("Import failed:\n" + "".join(traceback.format_exception(type(e), e, e.__traceback__)))
+    raise
+
+
+def _bridge_debug() -> bool:
+    """是否启用 Bridge 调试（环境变量 COMSOL_AGENT_BRIDGE_DEBUG=1 时在 stderr 与日志文件打印请求/响应与异常）。"""
+    return os.environ.get("COMSOL_AGENT_BRIDGE_DEBUG", "").strip() in ("1", "true", "True")
+
+
+def _bridge_debug_log_path() -> Path:
+    """调试日志文件路径（与平台无关，放在 temp 目录）。"""
+    return Path(os.environ.get("TEMP", os.environ.get("TMP", "/tmp"))).resolve() / "comsol-agent-bridge-debug.log"
+
+
+_debug_log_file: Optional[TextIO] = None
+
+
+def _debug_log(msg: str) -> None:
+    """调试模式下写入 stderr 并追加到日志文件，每次写入后立即 flush。"""
+    if not _bridge_debug():
+        return
+    sys.stderr.write(msg)
+    sys.stderr.flush()
+    global _debug_log_file
+    if _debug_log_file is None:
+        try:
+            _debug_log_file = open(_bridge_debug_log_path(), "a", encoding="utf-8")
+        except OSError:
+            return
+    try:
+        _debug_log_file.write(msg)
+        _debug_log_file.flush()
+    except OSError:
+        pass
 
 
 def _reply(ok: bool, message: str, **extra: Any) -> None:
@@ -67,27 +120,38 @@ def _handle(req: dict[str, Any]) -> None:
         if cmd == "run":
             event_bus = EventBus()
             event_bus.subscribe_all(_emit_event)
-
+            replied = False
             try:
-                ok, msg = do_run(
-                    user_input=(req.get("input") or "").strip(),
-                    output=req.get("output") or None,
-                    use_react=req.get("use_react", True),
-                    no_context=req.get("no_context", False),
-                    conversation_id=req.get("conversation_id") or None,
-                    backend=req.get("backend") or None,
-                    api_key=req.get("api_key") or None,
-                    base_url=req.get("base_url") or None,
-                    ollama_url=req.get("ollama_url") or None,
-                    model=req.get("model") or None,
-                    skip_check=req.get("skip_check", False),
-                    verbose=req.get("verbose", False),
-                    event_bus=event_bus,
-                )
-                _reply(ok, msg)
-            except Exception as e:
-                _emit_event(Event(type=EventType.ERROR, data={"message": str(e)}))
-                _reply(False, str(e))
+                try:
+                    ok, msg = do_run(
+                        user_input=(req.get("input") or "").strip(),
+                        output=req.get("output") or None,
+                        use_react=req.get("use_react", True),
+                        no_context=req.get("no_context", False),
+                        conversation_id=req.get("conversation_id") or None,
+                        backend=req.get("backend") or None,
+                        api_key=req.get("api_key") or None,
+                        base_url=req.get("base_url") or None,
+                        ollama_url=req.get("ollama_url") or None,
+                        model=req.get("model") or None,
+                        skip_check=req.get("skip_check", False),
+                        verbose=req.get("verbose", False),
+                        event_bus=event_bus,
+                    )
+                    _reply(ok, msg)
+                    replied = True
+                except Exception as e:
+                    if _bridge_debug():
+                        _debug_log("".join(traceback.format_exception(type(e), e, e.__traceback__)))
+                    _emit_event(Event(type=EventType.ERROR, data={"message": str(e)}))
+                    _reply(False, str(e))
+                    replied = True
+            finally:
+                if not replied:
+                    try:
+                        _reply(False, "run 未返回响应即退出，请设置 COMSOL_AGENT_BRIDGE_DEBUG=1 查看日志")
+                    except Exception:
+                        pass
             return
 
         if cmd == "plan":
@@ -221,6 +285,8 @@ def _handle(req: dict[str, Any]) -> None:
 
         _reply(False, f"未知命令: {cmd}")
     except Exception as e:
+        if _bridge_debug():
+            _debug_log("".join(traceback.format_exception(type(e), e, e.__traceback__)))
         _reply(False, str(e))
 
 
@@ -229,16 +295,37 @@ def main() -> None:
     if sys.stdin.isatty():
         sys.stderr.write("tui-bridge: 请通过管道或子进程调用，不要直接交互运行\n")
         sys.exit(1)
+    if _bridge_debug():
+        log_path = _bridge_debug_log_path()
+        _debug_log(f"[bridge] 调试模式已开启，日志文件: {log_path}\n")
+
+        def _excepthook(typ, val, tb):  # noqa: N807
+            msg = "".join(traceback.format_exception(typ, val, tb))
+            _debug_log(f"[bridge] 未捕获异常:\n{msg}")
+            sys.__excepthook__(typ, val, tb)
+
+        sys.excepthook = _excepthook
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
+        if _bridge_debug():
+            _debug_log(f"[bridge] 收到请求: {line[:200]}{'...' if len(line) > 200 else ''}\n")
         try:
             req = json.loads(line)
         except json.JSONDecodeError as e:
+            if _bridge_debug():
+                _debug_log("".join(traceback.format_exception(type(e), e, e.__traceback__)))
             _reply(False, f"JSON 解析错误: {e}")
             continue
-        _handle(req)
+        try:
+            _handle(req)
+        except BaseException as e:
+            if _bridge_debug():
+                _debug_log("".join(traceback.format_exception(type(e), e, e.__traceback__)))
+            _reply(False, str(e))
+            raise
 
 
 if __name__ == "__main__":

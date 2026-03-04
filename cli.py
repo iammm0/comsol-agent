@@ -1,4 +1,5 @@
 """CLI 入口：无参数启动桌面应用；tui-bridge 供 Tauri 后端子进程调用。"""
+
 import os
 import shutil
 import subprocess
@@ -26,7 +27,24 @@ def _launch_desktop(root: Path) -> None:
 
     if bundled.exists():
         try:
-            subprocess.run([str(bundled)], cwd=root, check=False)
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    [str(bundled)],
+                    cwd=root,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                subprocess.Popen(
+                    [str(bundled)],
+                    cwd=root,
+                    start_new_session=True,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
         except Exception as e:
             print(f"桌面应用启动失败: {e}", file=sys.stderr)
             sys.exit(1)
@@ -34,7 +52,10 @@ def _launch_desktop(root: Path) -> None:
 
     # 开发模式：npm run tauri dev
     if not (desktop_dir / "package.json").exists():
-        print("错误: 未找到桌面应用项目（desktop/package.json），请从仓库根目录运行。", file=sys.stderr)
+        print(
+            "错误: 未找到桌面应用项目（desktop/package.json），请从仓库根目录运行。",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
@@ -43,7 +64,10 @@ def _launch_desktop(root: Path) -> None:
         sys.exit(1)
 
     if not shutil.which("cargo"):
-        print("错误: 未检测到 cargo，Tauri 开发模式需要 Rust。请安装后重试: https://rustup.rs", file=sys.stderr)
+        print(
+            "错误: 未检测到 cargo，Tauri 开发模式需要 Rust。请安装后重试: https://rustup.rs",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
@@ -73,12 +97,17 @@ def main() -> None:
         return
 
     if args[0] == "tui-bridge":
+        sys.stdout.write('{"_ready":true}\n')
+        sys.stdout.flush()
+
         from dotenv import load_dotenv
         from agent.utils.java_runtime import ensure_java_home_from_venv
 
         load_dotenv(root / ".env")
         ensure_java_home_from_venv(root)
+
         from agent.run.tui_bridge import main as bridge_main
+
         bridge_main()
         return
 
