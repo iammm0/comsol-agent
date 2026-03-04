@@ -14,6 +14,7 @@
 | [CONTEXT.md](getting-started/CONTEXT.md) | 上下文管理：对话历史、摘要、别名与上下文查看 |
 | [ollama-setup.md](getting-started/ollama-setup.md) | Ollama 本地部署与配置 |
 | [llm-backends.md](getting-started/llm-backends.md) | LLM 后端：DeepSeek、Kimi、Ollama、OpenAI 兼容等 |
+| [DEBUG-BRIDGE.md](getting-started/DEBUG-BRIDGE.md) | **调试 Python Bridge**：出现「Bridge process closed unexpectedly」时如何开启 stderr 与 traceback 调试 |
 
 ## 二、架构与设计（architecture/）
 

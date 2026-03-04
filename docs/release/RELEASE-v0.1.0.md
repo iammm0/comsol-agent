@@ -95,6 +95,7 @@ scripts\bundle-desktop.bat
 
 - **安装与配置**：[INSTALL.md](../getting-started/INSTALL.md)、[CONFIG.md](../getting-started/CONFIG.md)
 - **LLM 后端示例**：[llm-backends.md](../getting-started/llm-backends.md)
+- **桌面 Bridge 调试**：出现「Bridge process closed unexpectedly」时见 [DEBUG-BRIDGE.md](../getting-started/DEBUG-BRIDGE.md)
 - **项目主页**：[README](https://github.com/iammm0/comsol-agent)
 - **问题反馈**：[GitHub Issues](https://github.com/iammm0/comsol-agent/issues)
 
