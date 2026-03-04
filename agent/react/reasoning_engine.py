@@ -108,7 +108,17 @@ def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
 class ReasoningEngine:
     """推理引擎 - 负责推理和规划"""
 
-    def __init__(self, llm: LLMClient, event_bus: Optional[EventBus] = None, use_planner_orchestrator: bool = True):
+    def __init__(
+        self,
+        llm: LLMClient,
+        event_bus: Optional[EventBus] = None,
+        use_planner_orchestrator: bool = True,
+        backend: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        ollama_url: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         """
         初始化推理引擎
 
@@ -116,10 +126,18 @@ class ReasoningEngine:
             llm: LLM 客户端
             event_bus: 可选事件总线，用于流式输出 LLM 思维过程（LLM_STREAM_CHUNK）
             use_planner_orchestrator: 若为 True，使用 PlannerOrchestrator 将用户提示词拆解为串行任务并调用几何/材料/物理场/研究四个 Agent，再转为 ReAct 计划；否则沿用原有 LLM 单次理解+规划。
+            backend/api_key/base_url/ollama_url/model: 传给 PlannerOrchestrator 使用同一套 LLM 配置
         """
         self.llm = llm
         self._event_bus = event_bus
         self._use_planner_orchestrator = use_planner_orchestrator
+        self._llm_kwargs = {
+            "backend": backend,
+            "api_key": api_key,
+            "base_url": base_url,
+            "ollama_url": ollama_url,
+            "model": model,
+        }
     
     def understand_and_plan(
         self,
@@ -140,7 +158,8 @@ class ReasoningEngine:
         if self._use_planner_orchestrator:
             try:
                 from agent.planner.orchestrator import PlannerOrchestrator
-                orchestrator = PlannerOrchestrator()
+                kw = {k: v for k, v in self._llm_kwargs.items() if v is not None}
+                orchestrator = PlannerOrchestrator(**kw)
                 task_plan, _, serial_plan = orchestrator.run(user_input, context=memory_context)
                 execution_path = _task_plan_to_execution_path(task_plan)
                 reasoning_path = self.plan_reasoning_path(execution_path)
@@ -160,10 +179,10 @@ class ReasoningEngine:
                 plan.material_plan = task_plan.material
                 plan.physics_plan = getattr(task_plan, "physics", None)
                 plan.study_plan = getattr(task_plan, "study", None)
-                logger.info(f"规划完成（编排器）: {len(execution_path)} 个执行步骤")
+                logger.info("规划完成（编排器）: {} 个执行步骤", len(execution_path))
                 return plan
             except Exception as e:
-                logger.warning("Planner 编排器执行失败，回退到 LLM 单次规划: %s", e)
+                logger.warning("Planner 编排器执行失败，回退到 LLM 单次规划: {}", e)
 
         # 使用 LLM 理解需求（可注入记忆上下文）
         understanding = self.understand_requirement(user_input, memory_context=memory_context)
@@ -174,7 +193,7 @@ class ReasoningEngine:
             current = (understanding.get("stop_after_step") or "solve").strip().lower()
             if not current or current == "solve":
                 understanding["stop_after_step"] = inferred_stop
-                logger.info("根据用户措辞推断停止步: %s", inferred_stop)
+                logger.info("根据用户措辞推断停止步: {}", inferred_stop)
 
         # 规划执行链路（每个步骤带具体参数，而非原样复述用户提示词）
         execution_path = self.plan_execution_path(understanding)

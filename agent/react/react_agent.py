@@ -42,7 +42,15 @@ class ReActAgent:
             model=model or settings.get_model_for_backend(backend or settings.llm_backend),
         )
 
-        self.reasoning_engine = ReasoningEngine(self.llm, event_bus=event_bus)
+        self.reasoning_engine = ReasoningEngine(
+            self.llm,
+            event_bus=event_bus,
+            backend=backend or settings.llm_backend,
+            api_key=api_key or settings.get_api_key_for_backend(backend or settings.llm_backend),
+            base_url=base_url or settings.get_base_url_for_backend(backend or settings.llm_backend),
+            ollama_url=ollama_url or settings.ollama_url,
+            model=model or settings.get_model_for_backend(backend or settings.llm_backend),
+        )
         self.action_executor = ActionExecutor(event_bus=event_bus, context_manager=context_manager)
         self.observer = Observer()
         self.iteration_controller = IterationController(self.llm)
