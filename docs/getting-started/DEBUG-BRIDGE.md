@@ -6,29 +6,29 @@
 
 ## 1. 开启 Bridge 调试模式（推荐）
 
-设置环境变量 **`COMSOL_AGENT_BRIDGE_DEBUG=1`** 后启动桌面应用，Bridge 的 stderr 会输出到启动应用所在的终端，便于看到 Python 端的报错和堆栈。
+设置环境变量 **`MPH_AGENT_BRIDGE_DEBUG=1`** 后启动桌面应用，Bridge 的 stderr 会输出到启动应用所在的终端，便于看到 Python 端的报错和堆栈。
 
 **Windows（PowerShell，开发环境）：**
 
 ```powershell
-$env:COMSOL_AGENT_BRIDGE_DEBUG = "1"
-cd E:\sensorai\comsol-agent\desktop
+$env:MPH_AGENT_BRIDGE_DEBUG = "1"
+cd E:\sensorai\mph-agent\desktop
 npm run tauri dev
 ```
 
 **Windows（CMD）：**
 
 ```cmd
-set COMSOL_AGENT_BRIDGE_DEBUG=1
-cd E:\sensorai\comsol-agent\desktop
+set MPH_AGENT_BRIDGE_DEBUG=1
+cd E:\sensorai\mph-agent\desktop
 npm run tauri dev
 ```
 
 **Linux / macOS：**
 
 ```bash
-export COMSOL_AGENT_BRIDGE_DEBUG=1
-cd /path/to/comsol-agent/desktop
+export MPH_AGENT_BRIDGE_DEBUG=1
+cd /path/to/mph-agent/desktop
 npm run tauri dev
 ```
 
@@ -50,23 +50,23 @@ npm run tauri dev
 
 | 平台   | 路径 |
 |--------|------|
-| Windows | `%TEMP%\comsol-agent-bridge-debug.log`（如 `C:\Users\<用户名>\AppData\Local\Temp\comsol-agent-bridge-debug.log`） |
-| Linux/macOS | `$TMPDIR/comsol-agent-bridge-debug.log` 或 `/tmp/comsol-agent-bridge-debug.log` |
+| Windows | `%TEMP%\mph-agent-bridge-debug.log`（如 `C:\Users\<用户名>\AppData\Local\Temp\mph-agent-bridge-debug.log`） |
+| Linux/macOS | `$TMPDIR/mph-agent-bridge-debug.log` 或 `/tmp/mph-agent-bridge-debug.log` |
 
-请先设置 `COMSOL_AGENT_BRIDGE_DEBUG=1` 并重启桌面应用（若从开始菜单运行，需在快捷方式或系统环境中设置该变量），复现问题后打开上述日志文件查看最后几行的 traceback。
+请先设置 `MPH_AGENT_BRIDGE_DEBUG=1` 并重启桌面应用（若从开始菜单运行，需在快捷方式或系统环境中设置该变量），复现问题后打开上述日志文件查看最后几行的 traceback。
 
 ### 若连日志文件都没有
 
 说明 Bridge 进程很可能在写任何日志之前就退出了，常见有两种情况：
 
 1. **Import 失败**（依赖缺失、Python 环境不对）  
-   Bridge 启动时会**无条件**在日志里写一行 `Bridge process started` 以及当前工作目录和可执行路径；若 import 失败，会再写 `Import failed:` 和完整 traceback。请再次复现问题后查看 `%TEMP%\comsol-agent-bridge-debug.log`：
+   Bridge 启动时会**无条件**在日志里写一行 `Bridge process started` 以及当前工作目录和可执行路径；若 import 失败，会再写 `Import failed:` 和完整 traceback。请再次复现问题后查看 `%TEMP%\mph-agent-bridge-debug.log`：
    - 若文件**存在**且含 `Import failed:` → 按其中的 traceback 修依赖或环境。
-   - 若文件**存在**且只有 `Bridge process started` → 进程曾启动，但在后续逻辑中退出，可再设 `COMSOL_AGENT_BRIDGE_DEBUG=1` 以看到更多请求/异常日志。
+   - 若文件**存在**且只有 `Bridge process started` → 进程曾启动，但在后续逻辑中退出，可再设 `MPH_AGENT_BRIDGE_DEBUG=1` 以看到更多请求/异常日志。
    - 若文件**不存在** → 进程可能根本没跑到 Python 代码（例如未找到 bridge 可执行文件、或从错误的工作目录启动）。请从项目根目录在终端执行 `python cli.py tui-bridge`，看是否报错并是否生成上述日志文件。
 
 2. **未从正确环境启动**  
-   开发时请务必在**项目根目录**用 `npm run tauri dev` 启动桌面，这样 Bridge 会以 `python cli.py tui-bridge` 方式启动；若用安装包，需保证安装包内已包含 `comsol-agent-bridge-*.exe` 且 Tauri 能正确找到并启动它。
+   开发时请务必在**项目根目录**用 `npm run tauri dev` 启动桌面，这样 Bridge 会以 `python cli.py tui-bridge` 方式启动；若用安装包，需保证安装包内已包含 `mph-agent-bridge-*.exe` 且 Tauri 能正确找到并启动它。
 
 ## 2. 手动运行 Bridge（管道调试）
 
@@ -90,8 +90,8 @@ echo '{"cmd":"doctor"}' | python cli.py tui-bridge
 - **依赖缺失**：缺少 `jpype1`、LLM 相关包等，导致 import 或首次调用时崩溃。  
   解决：在项目根 `pip install -e ".[dev]"` 或按 [INSTALL.md](INSTALL.md) 安装依赖。
 - **Java / COMSOL 未配置**：`JAVA_HOME` 错误或 COMSOL 未安装，执行到 Java 相关代码时崩溃。  
-  解决：配置 `JAVA_HOME`，或使用桌面安装包内嵌的 JDK（安装包会设置 `COMSOL_AGENT_USE_BUNDLED_JAVA=1`）。
+  解决：配置 `JAVA_HOME`，或使用桌面安装包内嵌的 JDK（安装包会设置 `MPH_AGENT_USE_BUNDLED_JAVA=1`）。
 - **OOM 或超时**：模型或任务过大导致进程被系统杀掉或长时间无响应。  
   解决：看 stderr 是否有 MemoryError / 被 kill 的日志，或减小任务/模型规模。
 
-开启 `COMSOL_AGENT_BRIDGE_DEBUG=1` 后，上述多数问题都会在终端或调试日志文件中看到具体异常和 traceback。
+开启 `MPH_AGENT_BRIDGE_DEBUG=1` 后，上述多数问题都会在终端或调试日志文件中看到具体异常和 traceback。

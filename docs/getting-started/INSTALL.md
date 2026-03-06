@@ -12,8 +12,8 @@ uv build
 
 - 需已安装 [uv](https://docs.astral.sh/uv/)；在项目根执行一次即可。
 - 成功后会在 `dist/` 下生成：
-  - `agent_for_comsol_multiphysics-0.1.0-py3-none-any.whl`（wheel，用于 pip 安装）
-  - `agent_for_comsol_multiphysics-0.1.0.tar.gz`（源码包）
+  - `mph_agent-0.1.0-py3-none-any.whl`（wheel，用于 pip 安装）
+  - `mph_agent-0.1.0.tar.gz`（源码包）
 
 若未使用 uv，可用标准 build 方式：
 
@@ -32,10 +32,10 @@ python -m build --wheel
 
 ```bash
 # 从 wheel 安装（pip 下载或本地文件）
-pip install dist/agent_for_comsol_multiphysics-*.whl
+pip install dist/mph_agent-*.whl
 
 # 使用 uv
-uv pip install dist/agent_for_comsol_multiphysics-*.whl
+uv pip install dist/mph_agent-*.whl
 
 # 从源码可编辑安装（开发模式）
 uv sync
@@ -45,7 +45,7 @@ uv sync
 ### 3. 验证安装
 
 ```bash
-uv run comsol-agent
+uv run mph-agent
 ```
 
 无参数即启动全终端 TUI（需安装 Bun）。若仅需验证可执行，运行后可用 `/quit` 退出。
@@ -97,7 +97,7 @@ uv run comsol-agent
 
 4. **JAVA_DOWNLOAD_MIRROR** - 内置 JDK 下载镜像，国内加速可设为 `tsinghua`（清华 TUNA）
 
-5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为 **comsol-agent 根目录下的 `models`**，该目录为唯一且首要；项目根目录上一级的 `models` 不再使用）
+5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为 **mph-agent 根目录下的 `models`**，该目录为唯一且首要；项目根目录上一级的 `models` 不再使用）
    ```bash
    # Linux/Mac
    export MODEL_OUTPUT_DIR="/path/to/output"
@@ -123,7 +123,7 @@ MODEL_OUTPUT_DIR=/path/to/output
 安装和配置完成后，启动 TUI 并在其中运行诊断：
 
 ```bash
-uv run comsol-agent
+uv run mph-agent
 ```
 
 在 TUI 底部输入 `/doctor` 进行环境检查。若所有检查通过，会显示通过信息；若有问题，会显示详细错误信息。
@@ -135,7 +135,7 @@ uv run comsol-agent
 所有功能均通过全终端 TUI 使用：
 
 ```bash
-uv run comsol-agent
+uv run mph-agent
 ```
 
 进入 TUI 后：
@@ -146,12 +146,12 @@ uv run comsol-agent
 
 ## 故障排除
 
-### 问题 1: 找不到 comsol-agent 命令
+### 问题 1: 找不到 mph-agent 命令
 
 **解决方案**：
-- 确保已正确安装：`uv pip install dist/agent-for-comsol-multiphysics-*.whl`
+- 确保已正确安装：`uv pip install dist/mph_agent-*.whl`
 - 检查 Python 环境：`which python` 或 `where python`
-- 重新安装：`uv pip uninstall agent-for-comsol-multiphysics && uv pip install dist/agent-for-comsol-multiphysics-*.whl`
+- 重新安装：`uv pip uninstall mph-agent && uv pip install dist/mph_agent-*.whl`
 
 ### 问题 2: 环境变量未生效
 
@@ -181,7 +181,7 @@ uv run comsol-agent
 
 ### 问题 5: 桌面版支持哪些系统？
 
-桌面应用**仅提供 Windows 安装包**（exe/msi），从 [GitHub Releases](https://github.com/iammm0/comsol-agent/releases) 下载。暂不支持 macOS/Linux 桌面版。
+桌面应用**仅提供 Windows 安装包**（exe/msi），从 [GitHub Releases](https://github.com/iammm0/mph-agent/releases) 下载。暂不支持 macOS/Linux 桌面版。
 
 ### 问题 6: Windows 桌面应用构建报错 `linker link.exe not found` 或 `dlltool.exe not found`
 
@@ -196,7 +196,7 @@ uv run comsol-agent
    ```bash
    rustup default stable-x86_64-pc-windows-msvc
    ```
-3. 重新打开终端，再执行 `npm run tauri dev` 或 `uv run comsol-agent`。
+3. 重新打开终端，再执行 `npm run tauri dev` 或 `uv run mph-agent`。
 
 若已安装 Build Tools 但仍报 `link.exe not found`，可先打开 **「x64 本机工具命令提示」** 再编译。
 

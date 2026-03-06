@@ -1,6 +1,6 @@
 # PyPI 打包与发布指南
 
-本文档说明如何将 `agent-for-comsol-multiphysics` 构建为 PyPI 包并通过 GitHub Actions 发布到 PyPI 或 Test PyPI。
+本文档说明如何将 `mph-agent` 构建为 PyPI 包并通过 GitHub Actions 发布到 PyPI 或 Test PyPI。
 
 ## 工作流概览
 
@@ -45,7 +45,7 @@ python -m build
 1. 在 PyPI 项目页 → Publishing → Add a new trusted publisher。
 2. 按提示填写：
    - **Owner**：你的 GitHub 用户名或组织。
-   - **Repository name**：`comsol-agent`（或你的仓库名）。
+   - **Repository name**：`mph-agent`（或你的仓库名）。
    - **Workflow name**：`publish-pypi.yml`。
    - **Environment name**：留空或填 `pypi`（需与工作流中 `environment` 一致）。
 3. 在工作流中若已配置 Trusted Publisher，可删除 `publish-pypi` job 里的 `with: password: ${{ secrets.PYPI_API_TOKEN }}`，仅保留 `id-token: write`。
@@ -57,7 +57,7 @@ python -m build
 1. 打开仓库 **Actions** 页。
 2. 选择 **“Build and Publish to PyPI”**。
 3. 点击 **“Run workflow”**，选择 **“testpypi”**，运行。
-4. 安装测试：`pip install -i https://test.pypi.org/simple/ agent-for-comsol-multiphysics`
+4. 安装测试：`pip install -i https://test.pypi.org/simple/ mph-agent`
 
 ### 发布到 PyPI（正式）
 

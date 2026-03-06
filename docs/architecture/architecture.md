@@ -1,6 +1,6 @@
 # 架构设计文档
 
-本文档描述 COMSOL Agent **当前已实现**的系统架构、ReAct 模式与端到端工作流程，并配有架构图与流程图。
+本文档描述 Multiphysics Modeling Agent（mph-agent）**当前已实现**的系统架构、ReAct 模式与端到端工作流程，并配有架构图与流程图。
 
 ---
 

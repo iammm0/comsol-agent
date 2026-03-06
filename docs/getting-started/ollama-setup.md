@@ -2,7 +2,7 @@
 
 ## 概述
 
-COMSOL Agent 支持使用 Ollama 作为 LLM 后端，可以配置本地或远程的 Ollama 服务。
+Multiphysics Modeling Agent（mph-agent）支持使用 Ollama 作为 LLM 后端，可以配置本地或远程的 Ollama 服务。
 
 ## 安装 Ollama
 
@@ -46,7 +46,7 @@ ollama pull qwen2.5
 ollama pull mistral
 ```
 
-## 配置 COMSOL Agent
+## 配置 mph-agent
 
 ### 方式一：环境变量
 

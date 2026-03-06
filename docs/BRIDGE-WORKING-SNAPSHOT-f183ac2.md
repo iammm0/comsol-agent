@@ -17,7 +17,7 @@
 
 - **BridgeStateInner** 无 `init_error`。
 - **init_bridge**：
-  - 无 `COMSOL_AGENT_BRIDGE_DEBUG` 判断；
+  - 无 `MPH_AGENT_BRIDGE_DEBUG` 判断；
   - 无 `PYTHONUNBUFFERED`；
   - 子进程 **stderr 始终** `Stdio::null()`。
 - **bridge_send**：读到空/EOF 时直接 `return Err("Empty response from bridge".to_string())`，**不**做自动重启、不写 `init_error`。
@@ -44,7 +44,7 @@
 | 位置 | 当前相对 f183ac2 的改动 |
 |------|------------------------|
 | **lib.rs** | 增加 `init_error`；init 失败时写入 `guard.init_error`；注册 `bridge_init_status`。 |
-| **bridge.rs** | 增加 `init_error`、`ERR_*` 常量、`COMSOL_AGENT_BRIDGE_DEBUG`、`PYTHONUNBUFFERED`、空/EOF 时自动重启并写 `init_error`、`bridge_init_status`。 |
+| **bridge.rs** | 增加 `init_error`、`ERR_*` 常量、`MPH_AGENT_BRIDGE_DEBUG`、`PYTHONUNBUFFERED`、空/EOF 时自动重启并写 `init_error`、`bridge_init_status`。 |
 | **tui_bridge.py** | 启动时 `_early_log`、import 包在 `try/except` 里并写日志、`_bridge_debug`/`_debug_log`、run 的 `replied`+`finally`、main 里 `BaseException` 捕获并 `_reply` 后 `raise`。 |
 | **App.tsx** | 调用 `bridge_init_status` 并显示 “Bridge 未就绪” 的红色条。 |
 

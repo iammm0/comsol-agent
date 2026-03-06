@@ -1,17 +1,17 @@
-# COMSOL Agent 示例与 TUI 用法
+# Multiphysics Modeling Agent 示例与 TUI 用法
 
 本文档说明如何在 TUI 中测试各模块的建模能力。运行前请确保已配置 `.env`（如 `COMSOL_JAR_PATH`、LLM 后端等）；启动 TUI 后输入 `/doctor` 可做环境检查。
 
-- **启动方式**：`uv run comsol-agent` 或 `uv run python main.py`
-- **已安装分发包**：直接执行 `comsol-agent`
-- **模型输出目录**：所有 `.mph` 模型保存到 **comsol-agent 根目录下的 `models/`**（可在 TUI 中用 `/output 文件名.mph` 设置默认输出文件名）
+- **启动方式**：`uv run mph-agent` 或 `uv run python main.py`
+- **已安装分发包**：直接执行 `mph-agent`
+- **模型输出目录**：所有 `.mph` 模型保存到 **mph-agent 根目录下的 `models/`**（可在 TUI 中用 `/output 文件名.mph` 设置默认输出文件名）
 
 ---
 
 ## 1. 环境与诊断
 
 ```bash
-uv run comsol-agent
+uv run mph-agent
 ```
 
 在 TUI 中：
@@ -115,7 +115,7 @@ uv run comsol-agent
 uv run python scripts/py_to_mph_minimal.py
 ```
 
-会在 **comsol-agent 根目录下的 `models/`** 中生成 `minimal_model.mph`（一个 1m×0.5m 矩形）。确保 `.env` 中已配置 `COMSOL_JAR_PATH`。
+会在 **mph-agent 根目录下的 `models/`** 中生成 `minimal_model.mph`（一个 1m×0.5m 矩形）。确保 `.env` 中已配置 `COMSOL_JAR_PATH`。
 
 ---
 

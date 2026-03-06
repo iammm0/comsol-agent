@@ -46,7 +46,7 @@ JAVA_HOME=C:/Program Files/Java/jdk-17
 ```bash
 MODEL_OUTPUT_DIR=./models
 ```
-- 默认值：**comsol-agent 根目录下的 `models`**（唯一且首要的模型存放位置；项目根目录上一级的 `models` 不再使用）
+- 默认值：**mph-agent 根目录下的 `models`**（唯一且首要的模型存放位置；项目根目录上一级的 `models` 不再使用）
 - 模型文件（.mph）将保存在此目录
 
 #### 日志级别
@@ -61,7 +61,7 @@ LOG_LEVEL=INFO
 运行环境诊断检查配置是否正确：
 
 ```bash
-uv run comsol-agent
+uv run mph-agent
 ```
 
 在 TUI 内输入 `/doctor`。诊断会检查：

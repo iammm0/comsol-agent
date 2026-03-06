@@ -2,7 +2,7 @@
 
 ## 概述
 
-COMSOL Agent 提供了上下文管理功能，可以：
+Multiphysics Modeling Agent（mph-agent）提供了上下文管理功能，可以：
 - 记录每次对话的历史
 - 自动生成上下文摘要
 - 在后续对话中使用历史上下文信息
@@ -48,9 +48,9 @@ COMSOL Agent 提供了上下文管理功能，可以：
 在 `~/.bashrc` 或 `~/.zshrc` 中添加：
 
 ```bash
-alias ca="comsol-agent"
-alias comsol="comsol-agent"
-alias cagent="comsol-agent"
+alias ca="mph-agent"
+alias comsol="mph-agent"
+alias cagent="mph-agent"
 ```
 
 然后重新加载配置：`source ~/.bashrc` 或 `source ~/.zshrc`。
@@ -60,9 +60,9 @@ alias cagent="comsol-agent"
 在 PowerShell 配置文件中添加（`$PROFILE`）：
 
 ```powershell
-Set-Alias ca comsol-agent
-Set-Alias comsol comsol-agent
-Set-Alias cagent comsol-agent
+Set-Alias ca mph-agent
+Set-Alias comsol mph-agent
+Set-Alias cagent mph-agent
 ```
 
 ### 使用示例

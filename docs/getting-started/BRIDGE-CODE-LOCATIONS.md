@@ -20,7 +20,7 @@ if bytes == 0 {
 
 **可做调整**:
 - 保持此处逻辑不变即可；真正要保证的是 Python 端在退出前尽量写出一行最终响应。
-- 若希望错误信息更易排查，可在此处将错误文案改为提示「请设置 COMSOL_AGENT_BRIDGE_DEBUG=1 并查看 %TEMP%\\comsol-agent-bridge-debug.log」的说明（可选）。
+- 若希望错误信息更易排查，可在此处将错误文案改为提示「请设置 COMSOL_AGENT_BRIDGE_DEBUG=1 并查看 %TEMP%\\mph-agent-bridge-debug.log」的说明（可选）。
 
 ---
 
