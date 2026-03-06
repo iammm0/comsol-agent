@@ -6,9 +6,9 @@ import traceback
 from pathlib import Path
 from typing import Any, Optional, TextIO
 
-# 进程一启动就写一条日志（不依赖 COMSOL_AGENT_BRIDGE_DEBUG），便于确认进程是否曾启动；若 import 失败也能在下面捕获并写入同一文件
+# 进程一启动就写一条日志（不依赖 MPH_AGENT_BRIDGE_DEBUG），便于确认进程是否曾启动；若 import 失败也能在下面捕获并写入同一文件
 def _early_log_path() -> str:
-    return os.path.join(os.environ.get("TEMP", os.environ.get("TMP", "/tmp")), "comsol-agent-bridge-debug.log")
+    return os.path.join(os.environ.get("TEMP", os.environ.get("TMP", "/tmp")), "mph-agent-bridge-debug.log")
 
 def _early_log(msg: str) -> None:
     try:
@@ -46,13 +46,13 @@ except Exception as e:
 
 
 def _bridge_debug() -> bool:
-    """是否启用 Bridge 调试（环境变量 COMSOL_AGENT_BRIDGE_DEBUG=1 时在 stderr 与日志文件打印请求/响应与异常）。"""
-    return os.environ.get("COMSOL_AGENT_BRIDGE_DEBUG", "").strip() in ("1", "true", "True")
+    """是否启用 Bridge 调试（环境变量 MPH_AGENT_BRIDGE_DEBUG=1 时在 stderr 与日志文件打印请求/响应与异常）。"""
+    return os.environ.get("MPH_AGENT_BRIDGE_DEBUG", "").strip() in ("1", "true", "True")
 
 
 def _bridge_debug_log_path() -> Path:
     """调试日志文件路径（与平台无关，放在 temp 目录）。"""
-    return Path(os.environ.get("TEMP", os.environ.get("TMP", "/tmp"))).resolve() / "comsol-agent-bridge-debug.log"
+    return Path(os.environ.get("TEMP", os.environ.get("TMP", "/tmp"))).resolve() / "mph-agent-bridge-debug.log"
 
 
 _debug_log_file: Optional[TextIO] = None

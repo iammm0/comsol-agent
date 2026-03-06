@@ -3,7 +3,7 @@ import os
 from typing import Optional
 
 # 用于 keyring 的服务名，与 provider 组成键
-KEYRING_SERVICE = "comsol-agent"
+KEYRING_SERVICE = "mph-agent"
 
 # provider -> 环境变量名（优先从 env 读取）
 PROVIDER_ENV_KEYS = {

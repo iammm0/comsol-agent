@@ -196,7 +196,7 @@ def do_exec_from_file(
 def do_demo(verbose: bool = False) -> Tuple[bool, str]:
     """运行演示用例（与桌面端快捷提示词一致，覆盖仅几何、材料、物理场、研究、完整流程），返回汇总文本。"""
     _ensure_logging(verbose)
-    lines = ["COMSOL Agent 演示（测试各链路）\n"]
+    lines = ["Multiphysics Modeling Agent 演示（测试各链路）\n"]
     planner = get_agent("planner")
     for i, case in enumerate(QUICK_TEST_PROMPTS, 1):
         lines.append(f"示例 {i}: {case}")
@@ -369,6 +369,6 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         env_path.parent.mkdir(parents=True, exist_ok=True)
         env_path.write_text("\n".join(lines_out) + "\n", encoding="utf-8")
         reload_settings()
-        return True, "配置已保存并已加载，将应用于后续 comsol-agent 调用"
+        return True, "配置已保存并已加载，将应用于后续 mph-agent 调用"
     except Exception as e:
         return False, f"写入 .env 失败: {e}"

@@ -2,6 +2,7 @@
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import base64
+import re
 import shutil
 import tempfile
 
@@ -149,6 +150,27 @@ class JavaAPIController:
         except Exception as e:
             raise RuntimeError(f"获取材料节点 '{name}' 失败: {e}") from e
         raise RuntimeError("当前 COMSOL 模型不支持材料节点访问")
+
+    @staticmethod
+    def _physics_api(model):
+        """获取物理场 API：component 下用 component('comp1').physics()，否则用 model.physics()。"""
+        try:
+            if model.component().has("comp1") and hasattr(model.component("comp1"), "physics"):
+                return model.component("comp1").physics()
+        except Exception:
+            pass
+        if hasattr(model, "physics"):
+            return model.physics()
+        raise RuntimeError("当前 COMSOL 模型无 physics() 接口")
+
+    def _physics_feature(self, model, name: str):
+        """获取名为 name 的物理场节点。与 _physics_api 同源（component 或 root）。"""
+        try:
+            if model.component().has("comp1") and hasattr(model.component("comp1"), "physics"):
+                return model.component("comp1").physics(name)
+        except Exception:
+            pass
+        return model.physics(name)
 
     # ===== 材料节点：查询 / 删除 / 重命名 / 存在检查 / 更新属性 / 批量删除 =====
 
@@ -322,8 +344,8 @@ class JavaAPIController:
             except Exception:
                 pass
             try:
-                if hasattr(model, "physics"):
-                    out["physics"] = self._tags_or_names(model.physics())
+                ph = self._physics_api(model)
+                out["physics"] = self._tags_or_names(ph)
             except Exception:
                 pass
             try:
@@ -383,6 +405,25 @@ class JavaAPIController:
         except Exception as e:
             logger.warning("remove_study 失败: %s", e)
             return {"status": "error", "message": str(e)}
+
+    def clear_study(self, model_path: str) -> Dict[str, Any]:
+        """清除模型中所有研究节点。API: model.study().remove(tag) 逐项。"""
+        try:
+            model = self._load_model(model_path)
+            st = model.study()
+            names = self._tags_or_names(st)
+            if not hasattr(st, "remove"):
+                return {"status": "error", "message": "当前 COMSOL 版本不支持 study().remove()", "removed": []}
+            for name in names:
+                try:
+                    st.remove(name)
+                except Exception as e:
+                    logger.warning("删除研究 %s 失败: %s", name, e)
+            _save_model_avoid_lock(model, Path(model_path))
+            return {"status": "success", "message": f"已删除 {len(names)} 个研究节点", "removed": names}
+        except Exception as e:
+            logger.warning("clear_study 失败: %s", e)
+            return {"status": "error", "message": str(e), "removed": []}
 
     def list_study_names(self, model_path: str) -> Dict[str, Any]:
         """查询现有研究名称。API: model.study().names() 或 .tags()。"""
@@ -469,7 +510,7 @@ class JavaAPIController:
         """获取所有物理场名称列表。API: model.physics().names() 或 .tags()。"""
         try:
             model = self._load_model(model_path)
-            ph = model.physics()
+            ph = self._physics_api(model)
             tags = self._tags_or_names(ph)
             return {"status": "success", "tags": tags, "names": tags}
         except Exception as e:
@@ -483,8 +524,9 @@ class JavaAPIController:
         """删除已存在的物理场节点。API: model.physics().remove(\"ht0\")."""
         try:
             model = self._load_model(model_path)
-            if hasattr(model.physics(), "remove"):
-                model.physics().remove(name)
+            ph = self._physics_api(model)
+            if hasattr(ph, "remove"):
+                ph.remove(name)
             else:
                 return {"status": "error", "message": "当前 COMSOL 版本不支持 physics().remove()"}
             _save_model_avoid_lock(model, Path(model_path))
@@ -496,7 +538,7 @@ class JavaAPIController:
         """检查物理场节点是否存在。API: model.physics().has(\"phys1\") 或 names()/tags() 包含。"""
         try:
             model = self._load_model(model_path)
-            ph = model.physics()
+            ph = self._physics_api(model)
             if hasattr(ph, "has"):
                 exists = ph.has(name)
             else:
@@ -509,12 +551,12 @@ class JavaAPIController:
         """重命名物理场节点。API: model.physics(\"ht0\").name(\"newName\")."""
         try:
             model = self._load_model(model_path)
-            ph = model.physics()
+            ph = self._physics_api(model)
             if hasattr(ph, "has") and not ph.has(old_name):
                 return {"status": "error", "message": f"物理场节点不存在: {old_name}"}
             if hasattr(ph, "has") and ph.has(new_name):
                 return {"status": "error", "message": f"目标名称已存在: {new_name}"}
-            feat = model.physics(old_name)
+            feat = self._physics_feature(model, old_name)
             if hasattr(feat, "name"):
                 feat.name(new_name)
             else:
@@ -529,7 +571,7 @@ class JavaAPIController:
         """清除所有物理场节点。API: model.physics().clear()."""
         try:
             model = self._load_model(model_path)
-            ph = model.physics()
+            ph = self._physics_api(model)
             if hasattr(ph, "clear"):
                 ph.clear()
             else:
@@ -552,7 +594,7 @@ class JavaAPIController:
         """检查物理场下某特征是否已激活。API: model.physics(\"ht0\").feature(\"temp1\").isActive()."""
         try:
             model = self._load_model(model_path)
-            feat = model.physics(physics_tag).feature(feature_tag)
+            feat = self._physics_feature(model, physics_tag).feature(feature_tag)
             active = feat.isActive() if hasattr(feat, "isActive") else True
             return {"status": "success", "active": bool(active), "physics": physics_tag, "feature": feature_tag}
         except Exception as e:
@@ -563,7 +605,7 @@ class JavaAPIController:
         """修改已存在边界条件/特征参数。API: model.physics(\"ht0\").feature(\"temp1\").set(\"T0\", \"293.15\")."""
         try:
             model = self._load_model(model_path)
-            feat = model.physics(physics_tag).feature(feature_tag)
+            feat = self._physics_feature(model, physics_tag).feature(feature_tag)
             feat.set(key, value)
             _save_model_avoid_lock(model, Path(model_path))
             return {"status": "success", "message": f"已设置 {physics_tag}.{feature_tag}.{key}", "physics": physics_tag, "feature": feature_tag, "key": key}
@@ -1077,6 +1119,65 @@ class JavaAPIController:
                 return candidate
         return f"{base}_new"
 
+    def _find_unused_physics_name(self, model, base: str) -> str:
+        """在模型中找一个未使用的物理场名称，如 ht0 -> ht1, solid0 -> solid1 ..."""
+        ph_seq = self._physics_api(model)
+        existing = set(self._tags_or_names(ph_seq))
+        if base not in existing:
+            return base
+        # 若 base 以数字结尾（如 ht0、solid0），尝试递增：ht1, ht2...
+        m = re.match(r"^(.+?)(\d+)$", base)
+        if m:
+            prefix, num = m.group(1), int(m.group(2))
+            for i in range(num + 1, num + 100):
+                candidate = f"{prefix}{i}"
+                if candidate not in existing:
+                    return candidate
+        for i in range(1, 100):
+            candidate = f"{base}_{i}"
+            if candidate not in existing:
+                return candidate
+        return f"{base}_new"
+
+    def _find_unused_study_name(self, model, base: str) -> str:
+        """在模型中找一个未使用的研究名称，如 std1 -> std2 ..."""
+        st = model.study()
+        existing = set(self._tags_or_names(st))
+        if base not in existing:
+            return base
+        m = re.match(r"^(.+?)(\d+)$", base)
+        if m:
+            prefix, num = m.group(1), int(m.group(2))
+            for i in range(num + 1, num + 100):
+                candidate = f"{prefix}{i}"
+                if candidate not in existing:
+                    return candidate
+        for i in range(1, 100):
+            candidate = f"{base}_{i}"
+            if candidate not in existing:
+                return candidate
+        return f"{base}_new"
+
+    def generate_unique_physics_name(self, model_path: str, base: str = "ht") -> Dict[str, Any]:
+        """自动生成唯一的物理场节点名称。API 供迭代修复或执行器调用。"""
+        try:
+            model = self._load_model(model_path)
+            name = self._find_unused_physics_name(model, base)
+            return {"status": "success", "name": name, "base": base}
+        except Exception as e:
+            logger.warning("generate_unique_physics_name 失败: %s", e)
+            return {"status": "error", "message": str(e), "name": base}
+
+    def generate_unique_study_name(self, model_path: str, base: str = "std") -> Dict[str, Any]:
+        """自动生成唯一的研究节点名称。API 供迭代修复或执行器调用。"""
+        try:
+            model = self._load_model(model_path)
+            name = self._find_unused_study_name(model, base)
+            return {"status": "success", "name": name, "base": base}
+        except Exception as e:
+            logger.warning("generate_unique_study_name 失败: %s", e)
+            return {"status": "error", "message": str(e), "name": base}
+
     def add_materials(self, model_path: str, material_plan: MaterialPlan) -> Dict[str, Any]:
         """添加材料到模型"""
         logger.info("添加材料...")
@@ -1161,45 +1262,49 @@ class JavaAPIController:
         added = []
         for i, field in enumerate(physics_plan.fields):
             tag = PHYSICS_TYPE_TO_COMSOL_TAG.get(field.type, "HeatTransfer")
-            name = self._physics_interface_name(field.type, i)
+            base_name = self._physics_interface_name(field.type, i)
+            name = self._find_unused_physics_name(model, base_name)
+            ph_seq = self._physics_api(model)
             try:
+                ph_seq.create(name, tag, geom_tag)
+            except Exception as e:
+                logger.warning("物理场 create 失败，尝试 fallback: %s", e)
                 if model.component().has("comp1"):
                     model.component("comp1").physics().create(name, tag, geom_tag)
                 else:
                     model.physics().create(name, tag, geom_tag)
-            except Exception:
-                model.physics().create(name, tag, geom_tag)
 
+            ph_feat = self._physics_feature(model, name)
             # Boundary conditions
             for bc in field.boundary_conditions:
                 try:
-                    model.physics(name).create(bc.name, bc.condition_type)
+                    ph_feat.create(bc.name, bc.condition_type)
                     if isinstance(bc.selection, list) and bc.selection:
-                        model.physics(name).feature(bc.name).selection().set(bc.selection)
+                        ph_feat.feature(bc.name).selection().set(bc.selection)
                     for k, v in bc.parameters.items():
-                        model.physics(name).feature(bc.name).set(k, v)
+                        ph_feat.feature(bc.name).set(k, v)
                 except Exception as e:
                     logger.warning("设置边界条件 %s 失败: %s", bc.name, e)
 
             # Domain conditions
             for dc in field.domain_conditions:
                 try:
-                    model.physics(name).create(dc.name, dc.condition_type)
+                    ph_feat.create(dc.name, dc.condition_type)
                     if isinstance(dc.selection, list) and dc.selection:
-                        model.physics(name).feature(dc.name).selection().set(dc.selection)
+                        ph_feat.feature(dc.name).selection().set(dc.selection)
                     for k, v in dc.parameters.items():
-                        model.physics(name).feature(dc.name).set(k, v)
+                        ph_feat.feature(dc.name).set(k, v)
                 except Exception as e:
                     logger.warning("设置域条件 %s 失败: %s", dc.name, e)
 
             # Initial conditions
             for ic in field.initial_conditions:
                 try:
-                    model.physics(name).feature("init1").set(ic.variable, ic.value)
+                    ph_feat.feature("init1").set(ic.variable, ic.value)
                 except Exception:
                     try:
-                        model.physics(name).create(ic.name, "init")
-                        model.physics(name).feature(ic.name).set(ic.variable, ic.value)
+                        ph_feat.create(ic.name, "init")
+                        ph_feat.feature(ic.name).set(ic.variable, ic.value)
                     except Exception as e:
                         logger.warning("设置初始条件 %s 失败: %s", ic.name, e)
 
@@ -1322,7 +1427,8 @@ class JavaAPIController:
         added = []
         for i, st in enumerate(study_plan.studies):
             step_type = STUDY_TYPE_TO_COMSOL_TAG.get(st.type, "Stationary")
-            name = f"std{i + 1}"
+            base_name = f"std{i + 1}"
+            name = self._find_unused_study_name(model, base_name)
             model.study().create(name)
             model.study(name).create("std", step_type)
 
@@ -1456,7 +1562,8 @@ class JavaAPIController:
         physics_name = parameters.get("physics_name", "ht")
         boundary_name = parameters.get("boundary_name", "bc1")
         condition_type = parameters.get("condition_type", "Temperature")
-        model.physics(physics_name).create(boundary_name, condition_type)
+        ph_feat = self._physics_feature(model, physics_name)
+        ph_feat.create(boundary_name, condition_type)
         for k, v in parameters.get("params", {}).items():
-            model.physics(physics_name).feature(boundary_name).set(k, v)
+            ph_feat.feature(boundary_name).set(k, v)
         return {"physics": physics_name, "boundary": boundary_name, "type": condition_type}

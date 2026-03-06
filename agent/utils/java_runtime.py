@@ -81,7 +81,7 @@ def _download_url() -> tuple[str, str]:
             f"?project=jdk&archive_type={archive_type}"
         )
         try:
-            req = Request(api_url, method="HEAD", headers={"User-Agent": "comsol-agent"})
+            req = Request(api_url, method="HEAD", headers={"User-Agent": "mph-agent"})
             with urlopen(req, timeout=15) as r:
                 final_url = r.geturl()
             filename = unquote(final_url.rstrip("/").split("/")[-1])
@@ -179,14 +179,14 @@ def is_project_java_path(path: Optional[str]) -> bool:
 
 def _use_bundled_java_only() -> bool:
     """桌面安装包通过 Bridge 传入，表示仅使用打包的 Java，不依赖系统/项目内 JDK、不自动下载。"""
-    return os.environ.get("COMSOL_AGENT_USE_BUNDLED_JAVA", "").strip() == "1"
+    return os.environ.get("MPH_AGENT_USE_BUNDLED_JAVA", "").strip() == "1"
 
 
 def get_effective_java_home() -> Optional[str]:
     """
     解析当前应使用的 JAVA_HOME。
     顺序：配置/环境变量 JAVA_HOME > 项目内 java11/jdk11/jdk 等目录 > runtime/java（若已存在）。
-    当 COMSOL_AGENT_USE_BUNDLED_JAVA=1（桌面安装包）时，仅使用环境变量 JAVA_HOME，与测试环境一致。
+    当 MPH_AGENT_USE_BUNDLED_JAVA=1（桌面安装包）时，仅使用环境变量 JAVA_HOME，与测试环境一致。
     """
     # 桌面安装包：优先使用设置里配置的 Java 8/11（.env JAVA_HOME），否则用打包的 Java
     if _use_bundled_java_only():
@@ -218,7 +218,7 @@ def ensure_bundled_java() -> str:
     """
     获取可用的 JAVA_HOME；若未配置且无内嵌 JDK，则自动下载 JDK 11 到 runtime/java（可被 JAVA_SKIP_AUTO_DOWNLOAD 禁用）。
     返回用于启动 JVM 的 JAVA_HOME 路径。
-    桌面安装包（COMSOL_AGENT_USE_BUNDLED_JAVA=1）下不自动下载，仅使用打包的 Java。
+    桌面安装包（MPH_AGENT_USE_BUNDLED_JAVA=1）下不自动下载，仅使用打包的 Java。
     """
     effective = get_effective_java_home()
     if effective:
@@ -262,7 +262,7 @@ def _download_and_extract(url: str, ext: str, target_dir: Path) -> None:
     target_dir = target_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    req = Request(url, headers={"User-Agent": "comsol-agent"})
+    req = Request(url, headers={"User-Agent": "mph-agent"})
     with urlopen(req, timeout=60) as resp:
         total = resp.headers.get("Content-Length")
         data = resp.read()
@@ -270,7 +270,7 @@ def _download_and_extract(url: str, ext: str, target_dir: Path) -> None:
         logger.debug(f"下载大小: {int(total) / (1024*1024):.2f} MB")
 
     import tempfile
-    tmp = tempfile.mkdtemp(prefix="comsol-agent-jdk-")
+    tmp = tempfile.mkdtemp(prefix="mph-agent-jdk-")
     try:
         archive = Path(tmp) / ("jdk" + ext)
         archive.write_bytes(data)
