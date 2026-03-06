@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-for-comsol-multiphysics"
+name = "mph-agent"
 version = "0.1.0"
 description = "一个智能 Agent，将自然语言描述的 2D/3D 建模需求（几何、材料、物理场）自动转换为 COMSOL Multiphysics 模型文件"
 readme = "README.md"
@@ -55,7 +55,7 @@ memory = [
 ]
 
 [project.scripts]
-comsol-agent = "cli:main"
+mph-agent = "cli:main"
 
 [tool.setuptools]
 packages = ["agent", "schemas", "prompts", "prompts.planner", "prompts.react", "prompts.executor"]

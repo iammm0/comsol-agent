@@ -19,3 +19,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+ADDITIONAL DISCLAIMER — COMSOL / 关于 COMSOL 的补充声明
+
+This additional disclaimer applies together with the MIT License above. By using
+this software, you acknowledge and agree to the following:
+
+1. This project is an independent open-source tool. It is not affiliated with
+   COMSOL AB, is not an official product, and is not an official plugin.
+   本项目为独立开源工具，与 COMSOL 官方无任何关联、非官方产品、非官方插件。
+
+2. This project uses only COMSOL's officially published APIs for automation and
+   script generation. It does not contain any COMSOL core code, and does not
+   crack, modify, or bypass COMSOL's license mechanism.
+   本项目仅通过 COMSOL 官方公开 API 进行自动化调用与脚本生成，不包含任何
+   COMSOL 核心代码、不破解、不修改、不绕过 COMSOL 许可机制。
+
+3. Use of this tool requires that you have a valid, licensed copy of COMSOL
+   Multiphysics software.
+   使用本工具的前提是用户已拥有合法、正版的 COMSOL Multiphysics 软件许可。
+
+4. Any use of pirated, cracked, or unauthorized COMSOL software violates
+   COMSOL's end-user license agreement and applicable laws. All legal
+   liability, risk, and consequences arising therefrom are solely the
+   responsibility of the user, and not of the authors or contributors of
+   this project.
+   任何使用盗版、破解、未授权版本 COMSOL 的行为，均违反 COMSOL 最终用户许可
+   协议及相关法律法规，由此产生的一切法律责任、风险与后果由使用者自行承担，
+   与本项目作者及贡献者无关。
+
+5. This project is intended only for learning, research, and lawful
+   engineering automation. Do not use it for commercial infringement or
+   illegal purposes.
+   本项目仅用于学习、科研与合法合规的工程自动化用途，请勿用于商业侵权或非法用途。
