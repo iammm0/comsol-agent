@@ -315,7 +315,7 @@ class JavaAPIController:
                     try:
                         pg = feat.propertyGroup(group)
                         pg.set(key, v)
-                    except Exception as e1:
+                    except Exception:
                         try:
                             pg.set(k, v)
                         except Exception as e2:
@@ -1233,7 +1233,7 @@ class JavaAPIController:
                     name_to_set = MATERIAL_PROPERTY_COMSOL_ALIAS.get(prop.name, prop.name)
                     try:
                         feat.propertyGroup(group).set(name_to_set, prop.value)
-                    except Exception as e1:
+                    except Exception:
                         try:
                             feat.propertyGroup(group).set(prop.name, prop.value)
                         except Exception as e2:

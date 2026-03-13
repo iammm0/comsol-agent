@@ -1,11 +1,36 @@
-# Multiphysics Modeling Agent (mph-agent)
+<div align="center">
+  <h1>Multiphysics Modeling Agent</h1>
+  <p>AI 驱动的 COMSOL 自动化建模智能体（自然语言 → .mph）</p>
+  <p>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="python 3.8+"></a>
+    <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="version 0.1.0">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="license MIT"></a>
+    <img src="https://img.shields.io/badge/platform-Windows%20Desktop-orange.svg" alt="platform Windows Desktop">
+    <img src="https://img.shields.io/badge/Tauri-2-555555.svg" alt="Tauri 2">
+    <img src="https://img.shields.io/badge/React-18-61DAFB.svg" alt="React 18">
+  </p>
+  <p><b>中文</b> | English (coming soon)</p>
+</div>
 
 将自然语言描述的 COMSOL 建模需求自动转换为完整 .mph 模型文件的智能 Agent，支持几何、物理场、网格、研究与求解的完整仿真流程。本项目**仅基于 COMSOL 官方开放的 Java API 进行二次开发**，仅供学习与交流使用。
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 ---
+
+## 目录
+
+- [重要声明 / Disclaimer](#重要声明--disclaimer)
+- [简介](#简介)
+- [功能特性](#功能特性)
+- [界面预览](#界面预览)
+- [安装](#安装)
+- [环境配置](#环境配置)
+- [使用方法](#使用方法)
+- [文档](#文档)
+- [项目结构](#项目结构)
+- [架构详图](#架构详图)
+- [开发](#开发)
+- [常见问题](#常见问题)
+- [许可证](#许可证)
 
 ## 重要声明 / Disclaimer
 
@@ -37,21 +62,25 @@ Multiphysics Modeling Agent（mph-agent）基于 **ReAct（Reasoning & Acting）
 
 ## 界面预览
 
-| 主要界面 | 推理任务 |
+| 主界面 | 推理及建模过程 |
 |----------|----------|
-| ![主要界面](assets/主要界面.png) | ![推理任务页面1](assets/推理任务页面1.png) |
+| ![主界面](assets/主界面.png) | ![推理及建模过程图1](assets/推理及建模过程图1.png) |
 
-| 推理任务（续） | LLM 配置 |
+| 推理及建模过程（续） | 大模型配置 |
 |----------------|-----------|
-| ![推理任务页面2](assets/推理任务页面2.png) | ![LLM配置页面](assets/LLM配置页面.png) |
+| ![推理及建模过程图2](assets/推理及建模过程图2.png) | ![配置大模型](assets/配置大模型.png) |
 
-| COMSOL 环境配置 | 记忆管理 | 主题切换 |
+| COMSOL/JAVA 环境配置 | 记忆管理 | 主题风格 |
 |-----------------|----------|----------|
-| ![COMSOL环境配置页面](assets/COMSOL环境配置页面.png) | ![记忆管理页面](assets/记忆管理页面.png) | ![主题切换页面](assets/主题切换页面.png) |
+| ![配置COMSOL和JAVA环境](assets/配置COMSOL和JAVA环境.png) | ![记忆管理](assets/记忆管理.png) | ![主题风格配置](assets/主题风格配置.png) |
 
-| 命令浮窗 | 操作帮助 |
+| 待选斜杠命令 | 帮助命令详情 |
 |----------|----------|
-| ![命令浮窗页面](assets/命令浮窗页面.png) | ![操作帮助页面](assets/操作帮助页面.png) |
+| ![待选斜杠命令](assets/待选斜杠命令.png) | ![帮助命令详情](assets/帮助命令详情.png) |
+
+| 建模结果 |
+|----------|
+| ![建模结果](assets/建模结果.png) |
 
 ---
 
@@ -61,7 +90,7 @@ Multiphysics Modeling Agent（mph-agent）基于 **ReAct（Reasoning & Acting）
 
 ### 环境要求
 
-- **Python 3.12+**
+- **Python 3.8+**（推荐 3.11/3.12）
 - **COMSOL Multiphysics**（已安装）
 - **Java JDK 8+**（与 COMSOL 兼容；项目也可使用内置 JDK 11）
 
@@ -152,6 +181,15 @@ print(f"模型已生成: {model_path}")
 
 ---
 
+## 文档
+
+- 文档索引：[docs/README.md](docs/README.md)
+- 安装与配置：[INSTALL.md](docs/getting-started/INSTALL.md)、[CONFIG.md](docs/getting-started/CONFIG.md)
+- 架构设计：[architecture.md](docs/architecture/architecture.md)
+- 技能系统：[skills/README.md](skills/README.md)
+
+---
+
 ## 项目结构
 
 ```
@@ -160,9 +198,11 @@ mph-agent/
 ├── desktop/          # Tauri 2 + React 桌面应用
 ├── docs/             # 文档索引见 docs/README.md
 ├── prompts/          # 提示词模板（planner / executor / react）
-├── schemas/           # 数据模型（geometry, physics, study, task）
-├── agent/             # 主流程包（见 agent/README.md）
-├── scripts/           # 构建与测试脚本
+├── schemas/          # 数据模型（geometry, physics, study, task）
+├── agent/            # 主流程包（见 agent/README.md）
+├── skills/           # 领域技能库（SKILL.md）
+├── data/             # 技能索引数据库（默认 data/skills.db）
+├── scripts/          # 构建与测试脚本
 ├── assets/            # README 与文档用截图
 └── tests/             # 单元测试
 ```
@@ -205,8 +245,9 @@ mph-agent/
 
 ## 开发
 
-- **测试**：`pytest tests/`
-- **格式**：`black agent/ tests/ main.py`
+- **测试**：`uv run pytest`
+- **Lint**：`uv run ruff check .`
+- **格式化**：`uv run black .`
 - **贡献**：分支与提交规范见 [docs/project/CONTRIBUTING.md](docs/project/CONTRIBUTING.md)。
 
 桌面端发布通过 GitHub Actions 仅构建 Windows 安装包（exe/msi），推送到 `release` 分支或打 tag `desktop-v*` 触发，产物见 [GitHub Releases](https://github.com/iammm0/mph-agent/releases)。

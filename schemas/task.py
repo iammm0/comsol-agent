@@ -1,6 +1,6 @@
 """任务数据结构定义"""
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from schemas.geometry import GeometryPlan

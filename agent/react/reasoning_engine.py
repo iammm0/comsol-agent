@@ -325,7 +325,7 @@ class ReasoningEngine:
         if stop_after_step and stop_after_step in step_order:
             idx = step_order.index(stop_after_step)
             allowed = set(step_order[: idx + 1])
-            required_steps = [s for s in required_steps if s in allowed]
+            required_steps = [s for s in required_steps if s not in step_order or s in allowed]
 
         step_type_map = {
             "create_geometry": "geometry",

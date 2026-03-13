@@ -7,6 +7,7 @@ from agent.react.reasoning_engine import ReasoningEngine
 from agent.react.action_executor import ActionExecutor
 from agent.react.observer import Observer
 from agent.react.iteration_controller import IterationController
+from agent.react.exceptions import PlanNeedsClarification
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
@@ -21,6 +22,7 @@ class ReActAgent:
 
     def __init__(
         self,
+        llm: Optional[Any] = None,
         backend: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
@@ -34,7 +36,7 @@ class ReActAgent:
         self._event_bus = event_bus
         self._context_manager = context_manager
 
-        self.llm = LLMClient(
+        self.llm = llm or LLMClient(
             backend=backend or settings.llm_backend,
             api_key=api_key or settings.get_api_key_for_backend(backend or settings.llm_backend),
             base_url=base_url or settings.get_base_url_for_backend(backend or settings.llm_backend),

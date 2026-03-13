@@ -21,8 +21,8 @@ class ActionExecutor:
 
     def __init__(self, event_bus: Optional[Any] = None, context_manager: Optional[Any] = None):
         self.settings = get_settings()
-        self.comsol_runner = COMSOLRunner()
-        self.java_api_controller = JavaAPIController()
+        self._comsol_runner: Optional[COMSOLRunner] = None
+        self._java_api_controller: Optional[JavaAPIController] = None
         self._event_bus = event_bus
         self._context_manager = context_manager
 
@@ -30,6 +30,16 @@ class ActionExecutor:
         self._physics_agent = None
         self._material_agent = None
         self._study_agent = None
+
+    def _get_comsol_runner(self) -> COMSOLRunner:
+        if self._comsol_runner is None:
+            self._comsol_runner = COMSOLRunner()
+        return self._comsol_runner
+
+    def _get_java_api_controller(self) -> JavaAPIController:
+        if self._java_api_controller is None:
+            self._java_api_controller = JavaAPIController()
+        return self._java_api_controller
 
     def _emit_step_start(self, step_type: str, message: str = "") -> None:
         """向交互板块发送步骤开始事件，便于逐步渲染。"""
@@ -103,12 +113,13 @@ class ActionExecutor:
         output_filename = f"{model_name}.mph"
 
         output_dir = getattr(plan, "output_dir", None)
-        out_path = Path(output_dir) if output_dir else None
+        out_path = Path(output_dir) if isinstance(output_dir, (str, Path)) and output_dir else None
         try:
+            runner = self._get_comsol_runner()
             if out_path is not None:
-                model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename, output_dir=out_path)
+                model_path = runner.create_model_from_plan(geometry_plan, output_filename, output_dir=out_path)
             else:
-                model_path = self.comsol_runner.create_model_from_plan(geometry_plan, output_filename)
+                model_path = runner.create_model_from_plan(geometry_plan, output_filename)
         except Exception as e:
             logger.error(f"几何建模失败: {e}")
             return {"status": "error", "message": f"几何建模失败: {e}"}
@@ -160,7 +171,8 @@ class ActionExecutor:
             plan.material_plan = material_plan
 
         try:
-            result = self.java_api_controller.add_materials(plan.model_path, material_plan)
+            controller = self._get_java_api_controller()
+            result = controller.add_materials(plan.model_path, material_plan)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "材料设置失败")}
             if result.get("saved_path"):
@@ -214,7 +226,8 @@ class ActionExecutor:
             physics_plan = getattr(plan, "physics_plan", None)
             if not physics_plan:
                 physics_plan = self._physics_agent.parse(physics_input)
-            result = self.java_api_controller.add_physics(plan.model_path, physics_plan)
+            controller = self._get_java_api_controller()
+            result = controller.add_physics(plan.model_path, physics_plan)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "物理场设置失败")}
             if result.get("saved_path"):
@@ -259,7 +272,8 @@ class ActionExecutor:
 
         try:
             mesh_params = thought.get("parameters", {}).get("mesh", {})
-            result = self.java_api_controller.generate_mesh(plan.model_path, mesh_params)
+            controller = self._get_java_api_controller()
+            result = controller.generate_mesh(plan.model_path, mesh_params)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "网格划分失败")}
             if result.get("saved_path"):
@@ -297,7 +311,8 @@ class ActionExecutor:
             study_plan = getattr(plan, "study_plan", None)
             if not study_plan:
                 study_plan = self._study_agent.parse(study_input)
-            result = self.java_api_controller.configure_study(plan.model_path, study_plan)
+            controller = self._get_java_api_controller()
+            result = controller.configure_study(plan.model_path, study_plan)
             if result.get("status") == "error":
                 return {"status": "error", "message": result.get("message", "研究配置失败")}
             if result.get("saved_path"):
@@ -337,7 +352,8 @@ class ActionExecutor:
             return {"status": "error", "message": "模型文件不存在"}
 
         try:
-            result = self.java_api_controller.solve(plan.model_path)
+            controller = self._get_java_api_controller()
+            result = controller.solve(plan.model_path)
             if result.get("status") == "error":
                 # 求解失败：此时 model_path 仍然指向求解前的模型，前端可据此查看“部分生成”的模型。
                 msg = result.get("message", "求解失败")
@@ -370,7 +386,8 @@ class ActionExecutor:
         if not file_path:
             return {"status": "error", "message": "缺少 file_path 参数"}
         self._emit_step_start("几何导入", "正在导入几何文件...")
-        result = self.java_api_controller.import_geometry(
+        controller = self._get_java_api_controller()
+        result = controller.import_geometry(
             plan.model_path,
             file_path,
             geom_tag=params.get("geom_tag", "geom1"),
@@ -392,7 +409,8 @@ class ActionExecutor:
         params = thought.get("parameters", {}) or step.parameters
         tag = params.get("tag") or params.get("selection_tag", "sel1")
         self._emit_step_start("选择集", f"正在创建选择集 {tag}...")
-        result = self.java_api_controller.create_selection(
+        controller = self._get_java_api_controller()
+        result = controller.create_selection(
             plan.model_path,
             tag=tag,
             kind=params.get("kind", "Explicit"),
@@ -419,7 +437,8 @@ class ActionExecutor:
         self._emit_step_start("结果导出", "正在导出结果...")
         export_type = (params.get("export_type") or "image").lower()
         if export_type == "data" or params.get("dataset"):
-            result = self.java_api_controller.export_data(
+            controller = self._get_java_api_controller()
+            result = controller.export_data(
                 plan.model_path,
                 params.get("dataset") or params.get("plot_group_tag", "dset1"),
                 out_path,
@@ -427,11 +446,13 @@ class ActionExecutor:
                 **{k: v for k, v in params.items() if k not in ("out_path", "output_path", "path", "export_type", "dataset", "plot_group_tag", "data_type")},
             )
         elif params.get("table_tag"):
-            result = self.java_api_controller.table_export(
+            controller = self._get_java_api_controller()
+            result = controller.table_export(
                 plan.model_path, params["table_tag"], out_path
             )
         else:
-            result = self.java_api_controller.export_plot_image(
+            controller = self._get_java_api_controller()
+            result = controller.export_plot_image(
                 plan.model_path,
                 params.get("plot_group_tag", "pg1"),
                 out_path,
@@ -472,13 +493,15 @@ class ActionExecutor:
         try:
             if wrapper:
                 # 调用静态生成的 api_* 包装函数
-                func = getattr(self.java_api_controller, wrapper, None)
+                controller = self._get_java_api_controller()
+                func = getattr(controller, wrapper, None)
                 if not func:
                     return {"status": "error", "message": f"未找到官方 API 包装函数: {wrapper}"}
                 result = func(model_path=plan.model_path, args=args, target_path=target_path)
             else:
                 # 直接按 method + target_path 调用
-                result = self.java_api_controller.invoke_official_api(
+                controller = self._get_java_api_controller()
+                result = controller.invoke_official_api(
                     model_path=plan.model_path,
                     method_name=method,
                     args=args,
