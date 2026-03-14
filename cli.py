@@ -73,6 +73,7 @@ def _launch_desktop(root: Path) -> None:
     try:
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
+        env["MPH_AGENT_ROOT"] = str(root.resolve())
         subprocess.run(
             [npm_cmd, "run", "tauri", "dev"],
             cwd=desktop_dir,
