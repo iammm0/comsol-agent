@@ -1,16 +1,13 @@
-"""Executor 单元测试：JavaGenerator 代码生成（不启动 JVM）。"""
+"""Executor 单元测试：do_exec_from_file、COMSOLRunner/JavaAPIController 依赖（不启动 JVM）。"""
+import json
+import tempfile
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch, Mock
 
 from schemas.geometry import GeometryPlan, GeometryShape
-from agent.executor.java_generator import JavaGenerator
-
-
-@pytest.fixture
-def mock_settings():
-    with patch("agent.executor.java_generator.get_settings") as m:
-        m.return_value.model_output_dir = "/tmp/models"
-        yield m
+from agent.run.actions import do_exec_from_file
 
 
 @pytest.fixture
@@ -30,94 +27,31 @@ def sample_plan():
 
 
 @pytest.fixture
-def plan_with_circle():
-    return GeometryPlan(
-        model_name="circle_model",
-        units="m",
-        shapes=[
-            GeometryShape(
-                type="circle",
-                parameters={"radius": 0.3},
-                position={"x": 0.0, "y": 0.0},
-                name="circ1",
-            )
-        ],
-    )
+def plan_file(sample_plan, tmp_path):
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps(sample_plan.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
-@pytest.fixture
-def plan_with_ellipse():
-    return GeometryPlan(
-        model_name="ellipse_model",
-        units="m",
-        shapes=[
-            GeometryShape(
-                type="ellipse",
-                parameters={"a": 1.0, "b": 0.6},
-                position={"x": 0.5, "y": 0.5},
-                name="ell1",
-            )
-        ],
-    )
+class TestDoExecFromFile:
+    """do_exec_from_file：从 JSON 计划文件创建模型（不启动 JVM）。"""
 
+    def test_do_exec_from_file_success_when_runner_mocked(self, plan_file):
+        with patch("agent.run.actions.COMSOLRunner") as mock_runner_cls:
+            mock_runner_cls.return_value.create_model_from_plan.return_value = Path("/tmp/out.mph")
+            ok, msg = do_exec_from_file(plan_file, output=None, verbose=False)
+            assert ok is True
+            assert "模型已生成" in msg or "out.mph" in msg
+            mock_runner_cls.return_value.create_model_from_plan.assert_called_once()
 
-class TestJavaGenerator:
-    """JavaGenerator：generate_from_plan、_generate_direct_code、_generate_shape_code"""
+    def test_do_exec_from_file_invalid_json_fails(self, tmp_path):
+        bad_file = tmp_path / "bad.json"
+        bad_file.write_text("not json", encoding="utf-8")
+        ok, msg = do_exec_from_file(bad_file, verbose=False)
+        assert ok is False
+        assert msg
 
-    def test_generate_from_plan_uses_direct_code_when_template_empty(self, mock_settings, sample_plan):
-        with patch("agent.executor.java_generator.prompt_loader") as mock_loader:
-            mock_loader.format.return_value = ""  # 模拟模板返回空，走 _generate_direct_code
-            gen = JavaGenerator()
-            code = gen.generate_from_plan(sample_plan, output_filename="out.mph")
-            assert "import com.comsol" in code
-            assert "geom1" in code
-            assert "rect1" in code or "Rectangle" in code
-            assert "model.save" in code or "save" in code
-
-    def test_generate_shape_code_rectangle(self, mock_settings):
-        gen = JavaGenerator()
-        shape = GeometryShape(
-            type="rectangle",
-            parameters={"width": 2.0, "height": 1.0},
-            position={"x": 1.0, "y": 0.5},
-            name="r1",
-        )
-        code = gen._generate_shape_code(shape, 1)
-        assert "2.0" in code
-        assert "1.0" in code
-        assert "1.0" in code and "0.5" in code  # pos
-
-    def test_generate_shape_code_circle(self, mock_settings):
-        gen = JavaGenerator()
-        shape = GeometryShape(
-            type="circle",
-            parameters={"radius": 0.3},
-            position={"x": 0.0, "y": 0.0},
-            name="c1",
-        )
-        code = gen._generate_shape_code(shape, 1)
-        assert "0.3" in code
-        assert "Circle" in code or "circle" in code
-
-    def test_generate_shape_code_ellipse(self, mock_settings):
-        gen = JavaGenerator()
-        shape = GeometryShape(
-            type="ellipse",
-            parameters={"a": 1.0, "b": 0.6},
-            position={"x": 0.0, "y": 0.0},
-            name="e1",
-        )
-        code = gen._generate_shape_code(shape, 1)
-        assert "1.0" in code
-        assert "0.6" in code
-        assert "Ellipse" in code or "ellipse" in code
-
-    def test_generate_shape_code_unsupported_type_raises(self, mock_settings):
-        gen = JavaGenerator()
-        shape = Mock()
-        shape.type = "unknown"
-        shape.parameters = {}
-        shape.position = {"x": 0, "y": 0}
-        shape.name = "x1"
-        with pytest.raises(ValueError, match="不支持的形状类型"):
-            gen._generate_shape_code(shape, 1)
+    def test_do_exec_from_file_nonexistent_fails(self, tmp_path):
+        ok, msg = do_exec_from_file(tmp_path / "nonexistent.json", verbose=False)
+        assert ok is False
+        assert msg
