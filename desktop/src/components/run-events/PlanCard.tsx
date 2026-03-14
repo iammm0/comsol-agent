@@ -1,15 +1,13 @@
 import type { RunEvent } from "../../lib/types";
 
-/** 规划开始：展示用户输入 */
-export function PlanStartCard({ event }: { event: RunEvent }) {
-  const input = String(event.data?.user_input ?? "").trim();
-  if (!input) return null;
+/** 规划开始：仅提示已进入规划，不重复展示用户输入全文 */
+export function PlanStartCard({ event: _event }: { event: RunEvent }) {
   return (
     <div className="run-event-card run-event-card--plan-start">
       <span className="run-event-card__icon" aria-hidden>📋</span>
       <div className="run-event-card__main">
         <span className="run-event-card__title">规划开始</span>
-        <p className="run-event-card__highlight">{input}</p>
+        <p className="run-event-card__plan-start-hint">已收到您的建模需求，正在分解任务…</p>
       </div>
     </div>
   );

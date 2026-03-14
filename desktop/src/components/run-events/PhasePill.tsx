@@ -5,7 +5,7 @@ const PHASE_LABELS: Record<string, string> = {
   thinking: "思考中",
   executing: "执行中",
   observing: "观察中",
-  iterating: "迭代中",
+  iterating: "根据结果调整中",
   qa: "问答",
 };
 

@@ -240,9 +240,20 @@ function appReducer(state: AppState, action: AppAction): AppState {
       const prev = state.messagesByConversation[conversationId] ?? [];
       const last = prev[prev.length - 1];
       if (!last || last.role !== "assistant") return state;
+      // 从 run_end 或任意含 model_path 的事件取最终模型路径，保证错误/中止时也能展示打开与预览
+      let modelPath: string | null | undefined = last.modelPath;
+      const events = last.events ?? [];
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i];
+        const path = e?.data?.model_path;
+        if (typeof path === "string" && path) {
+          modelPath = path;
+          break;
+        }
+      }
       const updated = [
         ...prev.slice(0, -1),
-        { ...last, text, success },
+        { ...last, text, success, modelPath: modelPath ?? last.modelPath },
       ];
       return {
         ...state,

@@ -3,7 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppState } from "../context/AppStateContext";
 import { loadApiConfig, getPayloadFromConfig } from "../lib/apiConfig";
-import type { RunEvent, BridgeResponse } from "../lib/types";
+import type {
+  RunEvent,
+  BridgeResponse,
+  ClarifyingQuestion,
+} from "../lib/types";
+import { normalizeClarifyingQuestions } from "../lib/clarifying";
 
 export function useBridge() {
   const { state, dispatch, addMessage, messages } = useAppState();
@@ -26,7 +31,7 @@ export function useBridge() {
         dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
       }
     },
-    [cid, dispatch, addMessage]
+    [cid, dispatch, addMessage],
   );
 
   const sendStreamCommand = useCallback(
@@ -43,7 +48,21 @@ export function useBridge() {
       });
 
       const unlisten = await listen<RunEvent>("bridge-event", (event) => {
-        dispatch({ type: "APPEND_EVENT", conversationId: cid, event: event.payload });
+        const payload = event.payload;
+        dispatch({ type: "APPEND_EVENT", conversationId: cid, event: payload });
+
+        if (payload.type === "plan_end") {
+          const data = payload.data ?? {};
+          const requiresClarification = Boolean(data.requires_clarification);
+          const questionsRaw = data.clarifying_questions;
+          const questions: ClarifyingQuestion[] =
+            normalizeClarifyingQuestions(questionsRaw);
+
+          if (requiresClarification && questions.length > 0) {
+            dispatch({ type: "SET_PLAN_QUESTIONS", questions });
+            dispatch({ type: "SET_DIALOG", dialog: "planQuestions" });
+          }
+        }
       });
 
       try {
@@ -72,7 +91,7 @@ export function useBridge() {
         dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
       }
     },
-    [cid, dispatch]
+    [cid, dispatch],
   );
 
   const abortRun = useCallback(async () => {
@@ -182,7 +201,17 @@ export function useBridge() {
         });
       }
     },
-    [cid, state.mode, state.outputDefault, state.backend, messages, dispatch, addMessage, sendCommand, sendStreamCommand]
+    [
+      cid,
+      state.mode,
+      state.outputDefault,
+      state.backend,
+      messages,
+      dispatch,
+      addMessage,
+      sendCommand,
+      sendStreamCommand,
+    ],
   );
 
   return { handleSubmit, sendCommand, sendStreamCommand, abortRun };

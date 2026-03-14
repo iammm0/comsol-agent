@@ -1,5 +1,5 @@
 import type { ChatMessage } from "../lib/types";
-import { RunEventBlock } from "./RunEventBlock";
+import { ReasoningStream } from "./run-events/ReasoningStream";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "../context/AppStateContext";
 import type { RunEvent } from "../lib/types";
@@ -36,7 +36,7 @@ function getPhaseLabel(events: RunEvent[] | undefined): string {
         thinking: "思考中",
         executing: "执行中",
         observing: "观察中",
-        iterating: "迭代中",
+        iterating: "根据结果调整中",
       };
       return map[ev.data.phase as string] ?? "处理中";
     }
@@ -85,7 +85,8 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
   const isError = message.success === false;
   const isCurrentBusy = state.busyConversationId === state.currentConversationId;
   const showText = !isError && (message.text || !hasEvents);
-  const modelPath = extractModelPath(message.text || "");
+  const modelPath =
+    message.modelPath ?? extractModelPath(message.text || "");
   const phaseLabel = getPhaseLabel(message.events);
   const placeholderText = message.text || (isCurrentBusy ? phaseLabel : "") || "—";
 
@@ -95,15 +96,33 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
         <div className="assistant-msg-reasoning">
           <p className="assistant-msg-reasoning-title">推理与构建流程</p>
           <div className="assistant-msg-events">
-            {mergeStreamChunks(message.events!).map((evt, i) => (
-              <RunEventBlock key={i} event={evt} />
-            ))}
+            <ReasoningStream events={mergeStreamChunks(message.events!)} />
           </div>
         </div>
       )}
       {isError && (
         <div className="assistant-msg-body error">
           <div className="assistant-msg-text">{message.text}</div>
+          {modelPath && (
+            <div className="assistant-msg-meta">
+              <button
+                type="button"
+                className="assistant-msg-model-btn"
+                onClick={() => openInFolder(modelPath)}
+                title="打开模型所在目录"
+              >
+                在文件管理器中打开
+              </button>
+              <button
+                type="button"
+                className="assistant-msg-model-btn"
+                onClick={() => openPreviewMd(modelPath)}
+                title="预览操作记录 (operations.md)"
+              >
+                预览
+              </button>
+            </div>
+          )}
         </div>
       )}
       {showText && (

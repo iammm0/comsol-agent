@@ -10,6 +10,8 @@ export interface ChatMessage {
   events?: RunEvent[];
   /** 时间戳（可选，用于展示） */
   time?: number;
+  /** 本次构建对应的模型路径（成功/失败/中止时均有，用于打开与预览） */
+  modelPath?: string | null;
 }
 
 /** 运行/流式事件（与后端 bridge-event 一致） */
@@ -66,9 +68,17 @@ export interface SlashCommandItem {
 export const SLASH_COMMANDS: SlashCommandItem[] = [
   { name: "help", display: "/help", description: "显示帮助" },
   { name: "ops", display: "/ops", description: "支持的 COMSOL 操作" },
-  { name: "api", display: "/api", description: "浏览/搜索已集成的 COMSOL 官方 API 包装" },
+  {
+    name: "api",
+    display: "/api",
+    description: "浏览/搜索已集成的 COMSOL 官方 API 包装",
+  },
   { name: "run", display: "/run", description: "默认模式（自然语言 → 模型）" },
-  { name: "plan", display: "/plan", description: "计划模式（自然语言 → JSON）" },
+  {
+    name: "plan",
+    display: "/plan",
+    description: "计划模式（自然语言 → JSON）",
+  },
   { name: "exec", display: "/exec", description: "根据 JSON 创建模型" },
   { name: "backend", display: "/backend", description: "选择 LLM 后端" },
   { name: "context", display: "/context", description: "查看或清除对话历史" },
@@ -94,6 +104,8 @@ export interface ClarifyingOption {
   id: string;
   label: string;
   value: string;
+  /** 是否为推荐选项（前端可展示「推荐」标识） */
+  recommended?: boolean;
 }
 
 export interface ClarifyingQuestion {
@@ -104,8 +116,9 @@ export interface ClarifyingQuestion {
 }
 
 export interface ClarifyingAnswer {
-  questionId: string;
-  selectedOptionIds: string[];
+  question_id: string;
+  selected_option_ids: string[];
+  supplement_text?: string;
 }
 
 /** 快捷提示：面向案例级 3D 多物理场模型的快捷构建指令 */
@@ -204,7 +217,11 @@ export interface ComsolOp {
 }
 
 export const COMSOL_OPS: ComsolOp[] = [
-  { action: "geometry", label: "几何", description: "创建/编辑几何体与布尔运算" },
+  {
+    action: "geometry",
+    label: "几何",
+    description: "创建/编辑几何体与布尔运算",
+  },
   { action: "physics", label: "物理场", description: "添加物理场与边界条件" },
   { action: "mesh", label: "网格", description: "划分网格" },
   { action: "study", label: "研究", description: "稳态/瞬态/特征值等研究" },

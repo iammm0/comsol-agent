@@ -74,8 +74,15 @@ fn find_bundled_bridge_exe() -> Option<PathBuf> {
 }
 
 fn find_project_root() -> Option<PathBuf> {
+    // 显式环境变量优先（便于从任意目录启动时指定项目根）
+    if let Ok(val) = std::env::var("MPH_AGENT_ROOT") {
+        let path = PathBuf::from(val);
+        if path.join("pyproject.toml").exists() {
+            return Some(path);
+        }
+    }
     if let Ok(mut dir) = std::env::current_dir() {
-        for _ in 0..10 {
+        for _ in 0..15 {
             if dir.join("pyproject.toml").exists() {
                 return Some(dir);
             }
@@ -86,7 +93,7 @@ fn find_project_root() -> Option<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(mut dir) = exe.parent().map(|p| p.to_path_buf()) {
-            for _ in 0..10 {
+            for _ in 0..15 {
                 if dir.join("pyproject.toml").exists() {
                     return Some(dir);
                 }
@@ -258,6 +265,7 @@ async fn spawn_bridge_child(bundled_java_home: &Option<PathBuf>) -> Result<Child
     // 开发模式：找到 pyproject.toml 时优先用 Python 脚本
     if let Some(root) = find_project_root() {
         let (cmd, args) = find_python_cmd(&root);
+        let root_str = root.to_string_lossy().to_string();
 
         let mut builder = Command::new(&cmd);
         builder
@@ -267,7 +275,8 @@ async fn spawn_bridge_child(bundled_java_home: &Option<PathBuf>) -> Result<Child
             .stderr(std::process::Stdio::piped())
             .current_dir(&root)
             .env("PYTHONIOENCODING", "utf-8")
-            .env("PYTHONUNBUFFERED", "1");
+            .env("PYTHONUNBUFFERED", "1")
+            .env("PYTHONPATH", &root_str);
 
         if let Some(ref jh) = bundled_java_home {
             builder.env("JAVA_HOME", jh);

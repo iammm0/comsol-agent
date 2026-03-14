@@ -1,32 +1,112 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../../context/AppStateContext";
 import { useBridge } from "../../hooks/useBridge";
-import type {
-  ClarifyingAnswer,
-  ClarifyingQuestion,
-  ClarifyingOption,
-} from "../../lib/types";
+import type { ClarifyingAnswer, ClarifyingQuestion } from "../../lib/types";
+import {
+  normalizeClarifyingQuestions,
+  isMultiSelectQuestion,
+  SUPPLEMENT_OPTION_ID,
+} from "../../lib/clarifying";
+import { ClarifyingQuestionItem } from "../clarifying";
 
 interface PlanQuestionsDialogProps {
   onClose: () => void;
 }
 
+type AnswerState = Record<string, string[]>;
+type SupplementTextState = Record<string, string>;
+
+function ensureSelected(
+  current: string[],
+  optionId: string,
+  checked: boolean,
+): string[] {
+  if (checked) {
+    return current.includes(optionId) ? current : [...current, optionId];
+  }
+  return current.filter((id) => id !== optionId);
+}
+
 export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   const { state, dispatch } = useAppState();
   const { sendStreamCommand } = useBridge();
-  const questions: ClarifyingQuestion[] = state.pendingPlanQuestions ?? [];
-  const [answers, setAnswers] = useState<Record<string, string[]>>({});
 
-  const toggleOption = (q: ClarifyingQuestion, optionId: string) => {
+  const questions: ClarifyingQuestion[] = useMemo(
+    () => normalizeClarifyingQuestions(state.pendingPlanQuestions ?? []),
+    [state.pendingPlanQuestions],
+  );
+
+  const [answers, setAnswers] = useState<AnswerState>({});
+  const [supplements, setSupplements] = useState<SupplementTextState>({});
+
+  // 打开对话框时，为每个问题默认选中「推荐」选项（如 100 A 电流、50 kHz、h=10, T_inf=293.15 K）
+  useEffect(() => {
+    if (questions.length === 0) return;
     setAnswers((prev) => {
-      const current = prev[q.id] ?? [];
-      if (q.type === "single") {
-        return { ...prev, [q.id]: [optionId] };
+      const next = { ...prev };
+      let changed = false;
+      questions.forEach((q) => {
+        if (next[q.id]?.length) return;
+        const rec = q.options.find((o) => o.recommended);
+        if (rec) {
+          next[q.id] = [rec.id];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [questions]);
+
+  const handleToggleOption = (questionId: string, optionId: string) => {
+    const q = questions.find((item) => item.id === questionId);
+    if (!q) return;
+
+    setAnswers((prev) => {
+      const current = prev[questionId] ?? [];
+      if (!isMultiSelectQuestion(q)) {
+        return { ...prev, [questionId]: [optionId] };
       }
-      if (current.includes(optionId)) {
-        return { ...prev, [q.id]: current.filter((id) => id !== optionId) };
+      const selected = current.includes(optionId);
+      return {
+        ...prev,
+        [questionId]: ensureSelected(current, optionId, !selected),
+      };
+    });
+  };
+
+  const handleChangeSupplement = (questionId: string, value: string) => {
+    setSupplements((prev) => ({ ...prev, [questionId]: value }));
+  };
+
+  const canConfirm = useMemo(() => {
+    if (questions.length === 0) return false;
+
+    return questions.every((q) => {
+      const selected = answers[q.id] ?? [];
+      if (selected.length === 0) return false;
+
+      const selectedSupplement = selected.includes(SUPPLEMENT_OPTION_ID);
+      if (!selectedSupplement) return true;
+
+      return (supplements[q.id] ?? "").trim().length > 0;
+    });
+  }, [questions, answers, supplements]);
+
+  const buildPayloadAnswers = (): ClarifyingAnswer[] => {
+    return questions.map((q) => {
+      const selected_option_ids = answers[q.id] ?? [];
+      const supplement_text = (supplements[q.id] ?? "").trim();
+
+      const base: ClarifyingAnswer = {
+        question_id: q.id,
+        selected_option_ids,
+      };
+
+      if (supplement_text) {
+        base.supplement_text = supplement_text;
       }
-      return { ...prev, [q.id]: [...current, optionId] };
+
+      return base;
     });
   };
 
@@ -36,15 +116,14 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
       onClose();
       return;
     }
-    const payloadAnswers: ClarifyingAnswer[] = questions.map((q: ClarifyingQuestion) => ({
-      questionId: q.id,
-      selectedOptionIds: answers[q.id] ?? [],
-    }));
-    // 使用与首次 /run 相同的 API payload（由 useBridge 内部处理 backend 配置）
+
+    const payloadAnswers = buildPayloadAnswers();
+
     sendStreamCommand("run", {
       input,
       clarifying_answers: payloadAnswers,
     });
+
     dispatch({ type: "CLEAR_PLAN_QUESTIONS" });
     dispatch({ type: "SET_DIALOG", dialog: null });
     onClose();
@@ -61,43 +140,39 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
       <div className="dialog-header">
         <h2>在执行前先澄清几个问题</h2>
       </div>
+
       <div className="dialog-body">
         {questions.length === 0 ? (
           <p>当前计划未包含需要澄清的问题。</p>
         ) : (
           <div className="plan-questions-list">
-            {questions.map((q: ClarifyingQuestion) => (
-              <div key={q.id} className="plan-question-item">
-                <div className="plan-question-text">{q.text}</div>
-                <div className="plan-question-options">
-                  {q.options.map((opt: ClarifyingOption) => {
-                    const selected = (answers[q.id] ?? []).includes(opt.id);
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        className={`plan-question-option ${selected ? "selected" : ""}`}
-                        onClick={() => toggleOption(q, opt.id)}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+            {questions.map((q) => (
+              <ClarifyingQuestionItem
+                key={q.id}
+                question={q}
+                selectedOptionIds={answers[q.id] ?? []}
+                supplementText={supplements[q.id] ?? ""}
+                onToggleOption={handleToggleOption}
+                onChangeSupplement={handleChangeSupplement}
+              />
             ))}
           </div>
         )}
       </div>
-      <div className="dialog-footer">
-        <button type="button" className="btn" onClick={handleCancel}>
+
+      <div className="dialog-actions">
+        <button
+          type="button"
+          className="dialog-btn secondary"
+          onClick={handleCancel}
+        >
           取消
         </button>
         <button
           type="button"
-          className="btn primary"
+          className="dialog-btn primary"
           onClick={handleConfirm}
-          disabled={questions.length === 0}
+          disabled={!canConfirm}
         >
           确认并继续执行
         </button>
@@ -105,4 +180,3 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
     </div>
   );
 }
-
