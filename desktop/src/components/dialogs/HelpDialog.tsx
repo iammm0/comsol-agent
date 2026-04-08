@@ -27,12 +27,20 @@ export function HelpDialog() {
           <span className="dialog-row-val">支持的 COMSOL 操作</span>
         </div>
         <div className="dialog-row">
+          <span className="dialog-row-key">/discuss</span>
+          <span className="dialog-row-val">切换到探讨模式（生成讨论卡）</span>
+        </div>
+        <div className="dialog-row">
           <span className="dialog-row-key">/run</span>
-          <span className="dialog-row-val">默认模式（自然语言 → 模型）</span>
+          <span className="dialog-row-val">切换到执行模式（执行已确认计划）</span>
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/plan</span>
-          <span className="dialog-row-val">计划模式（自然语言 → JSON）</span>
+          <span className="dialog-row-val">切换到规划模式（基于讨论卡生成计划）</span>
+        </div>
+        <div className="dialog-row">
+          <span className="dialog-row-key">/case &lt;path.mph&gt;</span>
+          <span className="dialog-row-val">读取 mph 并生成结构化操作案例</span>
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/exec</span>

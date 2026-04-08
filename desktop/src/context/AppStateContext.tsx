@@ -9,6 +9,7 @@ import {
   type Dispatch,
 } from "react";
 import type {
+  AgentMode,
   ChatMessage,
   MessageRole,
   RunEvent,
@@ -39,7 +40,7 @@ interface AppState {
   conversations: Conversation[];
   currentConversationId: string | null;
   messagesByConversation: Record<string, ChatMessage[]>;
-  mode: "run" | "plan";
+  mode: AgentMode;
   backend: string | null;
   outputDefault: string | null;
   execCodeOnly: boolean;
@@ -74,7 +75,7 @@ type AppAction =
       text: string;
       success: boolean;
     }
-  | { type: "SET_MODE"; mode: "run" | "plan" }
+  | { type: "SET_MODE"; mode: AgentMode }
   | { type: "SET_BACKEND"; backend: string | null }
   | { type: "SET_OUTPUT"; output: string | null }
   | { type: "SET_EXEC_CODE_ONLY"; value: boolean }

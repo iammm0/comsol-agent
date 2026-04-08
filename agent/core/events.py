@@ -19,6 +19,8 @@ class EventType(str, Enum):
     CONTENT = "content"
     TASK_PHASE = "task_phase"
     ERROR = "error"
+    DISCUSSION_CARD = "discussion_card"
+    CASE_GENERATED = "case_generated"
     MATERIAL_START = "material_start"
     MATERIAL_END = "material_end"
     GEOMETRY_3D = "geometry_3d"

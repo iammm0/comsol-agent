@@ -11,7 +11,13 @@ from agent.skills import get_skill_injector
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
-from schemas.task import ClarifyingAnswer, ExecutionStep, ReActTaskPlan, ReasoningCheckpoint
+from schemas.task import (
+    ClarifyingAnswer,
+    ExecutionStep,
+    GlobalDefinitionPlan,
+    ReActTaskPlan,
+    ReasoningCheckpoint,
+)
 
 if TYPE_CHECKING:
     from schemas.task import TaskPlan
@@ -55,8 +61,9 @@ def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
     严格按 COMSOL 顺序且仅包含指令需要的步骤：几何 → 材料 → 物理场 → 网格 → 研究 → 求解。
     仅当需要物理场或研究时才添加网格/研究/求解（仅几何或几何+材料时只建模型不求解）。
     """
-    steps = []
+    steps: List[ExecutionStep] = []
     idx = 0
+
     if task_plan.geometry:
         idx += 1
         steps.append(
@@ -68,6 +75,24 @@ def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
                 status="pending",
             )
         )
+
+    globals_payload = []
+    for item in getattr(task_plan, "global_definitions", []) or []:
+        if hasattr(item, "model_dump"):
+            globals_payload.append(item.model_dump())
+        elif isinstance(item, dict):
+            globals_payload.append(item)
+    idx += 1
+    steps.append(
+        ExecutionStep(
+            step_id=f"step_{idx}",
+            step_type="global",
+            action="define_globals",
+            parameters={"global_definitions": globals_payload},
+            status="pending",
+        )
+    )
+
     if task_plan.material:
         idx += 1
         steps.append(
@@ -90,6 +115,7 @@ def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
                 status="pending",
             )
         )
+
     # 当有网格计划或需要求解（物理场/研究）时加入网格步；若有 task_plan.mesh 则把规划参数带入
     mesh_plan = getattr(task_plan, "mesh", None)
     need_mesh = bool(mesh_plan or task_plan.physics or getattr(task_plan, "study", None))
@@ -227,6 +253,7 @@ class ReasoningEngine:
                 plan.physics_plan = getattr(task_plan, "physics", None)
                 plan.mesh_plan = getattr(task_plan, "mesh", None)
                 plan.study_plan = getattr(task_plan, "study", None)
+                plan.global_definitions = getattr(task_plan, "global_definitions", []) or []
                 # 首次调用：Planner 可能会给出 clarifying_questions；二次调用（带 clarifying_answers）时按约定应为空
                 serial_cq = getattr(serial_plan, "clarifying_questions", None)
                 if clarifying_answers:
@@ -287,6 +314,15 @@ class ReasoningEngine:
         )
         plan.clarifying_questions = understanding.get("clarifying_questions")
         plan.case_library_suggestions = understanding.get("case_library_suggestions")
+        params = understanding.get("parameters") or {}
+        if isinstance(params, dict) and isinstance(params.get("global_definitions"), list):
+            globals_plan: List[GlobalDefinitionPlan] = []
+            for item in params.get("global_definitions") or []:
+                try:
+                    globals_plan.append(GlobalDefinitionPlan.model_validate(item))
+                except Exception:
+                    continue
+            plan.global_definitions = globals_plan
 
         logger.info(f"规划完成: {len(execution_path)} 个执行步骤, {len(reasoning_path)} 个检查点")
 
@@ -358,12 +394,13 @@ class ReasoningEngine:
 
         if not required_steps:
             if task_type == "geometry":
-                required_steps = ["create_geometry"]
+                required_steps = ["create_geometry", "define_globals"]
             elif task_type == "physics":
-                required_steps = ["create_geometry", "add_material", "add_physics"]
+                required_steps = ["create_geometry", "define_globals", "add_material", "add_physics"]
             elif task_type == "study":
                 required_steps = [
                     "create_geometry",
+                    "define_globals",
                     "add_material",
                     "add_physics",
                     "configure_study",
@@ -371,6 +408,7 @@ class ReasoningEngine:
             else:
                 required_steps = [
                     "create_geometry",
+                    "define_globals",
                     "add_material",
                     "add_physics",
                     "generate_mesh",
@@ -378,9 +416,18 @@ class ReasoningEngine:
                     "solve",
                 ]
 
+        # 全局定义是标准建模节点：若缺失则自动插入（优先放在 geometry 之后）。
+        if "define_globals" not in required_steps:
+            if "create_geometry" in required_steps:
+                insert_idx = required_steps.index("create_geometry") + 1
+                required_steps.insert(insert_idx, "define_globals")
+            else:
+                required_steps.insert(0, "define_globals")
+
         # 按 stop_after_step 截断：只执行到该步（含）即保存模型并结束
         step_order = [
             "create_geometry",
+            "define_globals",
             "add_material",
             "add_physics",
             "generate_mesh",
@@ -394,6 +441,7 @@ class ReasoningEngine:
 
         step_type_map = {
             "create_geometry": "geometry",
+            "define_globals": "global",
             "add_material": "material",
             "update_material_property": "material",
             "add_physics": "physics",
@@ -409,6 +457,9 @@ class ReasoningEngine:
         # 每步只带该步需要的具体参数
         step_parameters_map = {
             "create_geometry": {"geometry_input": params.get("geometry_input", "")},
+            "define_globals": {
+                "global_definitions": params.get("global_definitions", []),
+            },
             "add_material": {"material_input": params.get("material_input", "")},
             "update_material_property": {
                 "material_name": params.get("material_name"),

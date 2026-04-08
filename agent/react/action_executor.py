@@ -1,5 +1,6 @@
 """行动执行器 — 支持材料、3D 几何"""
 
+import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -16,9 +17,10 @@ from agent.planner.physics_agent import PhysicsAgent
 from agent.planner.study_agent import StudyAgent
 from agent.utils.config import get_settings
 from agent.utils.logger import get_logger
-from schemas.task import ExecutionStep, ReActTaskPlan
+from schemas.task import ExecutionStep, GlobalDefinitionPlan, ReActTaskPlan
 
 logger = get_logger(__name__)
+GLOBAL_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")
 
 
 class ActionExecutor:
@@ -62,6 +64,7 @@ class ActionExecutor:
             for suffix in (
                 "_latest",
                 "_geometry",
+                "_global",
                 "_material",
                 "_physics",
                 "_mesh",
@@ -124,6 +127,7 @@ class ActionExecutor:
 
         action_handlers = {
             "create_geometry": self.execute_geometry,
+            "define_globals": self.execute_define_globals,
             "add_material": self.execute_material,
             "update_material_property": self.execute_update_material_property,
             "add_physics": self.execute_physics,
@@ -217,6 +221,127 @@ class ActionExecutor:
         }
 
     # ===== Material =====
+
+    def execute_define_globals(
+        self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Define global parameters with strict validation."""
+
+        self._emit_step_start("参数/全局定义", "正在定义全局参数...")
+        params = thought.get("parameters", {}) or step.parameters or {}
+        raw_items = params.get("global_definitions")
+        if not isinstance(raw_items, list):
+            raw_items = getattr(plan, "global_definitions", []) or []
+
+        parsed: list[GlobalDefinitionPlan] = []
+        errors: list[Dict[str, Any]] = []
+        seen_names = set()
+
+        for idx, item in enumerate(raw_items, start=1):
+            try:
+                model = (
+                    item
+                    if isinstance(item, GlobalDefinitionPlan)
+                    else GlobalDefinitionPlan.model_validate(item)
+                )
+            except Exception as e:
+                errors.append(
+                    {"index": idx, "field": "global_definitions", "message": f"格式错误: {e}"}
+                )
+                continue
+
+            name = (model.name or "").strip()
+            value = (model.value or "").strip()
+
+            if not name:
+                errors.append({"index": idx, "field": "name", "message": "参数名不能为空"})
+                continue
+            if not GLOBAL_NAME_RE.match(name):
+                errors.append(
+                    {
+                        "index": idx,
+                        "field": "name",
+                        "message": "参数名不合法，必须满足 [A-Za-z_]\\w*",
+                    }
+                )
+                continue
+            lower = name.lower()
+            if lower in seen_names:
+                errors.append({"index": idx, "field": "name", "message": f"参数名重复: {name}"})
+                continue
+            seen_names.add(lower)
+
+            if not value:
+                errors.append({"index": idx, "field": "value", "message": f"{name} 的表达式不能为空"})
+                continue
+
+            parsed.append(model)
+
+        if errors:
+            return {
+                "status": "error",
+                "message": "全局定义校验失败，请先回到规划阶段澄清。",
+                "error_code": "define_globals_validation_failed",
+                "details": errors,
+                "needs_planning_clarification": True,
+            }
+
+        plan.global_definitions = parsed
+
+        # 会话级语义保存（双写之一）
+        if self._context_manager and hasattr(self._context_manager, "load_plan"):
+            try:
+                current = self._context_manager.load_plan() or {}
+                current["global_definitions"] = [g.model_dump() for g in parsed]
+                self._context_manager.save_plan(current)
+            except Exception as e:
+                logger.warning("会话级全局定义写入失败: %s", e)
+
+        if not plan.model_path:
+            return {
+                "status": "error",
+                "message": "模型尚未创建，无法将全局定义写入 COMSOL param()。",
+                "error_code": "model_not_ready_for_globals",
+                "needs_planning_clarification": True,
+            }
+
+        controller = self._get_java_api_controller()
+        save_to = self._stage_path(plan, "global")
+        result = controller.define_global_parameters(
+            plan.model_path,
+            [g.model_dump() for g in parsed],
+            save_to_path=save_to,
+        )
+        if result.get("status") == "error":
+            return {
+                "status": "error",
+                "message": result.get("message", "写入全局参数失败"),
+                "error_code": "define_globals_write_failed",
+                "details": result.get("details", []),
+                "needs_planning_clarification": True,
+            }
+
+        plan.model_path = result.get("saved_path") or plan.model_path
+        self._update_latest(plan)
+        if self._context_manager:
+            self._context_manager.append_operation(
+                "参数/全局定义",
+                f"已写入 {len(parsed)} 个全局参数",
+                "success",
+                plan.model_path,
+            )
+        self._emit_step_end("参数/全局定义", "全局参数定义完成", count=len(parsed))
+        return {
+            "status": "success",
+            "message": f"全局参数定义完成，共 {len(parsed)} 项",
+            "global_definitions": [g.model_dump() for g in parsed],
+            "saved_path": plan.model_path,
+            "ui": {
+                "action": "定义全局参数",
+                "detail": f"写入 {len(parsed)} 个参数到 model.param()",
+                "target": "全局定义",
+            },
+        }
 
     def execute_material(
         self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]

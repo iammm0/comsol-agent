@@ -5,11 +5,13 @@ import importlib.util
 import re
 import shutil
 import tempfile
+from datetime import datetime
 from html import unescape
 from pathlib import Path
 from types import MethodType
 from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.utils.config import get_settings
@@ -17,6 +19,7 @@ from agent.utils.logger import get_logger
 from schemas.material import MaterialDefinition, MaterialPlan
 from schemas.physics import PhysicsPlan
 from schemas.study import StudyPlan
+from schemas.task import GlobalDefinitionPlan, ModelOperationCase
 
 logger = get_logger(__name__)
 OFFICIAL_COMSOL_API_INDEX_URL = (
@@ -173,7 +176,7 @@ class JavaAPIController:
 
     def __init__(self):
         self.settings = get_settings()
-        self.comsol_runner = COMSOLRunner()
+        self.comsol_runner: Optional[COMSOLRunner] = None
         self._official_api_entries: Optional[List[Dict[str, str]]] = None
         self._official_api_wrappers: Dict[str, Dict[str, str]] = {}
         wrappers_path = Path(__file__).resolve().parent / "comsol_official_api_wrappers.py"
@@ -192,6 +195,11 @@ class JavaAPIController:
         ModelUtil = jpype.JClass("com.comsol.model.util.ModelUtil")
         path = Path(model_path)
         return ModelUtil.load(path.stem or "model", str(path.resolve()))
+
+    def _get_comsol_runner(self) -> COMSOLRunner:
+        if self.comsol_runner is None:
+            self.comsol_runner = COMSOLRunner()
+        return self.comsol_runner
 
     # ===== Materials =====
 
@@ -438,7 +446,14 @@ class JavaAPIController:
     def list_model_tree(self, model_path: str) -> Dict[str, Any]:
         """获取模型树中主要节点信息（材料、物理场、研究、网格、几何）。
         兼容 model.xxx().tags() 与 model.xxx().names()。"""
-        out = {"materials": [], "physics": [], "studies": [], "meshes": [], "geometries": []}
+        out = {
+            "materials": [],
+            "physics": [],
+            "studies": [],
+            "meshes": [],
+            "geometries": [],
+            "results": [],
+        }
         try:
             model = self._load_model(model_path)
             try:
@@ -468,6 +483,11 @@ class JavaAPIController:
                     out["geometries"] = self._tags_or_names(model.component("comp1").geom())
                 elif hasattr(model, "geom"):
                     out["geometries"] = self._tags_or_names(model.geom())
+            except Exception:
+                pass
+            try:
+                if hasattr(model, "result"):
+                    out["results"] = self._tags_or_names(model.result())
             except Exception:
                 pass
             return {"status": "success", "tree": out}
@@ -1924,7 +1944,7 @@ class JavaAPIController:
                 args = step.get("args", [])
                 if not isinstance(args, list):
                     raise ValueError("target_path 的 args 必须为列表")
-                target = self.comsol_runner.invoke_java_method(target, method_name, *args)
+                target = self._get_comsol_runner().invoke_java_method(target, method_name, *args)
             return target
         if isinstance(target_path, str):
             token_pattern = re.compile(r"([A-Za-z_]\w*)\(([^)]*)\)|([A-Za-z_]\w*)")
@@ -1950,7 +1970,7 @@ class JavaAPIController:
                                     args.append(float(raw))
                                 except ValueError:
                                     args.append(raw)
-                target = self.comsol_runner.invoke_java_method(target, method_name, *args)
+                target = self._get_comsol_runner().invoke_java_method(target, method_name, *args)
             return target
         raise ValueError("target_path 必须为字符串、步骤数组或空")
 
@@ -1964,7 +1984,7 @@ class JavaAPIController:
         try:
             model = self._load_model(model_path)
             target = self._resolve_api_target(model, target_path)
-            result = self.comsol_runner.invoke_java_method(target, method_name, *(args or []))
+            result = self._get_comsol_runner().invoke_java_method(target, method_name, *(args or []))
             saved_path = _save_model_avoid_lock(model, Path(model_path))
             out = {"status": "success", "method": method_name, "result": str(result)}
             if saved_path != Path(model_path):
@@ -1979,7 +1999,7 @@ class JavaAPIController:
     ) -> Dict[str, Any]:
         try:
             COMSOLRunner._ensure_jvm_started()
-            result = self.comsol_runner.invoke_static_api(class_name, method_name, *(args or []))
+            result = self._get_comsol_runner().invoke_static_api(class_name, method_name, *(args or []))
             return {
                 "status": "success",
                 "class_name": class_name,
@@ -2228,3 +2248,568 @@ class JavaAPIController:
         for k, v in parameters.get("params", {}).items():
             ph_feat.feature(boundary_name).set(k, v)
         return {"physics": physics_name, "boundary": boundary_name, "type": condition_type}
+
+    # ===== Globals / case extraction / ops catalog =====
+
+    @staticmethod
+    def _normalize_comsol_error(exc: Exception) -> str:
+        msg = str(exc)
+        low = msg.lower()
+        if (
+            "jpype" in low
+            or "jvm" in low
+            or "com.comsol" in low
+            or "classnotfound" in low
+            or "module named 'com'" in low
+        ):
+            return f"COMSOL/JVM environment unavailable: {msg}"
+        return msg
+
+    @staticmethod
+    def _global_name_ok(name: str) -> bool:
+        return bool(re.match(r"^[A-Za-z_]\w*$", name or ""))
+
+    def define_global_parameters(
+        self,
+        model_path: str,
+        definitions: List[Dict[str, Any]],
+        save_to_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        path = Path(model_path).resolve()
+        if not path.exists():
+            return {"status": "error", "message": f"model file not found: {path}"}
+        if not isinstance(definitions, list) or not definitions:
+            return {"status": "error", "message": "global definitions are empty"}
+
+        parsed: List[GlobalDefinitionPlan] = []
+        seen: set[str] = set()
+        errors: List[Dict[str, Any]] = []
+
+        for idx, item in enumerate(definitions, start=1):
+            try:
+                definition = (
+                    item
+                    if isinstance(item, GlobalDefinitionPlan)
+                    else GlobalDefinitionPlan.model_validate(item or {})
+                )
+            except Exception as e:
+                errors.append(
+                    {
+                        "index": idx,
+                        "field": "global_definitions",
+                        "message": f"invalid schema: {e}",
+                    }
+                )
+                continue
+
+            name = (definition.name or "").strip()
+            value = (definition.value or "").strip()
+            if not name:
+                errors.append({"index": idx, "field": "name", "message": "name is required"})
+                continue
+            if not self._global_name_ok(name):
+                errors.append(
+                    {
+                        "index": idx,
+                        "field": "name",
+                        "message": "name must match [A-Za-z_]\\w*",
+                    }
+                )
+                continue
+            low = name.lower()
+            if low in seen:
+                errors.append({"index": idx, "field": "name", "message": f"duplicate name: {name}"})
+                continue
+            seen.add(low)
+            if not value:
+                errors.append({"index": idx, "field": "value", "message": f"value is required: {name}"})
+                continue
+
+            parsed.append(definition)
+
+        if errors:
+            return {
+                "status": "error",
+                "message": "global definitions validation failed",
+                "details": errors,
+            }
+
+        try:
+            model = self._load_model(str(path))
+            param_api = model.param()
+            if param_api is None or not hasattr(param_api, "set"):
+                return {
+                    "status": "error",
+                    "message": "model.param() API is unavailable in current COMSOL version",
+                }
+
+            written: List[Dict[str, Any]] = []
+            for definition in parsed:
+                expression = (definition.value or "").strip()
+                unit = (definition.unit or "").strip() if definition.unit else ""
+                if unit and "[" not in expression:
+                    expression = f"{expression}[{unit}]"
+                if definition.description:
+                    try:
+                        # Some versions support set(name, expr, desc)
+                        param_api.set(definition.name, expression, definition.description)
+                    except Exception:
+                        param_api.set(definition.name, expression)
+                        try:
+                            if hasattr(param_api, "descr"):
+                                param_api.descr(definition.name, definition.description)
+                        except Exception:
+                            pass
+                else:
+                    param_api.set(definition.name, expression)
+
+                written.append(
+                    {
+                        "name": definition.name,
+                        "value": definition.value,
+                        "unit": definition.unit,
+                        "description": definition.description,
+                    }
+                )
+
+            target = Path(save_to_path).resolve() if save_to_path else path
+            if save_to_path:
+                saved_path = _save_model_to_new_path(model, target)
+            else:
+                saved_path = _save_model_avoid_lock(model, target)
+
+            return {
+                "status": "success",
+                "message": f"written {len(written)} global parameters",
+                "count": len(written),
+                "written": written,
+                "saved_path": str(saved_path),
+            }
+        except Exception as e:
+            msg = self._normalize_comsol_error(e)
+            logger.exception("define_global_parameters failed")
+            return {"status": "error", "message": msg}
+
+    def list_global_parameters(self, model_path: str) -> Dict[str, Any]:
+        path = Path(model_path).resolve()
+        if not path.exists():
+            return {"status": "error", "message": f"model file not found: {path}", "items": []}
+
+        try:
+            model = self._load_model(str(path))
+            param_api = model.param()
+            if param_api is None:
+                return {
+                    "status": "error",
+                    "message": "model.param() API is unavailable in current COMSOL version",
+                    "items": [],
+                }
+
+            names: List[str] = []
+            for getter in ("varnames", "names", "tags"):
+                if hasattr(param_api, getter):
+                    try:
+                        raw = getattr(param_api, getter)()
+                        if raw is not None:
+                            names = [str(x) for x in raw]
+                            break
+                    except Exception:
+                        continue
+
+            items: List[Dict[str, Any]] = []
+            for name in names:
+                value = ""
+                description: Optional[str] = None
+
+                for getter in ("get", "evaluate", "expr"):
+                    if hasattr(param_api, getter):
+                        try:
+                            got = getattr(param_api, getter)(name)
+                            if got is not None:
+                                value = str(got)
+                                break
+                        except Exception:
+                            continue
+
+                if hasattr(param_api, "descr"):
+                    try:
+                        got_desc = param_api.descr(name)
+                        if got_desc is not None:
+                            description = str(got_desc)
+                    except Exception:
+                        pass
+
+                unit = None
+                m = re.search(r"\[([^\]]+)\]\s*$", value or "")
+                if m:
+                    unit = m.group(1)
+
+                items.append(
+                    {
+                        "name": name,
+                        "value": value,
+                        "unit": unit,
+                        "description": description,
+                    }
+                )
+
+            return {"status": "success", "items": items, "total": len(items)}
+        except Exception as e:
+            msg = self._normalize_comsol_error(e)
+            logger.exception("list_global_parameters failed")
+            return {"status": "error", "message": msg, "items": []}
+
+    @staticmethod
+    def _infer_category(owner: str, method_name: str, label: str = "") -> str:
+        text = f"{owner} {method_name} {label}".lower()
+        if any(k in text for k in ["param", "variable", "expression", "unit"]):
+            return "定义"
+        if any(k in text for k in ["geom", "selection", "workplane", "cad", "sketch"]):
+            return "几何"
+        if "material" in text:
+            return "材料"
+        if any(k in text for k in ["physics", "multiphysics", "boundary", "electromagnetic", "heattransfer"]):
+            return "物理场"
+        if "mesh" in text:
+            return "网格"
+        if any(k in text for k in ["study", "solver", "solution", "solv", "time", "stationary"]):
+            return "研究"
+        if any(k in text for k in ["result", "plot", "table", "dataset", "export"]):
+            return "结果"
+        return "开发工具"
+
+    @staticmethod
+    def _catalog_categories() -> List[str]:
+        return ["定义", "几何", "材料", "物理场", "网格", "研究", "结果", "开发工具"]
+
+    def _native_ops_catalog_items(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "category": "定义",
+                "label": "全局参数定义",
+                "invoke_mode": "native",
+                "recommended_action": "define_globals",
+                "params_schema": {"global_definitions": "GlobalDefinitionPlan[]", "save_to_path": "string?"},
+                "examples": [{"action": "define_globals", "params": {"global_definitions": [{"name": "L", "value": "0.1[m]"}]}}],
+            },
+            {
+                "category": "几何",
+                "label": "创建几何",
+                "invoke_mode": "native",
+                "recommended_action": "create_geometry",
+                "params_schema": {"geometry_plan": "GeometryPlan"},
+                "examples": [{"action": "create_geometry"}],
+            },
+            {
+                "category": "几何",
+                "label": "导入几何",
+                "invoke_mode": "native",
+                "recommended_action": "import_geometry",
+                "params_schema": {"file_path": "string", "geom_tag": "string?"},
+                "examples": [{"action": "import_geometry", "params": {"file_path": "input.step"}}],
+            },
+            {
+                "category": "几何",
+                "label": "创建选择集",
+                "invoke_mode": "native",
+                "recommended_action": "create_selection",
+                "params_schema": {"selection_tag": "string", "entities": "int[]"},
+                "examples": [{"action": "create_selection"}],
+            },
+            {
+                "category": "材料",
+                "label": "添加材料",
+                "invoke_mode": "native",
+                "recommended_action": "add_material",
+                "params_schema": {"material_plan": "MaterialPlan"},
+                "examples": [{"action": "add_material"}],
+            },
+            {
+                "category": "材料",
+                "label": "更新材料属性",
+                "invoke_mode": "native",
+                "recommended_action": "update_material_property",
+                "params_schema": {"material_name": "string", "properties": "object"},
+                "examples": [{"action": "update_material_property"}],
+            },
+            {
+                "category": "物理场",
+                "label": "添加物理场",
+                "invoke_mode": "native",
+                "recommended_action": "add_physics",
+                "params_schema": {"physics_plan": "PhysicsPlan"},
+                "examples": [{"action": "add_physics"}],
+            },
+            {
+                "category": "网格",
+                "label": "生成网格",
+                "invoke_mode": "native",
+                "recommended_action": "generate_mesh",
+                "params_schema": {"mesh_params": "object"},
+                "examples": [{"action": "generate_mesh"}],
+            },
+            {
+                "category": "研究",
+                "label": "配置研究",
+                "invoke_mode": "native",
+                "recommended_action": "configure_study",
+                "params_schema": {"study_plan": "StudyPlan"},
+                "examples": [{"action": "configure_study"}],
+            },
+            {
+                "category": "研究",
+                "label": "求解",
+                "invoke_mode": "native",
+                "recommended_action": "solve",
+                "params_schema": {"model_path": "string"},
+                "examples": [{"action": "solve"}],
+            },
+            {
+                "category": "结果",
+                "label": "导出结果图像",
+                "invoke_mode": "native",
+                "recommended_action": "export_results",
+                "params_schema": {"plot_tag": "string", "output_file": "string"},
+                "examples": [{"action": "export_results"}],
+            },
+            {
+                "category": "开发工具",
+                "label": "官方 API 兜底调用",
+                "invoke_mode": "native",
+                "recommended_action": "call_official_api",
+                "params_schema": {"method_name": "string", "args": "any[]", "target_path": "string|object[]?"},
+                "examples": [{"action": "call_official_api", "params": {"method_name": "run"}}],
+            },
+        ]
+
+    def get_ops_catalog(
+        self,
+        query: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> Dict[str, Any]:
+        try:
+            native_items = self._native_ops_catalog_items()
+
+            wrapper_items: List[Dict[str, Any]] = []
+            for wrapper_name, meta in (self._official_api_wrappers or {}).items():
+                owner = meta.get("owner") or ""
+                method_name = meta.get("method") or meta.get("method_name") or ""
+                category = self._infer_category(owner, method_name, wrapper_name)
+                wrapper_items.append(
+                    {
+                        "category": category,
+                        "label": wrapper_name,
+                        "invoke_mode": "wrapper",
+                        "recommended_action": "call_official_api",
+                        "params_schema": {
+                            "model_path": "string",
+                            "args": "any[]?",
+                            "target_path": "string|object[]?",
+                        },
+                        "examples": [
+                            {
+                                "action": wrapper_name,
+                                "owner": owner,
+                                "method_name": method_name,
+                            }
+                        ],
+                    }
+                )
+
+            items = native_items + wrapper_items
+            if query:
+                q = query.lower()
+
+                def _item_text(item: Dict[str, Any]) -> str:
+                    return (
+                        f"{item.get('category','')} {item.get('label','')} "
+                        f"{item.get('recommended_action','')} {item.get('invoke_mode','')}"
+                    ).lower()
+
+                items = [it for it in items if q in _item_text(it)]
+
+            category_order = {c: i for i, c in enumerate(self._catalog_categories())}
+            items.sort(
+                key=lambda it: (
+                    category_order.get(str(it.get("category")), 999),
+                    str(it.get("label", "")).lower(),
+                )
+            )
+
+            total = len(items)
+            start = max(0, offset or 0)
+            if limit is None or int(limit) <= 0:
+                paged = items[start:]
+            else:
+                paged = items[start : start + int(limit)]
+
+            return {
+                "status": "success",
+                "message": "ops catalog ready",
+                "items": paged,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "categories": self._catalog_categories(),
+            }
+        except Exception as e:
+            msg = self._normalize_comsol_error(e)
+            logger.exception("get_ops_catalog failed")
+            return {
+                "status": "error",
+                "message": msg,
+                "items": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+                "categories": self._catalog_categories(),
+            }
+
+    @staticmethod
+    def _infer_principles(physics_tags: List[str]) -> List[str]:
+        out: List[str] = []
+        text = " ".join(physics_tags).lower()
+        if any(k in text for k in ["ht", "heat"]):
+            out.append("Heat transfer and thermal energy balance")
+        if any(k in text for k in ["emw", "electro", "mag"]):
+            out.append("Electromagnetic field distribution and Joule losses")
+        if any(k in text for k in ["solid", "struct", "beam"]):
+            out.append("Solid mechanics and stress-strain response")
+        if any(k in text for k in ["spf", "flow", "fluid", "cfd"]):
+            out.append("Fluid flow continuity and momentum conservation")
+        if not out:
+            out.append("Multiphysics coupling with governing equations")
+        return out
+
+    @staticmethod
+    def _infer_expected_behaviors(studies: List[str], physics_tags: List[str]) -> List[str]:
+        out: List[str] = []
+        studies_text = " ".join(studies).lower()
+        if "time" in studies_text:
+            out.append("Transient response over simulation time")
+        if "freq" in studies_text:
+            out.append("Frequency-domain amplitude/phase behavior")
+        if "eigen" in studies_text:
+            out.append("Eigenmodes and natural frequencies")
+        if "stat" in studies_text or not out:
+            out.append("Steady-state field distribution")
+        if any("ht" in p.lower() or "heat" in p.lower() for p in physics_tags):
+            out.append("Temperature gradients and heat flux paths")
+        return out
+
+    @staticmethod
+    def _case_prompt(
+        geom: List[str],
+        mats: List[str],
+        physics: List[str],
+        studies: List[str],
+        globals_count: int,
+    ) -> str:
+        geom_txt = ", ".join(geom) if geom else "default geometry sequence"
+        mat_txt = ", ".join(mats) if mats else "material(s) to be specified"
+        phy_txt = ", ".join(physics) if physics else "physics interface(s)"
+        study_txt = ", ".join(studies) if studies else "stationary/time-dependent study"
+        return (
+            "请基于该案例建立一个 COMSOL 多物理场模型："
+            f"几何节点={geom_txt}；材料={mat_txt}；物理场={phy_txt}；研究={study_txt}；"
+            f"全局参数数量={globals_count}。"
+            "先确认物理原理与目标指标，再输出三阶段建模规划并执行。"
+        )
+
+    def extract_model_operation_case(self, model_path: str) -> Dict[str, Any]:
+        path = Path(model_path).resolve()
+        if not path.exists():
+            return {"status": "error", "message": f"model file not found: {path}"}
+        if path.suffix.lower() != ".mph":
+            return {"status": "error", "message": "only .mph files are supported"}
+
+        tree_res = self.list_model_tree(str(path))
+        if tree_res.get("status") != "success":
+            return {
+                "status": "error",
+                "message": tree_res.get("message", "failed to read model tree"),
+            }
+        globals_res = self.list_global_parameters(str(path))
+        if globals_res.get("status") != "success":
+            return {
+                "status": "error",
+                "message": globals_res.get("message", "failed to read global parameters"),
+            }
+
+        tree = tree_res.get("tree", {}) or {}
+        geom = [str(x) for x in (tree.get("geometries") or [])]
+        mats = [str(x) for x in (tree.get("materials") or [])]
+        physics = [str(x) for x in (tree.get("physics") or [])]
+        meshes = [str(x) for x in (tree.get("meshes") or [])]
+        studies = [str(x) for x in (tree.get("studies") or [])]
+        results = [str(x) for x in (tree.get("results") or [])]
+
+        global_plans: List[GlobalDefinitionPlan] = []
+        for item in globals_res.get("items", []) or []:
+            try:
+                global_plans.append(
+                    GlobalDefinitionPlan(
+                        name=str(item.get("name", "")),
+                        value=str(item.get("value", "")),
+                        unit=item.get("unit"),
+                        description=item.get("description"),
+                    )
+                )
+            except Exception:
+                continue
+
+        workflow_steps: List[Dict[str, Any]] = []
+        if global_plans:
+            workflow_steps.append(
+                {
+                    "stage": "define_globals",
+                    "action": "define_globals",
+                    "count": len(global_plans),
+                }
+            )
+        if geom:
+            workflow_steps.append({"stage": "geometry", "action": "create_geometry", "targets": geom})
+        if mats:
+            workflow_steps.append({"stage": "material", "action": "add_material", "targets": mats})
+        if physics:
+            workflow_steps.append({"stage": "physics", "action": "add_physics", "targets": physics})
+        if meshes:
+            workflow_steps.append({"stage": "mesh", "action": "generate_mesh", "targets": meshes})
+        if studies:
+            workflow_steps.append({"stage": "study", "action": "configure_study", "targets": studies})
+        if results:
+            workflow_steps.append(
+                {"stage": "postprocess", "action": "export_results", "targets": results}
+            )
+
+        case = ModelOperationCase(
+            case_id=f"case-{uuid4().hex[:12]}",
+            source_model_path=str(path),
+            summary=(
+                f"Extracted model case from {path.name}: "
+                f"{len(global_plans)} globals, {len(geom)} geometries, "
+                f"{len(mats)} materials, {len(physics)} physics, "
+                f"{len(meshes)} meshes, {len(studies)} studies, {len(results)} results."
+            ),
+            physical_principles=self._infer_principles(physics),
+            expected_behaviors=self._infer_expected_behaviors(studies, physics),
+            global_definitions=global_plans,
+            workflow_steps=workflow_steps,
+            physics_setup=[{"tag": tag, "category": self._infer_category("", tag)} for tag in physics],
+            study_setup=[{"tag": tag, "type": "study"} for tag in studies],
+            postprocess_setup=[{"tag": tag, "type": "result"} for tag in results],
+            reusable_user_prompt=self._case_prompt(
+                geom=geom,
+                mats=mats,
+                physics=physics,
+                studies=studies,
+                globals_count=len(global_plans),
+            ),
+            extracted_at=datetime.now(),
+        )
+        return {
+            "status": "success",
+            "message": "model operation case extracted",
+            "case": case.model_dump(mode="json"),
+        }

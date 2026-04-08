@@ -1,52 +1,137 @@
-"""Plan 模式处理器：多轮交互式形成 plan.json，满意后进入 Core 执行。"""
+"""Plan stage handler with discuss-gated workflow."""
 
-import json
-from typing import Any, Dict, Optional, Tuple
+from __future__ import annotations
+
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 from agent.utils.logger import get_logger
+from schemas.task import (
+    ClarifyingAnswer,
+    ClarifyingOption,
+    ClarifyingQuestion,
+    DiscussionCard,
+    GlobalDefinitionPlan,
+)
 
 logger = get_logger(__name__)
 
-# 用户表达「开始执行/满意计划」的措辞
-_ENTER_CORE_KEYWORDS = (
-    "开始建",
+_CONFIRM_PLAN_KEYWORDS = (
+    "确认计划",
+    "确认规划",
     "开始建模",
-    "开始仿真",
-    "就这样建",
-    "就这样执行",
-    "可以了",
-    "满意",
-    "开始执行",
-    "进入执行",
-    "开始跑",
-    "run",
-    "execute",
-    "go",
-)
-# 建模相关调整：几何/材料/物理场/研究等
-_MODELING_KEYWORDS = (
-    "几何", "材料", "物理", "研究", "网格", "求解", "边界", "尺寸", "形状",
-    "rectangle", "circle", "block", "cylinder", "heat", "solid", "fluid",
-    "稳态", "瞬态", "长方体", "圆柱", "传热", "力学", "添加", "修改", "改成",
+    "进入建模",
+    "执行计划",
+    "plan confirmed",
 )
 
 
-def _is_enter_core_intent(text: str) -> bool:
+def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
     t = (text or "").strip().lower()
-    if len(t) > 80:
-        return False
-    return any(k in t for k in _ENTER_CORE_KEYWORDS)
+    return any(k in t for k in keywords)
 
 
-def _is_modeling_intent(text: str) -> bool:
-    t = (text or "").strip()
-    return any(k in t for k in _MODELING_KEYWORDS)
+def _extract_param_name_value(text: str) -> Optional[tuple[str, str]]:
+    m = re.search(r"\b([A-Za-z_]\w*)\s*=\s*([^\s,;，；]+)", text or "")
+    if not m:
+        return None
+    return m.group(1).strip(), m.group(2).strip()
+
+
+def _build_clarifying_questions(card: DiscussionCard) -> List[ClarifyingQuestion]:
+    questions: List[ClarifyingQuestion] = []
+    idx = 1
+
+    for item in card.unknowns:
+        if not item.strip():
+            continue
+        questions.append(
+            ClarifyingQuestion(
+                id=f"q_unknown_{idx}",
+                source=f"unknowns:{idx}",
+                text=f"针对未知项“{item}”，规划阶段采用哪种处理策略？",
+                type="single",
+                options=[
+                    ClarifyingOption(
+                        id="opt_recommended",
+                        label="先按推荐默认值推进 (Recommended)",
+                        value="recommended",
+                        recommended=True,
+                    ),
+                    ClarifyingOption(
+                        id="opt_need_quant",
+                        label="必须先给出定量输入",
+                        value="need_quantified_input",
+                    ),
+                    ClarifyingOption(
+                        id="opt_sensitivity",
+                        label="先做参数敏感性分析",
+                        value="sensitivity_first",
+                    ),
+                ],
+            )
+        )
+        idx += 1
+
+    risk_idx = 1
+    for item in card.risks:
+        if not item.strip():
+            continue
+        questions.append(
+            ClarifyingQuestion(
+                id=f"q_risk_{risk_idx}",
+                source=f"risks:{risk_idx}",
+                text=f"针对风险“{item}”，优先采用哪种风险控制策略？",
+                type="single",
+                options=[
+                    ClarifyingOption(
+                        id="opt_recommended",
+                        label="先按保守网格/边界设置推进 (Recommended)",
+                        value="conservative_default",
+                        recommended=True,
+                    ),
+                    ClarifyingOption(
+                        id="opt_tight_validation",
+                        label="先加强验证再执行",
+                        value="tight_validation_first",
+                    ),
+                    ClarifyingOption(
+                        id="opt_fast_iteration",
+                        label="先快速迭代后收敛",
+                        value="fast_iteration_first",
+                    ),
+                ],
+            )
+        )
+        risk_idx += 1
+
+    return questions
+
+
+def _extract_global_definitions(card: DiscussionCard) -> List[GlobalDefinitionPlan]:
+    out: List[GlobalDefinitionPlan] = []
+    seen = set()
+    for item in [*card.known_inputs, *card.assumptions]:
+        pair = _extract_param_name_value(item)
+        if not pair:
+            continue
+        name, value = pair
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(GlobalDefinitionPlan(name=name, value=value, description=item))
+    return out
 
 
 class PlanModeHandler:
     """
-    Plan 模式处理器：维护会话级 plan 状态，每轮判断意图后更新计划或返回 QA 回复，
-    识别「进入执行」后返回 should_enter_core 与当前 plan.json。
+    Plan stage entry.
+
+    Rules:
+    1) discussion card must exist and be finalized;
+    2) unresolved clarifications block plan confirmation;
+    3) confirmed plan is persisted to plan.json + plan_readable.md.
     """
 
     def __init__(
@@ -78,94 +163,240 @@ class PlanModeHandler:
             model=self._model,
         )
 
-    def process(self, user_input: str) -> Tuple[str, Optional[Dict[str, Any]], bool]:
-        """
-        处理一轮 Plan 模式用户输入。
+    def _build_plan_from_discussion(self, card: DiscussionCard, user_input: str) -> Dict[str, Any]:
+        discuss_text = "\n".join(
+            [
+                "讨论结论：",
+                f"物理原理: {', '.join(card.physical_principles) or '未提供'}",
+                f"目标指标: {', '.join(card.target_metrics) or '未提供'}",
+                f"已知输入: {', '.join(card.known_inputs) or '未提供'}",
+                f"假设: {', '.join(card.assumptions) or '未提供'}",
+                f"候选方案: {', '.join(card.candidate_solutions) or '未提供'}",
+                f"规划补充: {user_input or '无'}",
+            ]
+        )
 
-        Returns:
-            (reply_text, plan_dict, should_enter_core)
-            - reply_text: 本轮回复
-            - plan_dict: 更新后的计划（可序列化为 plan.json）；若未变更则为当前加载的或 None
-            - should_enter_core: 是否应带着当前计划进入 Core 执行
-        """
-        user_input = (user_input or "").strip()
-        current = self.context_manager.load_plan()
+        orchestrator = self._get_orchestrator()
+        memory_context = (
+            self.context_manager.get_context_for_planner()
+            if hasattr(self.context_manager, "get_context_for_planner")
+            else ""
+        )
+        task_plan, _ctx, serial_plan = orchestrator.run(discuss_text, context=memory_context)
 
-        if _is_enter_core_intent(user_input):
-            if not current:
-                return (
-                    "当前还没有可执行的计划，请先描述您的建模需求（几何、材料、物理场、研究等）。",
-                    None,
-                    False,
-                )
-            return (
-                "已确认计划，将进入建模执行流程。",
-                current,
-                True,
-            )
+        if hasattr(task_plan, "model_dump"):
+            plan_dict = task_plan.model_dump()
+        elif hasattr(task_plan, "dict"):
+            plan_dict = task_plan.dict()
+        else:
+            plan_dict = {}
 
-        if _is_modeling_intent(user_input):
-            try:
-                orchestrator = self._get_orchestrator()
-                memory_context = self.context_manager.get_context_for_planner() if hasattr(self.context_manager, "get_context_for_planner") else ""
-                task_plan, _ctx, serial_plan = orchestrator.run(
-                    user_input, context=memory_context, shared_context=None
-                )
-                plan_dict = self._task_plan_to_dict(task_plan, serial_plan)
-                self.context_manager.save_plan(plan_dict)
-                desc = getattr(serial_plan, "plan_description", None) or "已更新"
-                return (
-                    f"已根据您的描述更新计划：{desc[:200]}。可继续补充或修改，满意后说「开始建模」进入执行。",
-                    plan_dict,
-                    False,
-                )
-            except Exception as e:
-                logger.exception("Plan 模式编排失败: %s", e)
-                return (
-                    f"更新计划时出错：{e}。请换个说法或稍后重试。",
-                    current,
-                    False,
-                )
+        if getattr(serial_plan, "plan_description", None):
+            plan_dict["plan_description"] = serial_plan.plan_description
+        if getattr(serial_plan, "steps", None):
+            plan_dict["steps"] = [
+                {
+                    "step_index": getattr(s, "step_index", i + 1),
+                    "agent_type": getattr(s, "agent_type", ""),
+                    "description": getattr(s, "description", ""),
+                    "input_snippet": getattr(s, "input_snippet", ""),
+                }
+                for i, s in enumerate(serial_plan.steps)
+            ]
 
-        # 非建模、非进入执行：走 QA
-        try:
-            qa = self.get_agent("qa")
-            reply = qa.process(user_input)
-            return (reply or "请描述建模需求或说「开始建模」进入执行。", current, False)
-        except Exception as e:
-            logger.warning("Plan 模式 QA 失败: %s", e)
-            return ("暂时无法回复，请直接描述建模需求。", current, False)
+        questions = _build_clarifying_questions(card)
+        globals_plan = _extract_global_definitions(card)
+
+        plan_dict["discussion_card_ref"] = card.card_id
+        plan_dict["global_definitions"] = [g.model_dump() for g in globals_plan]
+        plan_dict["clarifying_questions"] = [q.model_dump() for q in questions]
+        plan_dict["unresolved_clarifications"] = [q.id for q in questions]
+        plan_dict["answered_clarifications"] = []
+        plan_dict["plan_confirmed"] = False
+        return plan_dict
 
     @staticmethod
-    def _task_plan_to_dict(task_plan: Any, serial_plan: Any) -> Dict[str, Any]:
-        """将 TaskPlan 与 SerialPlan 转为可序列化并供 Core 使用的 plan 字典。"""
-        if hasattr(task_plan, "model_dump"):
-            out = task_plan.model_dump()
-        elif hasattr(task_plan, "dict"):
-            out = task_plan.dict()
+    def _build_readable_plan(plan_dict: Dict[str, Any], card: DiscussionCard) -> str:
+        lines: List[str] = []
+        lines.append("# 建模规划（Plan Stage）")
+        lines.append("")
+        lines.append("## 讨论结论引用")
+        lines.append(f"- discussion_card_ref: `{card.card_id}`")
+        lines.append(f"- physical_principles: {len(card.physical_principles)} 条")
+        lines.append(f"- target_metrics: {len(card.target_metrics)} 条")
+        lines.append(f"- known_inputs: {len(card.known_inputs)} 条")
+        lines.append(f"- unknowns: {len(card.unknowns)} 条")
+        lines.append(f"- risks: {len(card.risks)} 条")
+        lines.append("")
+
+        lines.append("## 执行链")
+        for step in plan_dict.get("steps", []) or []:
+            lines.append(
+                f"- [{step.get('step_index', '?')}] {step.get('agent_type', 'step')}: {step.get('description', '')}"
+            )
+        lines.append("")
+
+        lines.append("## 全局定义")
+        globals_plan = plan_dict.get("global_definitions") or []
+        if globals_plan:
+            for item in globals_plan:
+                lines.append(
+                    f"- `{item.get('name')}` = `{item.get('value')}`"
+                    + (f" [{item.get('unit')}]" if item.get("unit") else "")
+                )
         else:
-            out = {}
-            for key in ("geometry", "material", "physics", "study"):
-                val = getattr(task_plan, key, None)
-                if val is None:
-                    continue
-                if hasattr(val, "model_dump"):
-                    out[key] = val.model_dump()
-                elif hasattr(val, "to_dict"):
-                    out[key] = val.to_dict()
-                else:
-                    out[key] = val
-        if serial_plan is not None:
-            if getattr(serial_plan, "plan_description", None):
-                out["plan_description"] = serial_plan.plan_description
-            if getattr(serial_plan, "steps", None):
-                out["steps"] = [
-                    {
-                        "step_index": getattr(s, "step_index", i + 1),
-                        "agent_type": getattr(s, "agent_type", ""),
-                        "description": getattr(s, "description", ""),
-                        "input_snippet": getattr(s, "input_snippet", ""),
+            lines.append("- 暂无")
+        lines.append("")
+
+        unresolved = plan_dict.get("unresolved_clarifications") or []
+        lines.append("## 澄清状态")
+        lines.append(f"- unresolved_clarifications: {len(unresolved)}")
+        lines.append(f"- plan_confirmed: {bool(plan_dict.get('plan_confirmed'))}")
+        lines.append("")
+
+        if plan_dict.get("plan_description"):
+            lines.append("## 规划说明")
+            lines.append(str(plan_dict.get("plan_description")))
+            lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
+    def _apply_clarifying_answers(
+        self, plan_dict: Dict[str, Any], answers_payload: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        questions = {
+            q["id"]: q
+            for q in (plan_dict.get("clarifying_questions") or [])
+            if isinstance(q, dict) and q.get("id")
+        }
+        unresolved = list(plan_dict.get("unresolved_clarifications") or [])
+        answered = list(plan_dict.get("answered_clarifications") or [])
+
+        for raw in answers_payload:
+            try:
+                ans = ClarifyingAnswer.model_validate(raw)
+            except Exception:
+                continue
+            if ans.question_id not in questions:
+                continue
+            if ans.question_id in unresolved:
+                unresolved.remove(ans.question_id)
+            if ans.question_id not in answered:
+                answered.append(ans.question_id)
+
+            selected = ", ".join(ans.selected_option_ids or [])
+            note = f"{ans.question_id}: {selected or 'none'}"
+            if ans.supplement_text:
+                note += f"; supplement={ans.supplement_text}"
+                plan_dict.setdefault("global_definitions", [])
+                parsed = _extract_param_name_value(ans.supplement_text)
+                if parsed:
+                    name, value = parsed
+                    exists = {
+                        str(x.get("name", "")).lower()
+                        for x in plan_dict.get("global_definitions", [])
+                        if isinstance(x, dict)
                     }
-                    for i, s in enumerate(serial_plan.steps)
-                ]
-        return out
+                    if name.lower() not in exists:
+                        plan_dict["global_definitions"].append(
+                            GlobalDefinitionPlan(
+                                name=name,
+                                value=value,
+                                description=f"from_clarification:{ans.question_id}",
+                            ).model_dump()
+                        )
+            plan_dict.setdefault("clarification_log", []).append(note)
+
+        plan_dict["unresolved_clarifications"] = unresolved
+        plan_dict["answered_clarifications"] = answered
+        if not unresolved:
+            plan_dict["plan_confirmed"] = True
+        return plan_dict
+
+    def process(
+        self,
+        user_input: str,
+        clarifying_answers: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[str, Optional[Dict[str, Any]], bool, Optional[List[Dict[str, Any]]]]:
+        """
+        Returns:
+        - reply_text
+        - plan_dict
+        - plan_confirmed
+        - clarifying_questions (when still unresolved)
+        """
+
+        user_input = (user_input or "").strip()
+        discussion_raw = self.context_manager.load_discussion_card()
+        if not discussion_raw:
+            return (
+                "未找到讨论卡。请先使用 `/discuss` 进入探讨阶段，并在完成后发送“结束探讨”。",
+                None,
+                False,
+                None,
+            )
+        try:
+            card = DiscussionCard.model_validate(discussion_raw)
+        except Exception:
+            return ("讨论卡损坏，请重新 `/discuss` 生成讨论结论。", None, False, None)
+        if not card.finalized:
+            return (
+                "讨论卡尚未 finalized。请先在 `/discuss` 中明确发送“结束探讨/进入规划”。",
+                None,
+                False,
+                None,
+            )
+
+        current = self.context_manager.load_plan()
+        plan_dict = current or self._build_plan_from_discussion(card, user_input)
+
+        if clarifying_answers:
+            plan_dict = self._apply_clarifying_answers(plan_dict, clarifying_answers)
+
+        unresolved = list(plan_dict.get("unresolved_clarifications") or [])
+        if unresolved and not clarifying_answers:
+            self.context_manager.save_plan(plan_dict)
+            self.context_manager.save_plan_readable(self._build_readable_plan(plan_dict, card))
+            questions = plan_dict.get("clarifying_questions") or []
+            return (
+                "规划草案已生成。存在未澄清项，请先回答澄清问题后再确认计划。",
+                plan_dict,
+                False,
+                questions,
+            )
+
+        if unresolved and clarifying_answers:
+            self.context_manager.save_plan(plan_dict)
+            self.context_manager.save_plan_readable(self._build_readable_plan(plan_dict, card))
+            questions = [
+                q
+                for q in (plan_dict.get("clarifying_questions") or [])
+                if isinstance(q, dict) and q.get("id") in unresolved
+            ]
+            return (
+                "已记录本轮澄清，但仍有未闭环问题，请继续补充。",
+                plan_dict,
+                False,
+                questions,
+            )
+
+        if _contains_any(user_input, _CONFIRM_PLAN_KEYWORDS) or clarifying_answers:
+            plan_dict["plan_confirmed"] = True
+
+        self.context_manager.save_plan(plan_dict)
+        self.context_manager.save_plan_readable(self._build_readable_plan(plan_dict, card))
+
+        confirmed = bool(plan_dict.get("plan_confirmed"))
+        if confirmed:
+            return (
+                "建模规划已确认，已写入 plan.json 与 plan_readable.md。现在可切换 `/run` 执行。",
+                plan_dict,
+                True,
+                None,
+            )
+        return (
+            "规划草案已更新。所有澄清项已完成，发送“确认计划”即可锁定执行计划。",
+            plan_dict,
+            False,
+            None,
+        )
+

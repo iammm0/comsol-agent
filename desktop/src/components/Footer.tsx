@@ -3,7 +3,8 @@ import { useAppState } from "../context/AppStateContext";
 export function Footer() {
   const { state } = useAppState();
 
-  const modeLabel = state.mode === "plan" ? "Plan" : "Build";
+  const modeLabel =
+    state.mode === "discuss" ? "Discuss" : state.mode === "plan" ? "Plan" : "Run";
   const backendLabel = state.backend ?? "default";
 
   return (

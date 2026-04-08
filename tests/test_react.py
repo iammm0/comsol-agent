@@ -45,11 +45,10 @@ class TestReasoningEngine:
         }
 
         path = engine.plan_execution_path(understanding)
+        actions = [step.action for step in path]
 
-        assert len(path) == 3
-        assert path[0].action == "create_geometry"
-        assert path[1].action == "add_physics"
-        assert path[2].action == "solve"
+        assert len(path) == 4
+        assert actions == ["create_geometry", "define_globals", "add_physics", "solve"]
 
     def test_plan_execution_path_new_actions(self):
         """规划路径支持 import_geometry / create_selection / export_results。"""
@@ -144,6 +143,74 @@ class TestActionExecutor:
         result = executor.execute(plan, step, {"parameters": {"out_path": "/out.png"}})
         assert result.get("status") == "error"
         assert "模型文件不存在" in result.get("message", "")
+
+    def test_execute_define_globals_validation_failed(self):
+        """define_globals 参数校验失败时返回结构化错误并要求回到规划澄清。"""
+        executor = ActionExecutor()
+        plan = ReActTaskPlan(
+            task_id="g1",
+            model_name="m1",
+            user_input="u1",
+            execution_path=[],
+        )
+        step = ExecutionStep(
+            step_id="s_global_1",
+            step_type="global",
+            action="define_globals",
+            status="pending",
+        )
+
+        result = executor.execute_define_globals(
+            plan,
+            step,
+            {
+                "parameters": {
+                    "global_definitions": [
+                        {"name": "L", "value": "0.1[m]"},
+                        {"name": "L", "value": "0.2[m]"},
+                    ]
+                }
+            },
+        )
+
+        assert result["status"] == "error"
+        assert result["error_code"] == "define_globals_validation_failed"
+        assert result["needs_planning_clarification"] is True
+        assert isinstance(result.get("details"), list)
+
+    def test_execute_define_globals_success_with_mocked_controller(self):
+        """define_globals 成功分支会调用 controller 并回写 plan.global_definitions。"""
+        executor = ActionExecutor()
+        plan = ReActTaskPlan(
+            task_id="g2",
+            model_name="m2",
+            user_input="u2",
+            execution_path=[],
+            model_path="E:/tmp/in.mph",
+        )
+        step = ExecutionStep(
+            step_id="s_global_2",
+            step_type="global",
+            action="define_globals",
+            status="pending",
+        )
+
+        mocked_controller = Mock()
+        mocked_controller.define_global_parameters.return_value = {
+            "status": "success",
+            "saved_path": "E:/tmp/out_global.mph",
+        }
+        executor._java_api_controller = mocked_controller
+
+        result = executor.execute_define_globals(
+            plan,
+            step,
+            {"parameters": {"global_definitions": [{"name": "L", "value": "0.1[m]"}]}},
+        )
+
+        assert result["status"] == "success"
+        assert len(plan.global_definitions) == 1
+        mocked_controller.define_global_parameters.assert_called_once()
 
     def test_execute_geometry(self):
         """测试几何执行"""

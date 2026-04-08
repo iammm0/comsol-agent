@@ -21,6 +21,8 @@ export interface RunEvent {
   data?: Record<string, unknown>;
 }
 
+export type AgentMode = "discuss" | "plan" | "run";
+
 /** 对话框类型 */
 export type DialogType =
   | null
@@ -49,6 +51,17 @@ export interface BridgeResponse {
   models?: MyComsolModel[];
   /** /run Plan 阶段已生成但需要澄清问题时为 true */
   plan_needs_clarification?: boolean;
+  plan_confirmed?: boolean;
+  plan?: Record<string, unknown> | null;
+  clarifying_questions?: ClarifyingQuestion[];
+  discussion_card?: Record<string, unknown> | null;
+  case_generated?: Record<string, unknown> | null;
+  saved_path?: string | null;
+  items?: OpsCatalogItem[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+  categories?: string[];
 }
 
 /** 设置页「我创建的模型」列表项 */
@@ -67,17 +80,15 @@ export interface SlashCommandItem {
 
 export const SLASH_COMMANDS: SlashCommandItem[] = [
   { name: "help", display: "/help", description: "显示帮助" },
+  { name: "discuss", display: "/discuss", description: "切换到探讨模式" },
+  { name: "plan", display: "/plan", description: "切换到建模规划模式" },
+  { name: "run", display: "/run", description: "切换到建模执行模式" },
+  { name: "case", display: "/case", description: "读取 .mph 并生成案例摘要" },
   { name: "ops", display: "/ops", description: "支持的 COMSOL 操作" },
   {
     name: "api",
     display: "/api",
     description: "浏览/搜索已集成的 COMSOL 官方 API 包装",
-  },
-  { name: "run", display: "/run", description: "默认模式（自然语言 → 模型）" },
-  {
-    name: "plan",
-    display: "/plan",
-    description: "计划模式（自然语言 → JSON）",
   },
   { name: "exec", display: "/exec", description: "根据 JSON 创建模型" },
   { name: "backend", display: "/backend", description: "选择 LLM 后端" },
@@ -111,6 +122,7 @@ export interface ClarifyingOption {
 export interface ClarifyingQuestion {
   id: string;
   text: string;
+  source?: string;
   type: "single" | "multi";
   options: ClarifyingOption[];
 }
@@ -209,21 +221,12 @@ export const QUICK_PROMPT_GROUPS: QuickPromptGroup[] = [
   },
 ];
 
-/** COMSOL 操作说明（/ops 弹窗） */
-export interface ComsolOp {
-  action: string;
+/** 动态 COMSOL 操作目录条目（/ops 弹窗） */
+export interface OpsCatalogItem {
+  category: string;
   label: string;
-  description: string;
+  invoke_mode: "native" | "wrapper";
+  recommended_action: string;
+  params_schema?: Record<string, unknown>;
+  examples?: Array<Record<string, unknown>>;
 }
-
-export const COMSOL_OPS: ComsolOp[] = [
-  {
-    action: "geometry",
-    label: "几何",
-    description: "创建/编辑几何体与布尔运算",
-  },
-  { action: "physics", label: "物理场", description: "添加物理场与边界条件" },
-  { action: "mesh", label: "网格", description: "划分网格" },
-  { action: "study", label: "研究", description: "稳态/瞬态/特征值等研究" },
-  { action: "material", label: "材料", description: "材料分配与属性" },
-];

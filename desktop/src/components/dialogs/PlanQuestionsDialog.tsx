@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../../context/AppStateContext";
 import { useBridge } from "../../hooks/useBridge";
+import { getPayloadFromConfig, loadApiConfig } from "../../lib/apiConfig";
 import type { ClarifyingAnswer, ClarifyingQuestion } from "../../lib/types";
 import {
   normalizeClarifyingQuestions,
@@ -29,7 +30,7 @@ function ensureSelected(
 
 export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   const { state, dispatch } = useAppState();
-  const { sendStreamCommand } = useBridge();
+  const { sendCommand, sendStreamCommand } = useBridge();
 
   const questions: ClarifyingQuestion[] = useMemo(
     () => normalizeClarifyingQuestions(state.pendingPlanQuestions ?? []),
@@ -119,10 +120,19 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
 
     const payloadAnswers = buildPayloadAnswers();
 
-    sendStreamCommand("run", {
-      input,
-      clarifying_answers: payloadAnswers,
-    });
+    if (state.mode === "plan") {
+      const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+      sendCommand("plan", {
+        input,
+        clarifying_answers: payloadAnswers,
+        ...apiPayload,
+      });
+    } else {
+      sendStreamCommand("run", {
+        input,
+        clarifying_answers: payloadAnswers,
+      });
+    }
 
     dispatch({ type: "CLEAR_PLAN_QUESTIONS" });
     dispatch({ type: "SET_DIALOG", dialog: null });
@@ -138,7 +148,7 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   return (
     <div className="dialog plan-questions-dialog">
       <div className="dialog-header">
-        <h2>在执行前先澄清几个问题</h2>
+        <h2>{state.mode === "plan" ? "在规划前先澄清几个问题" : "在执行前先澄清几个问题"}</h2>
       </div>
 
       <div className="dialog-body">
@@ -174,7 +184,7 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
           onClick={handleConfirm}
           disabled={!canConfirm}
         >
-          确认并继续执行
+          {state.mode === "plan" ? "确认并继续规划" : "确认并继续执行"}
         </button>
       </div>
     </div>

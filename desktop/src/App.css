@@ -926,6 +926,15 @@ body {
 .run-event-pill--phase[data-phase="executing"] .run-event-pill__dot {
     background: var(--secondary);
 }
+.run-event-pill--phase[data-phase="discussion"] .run-event-pill__dot {
+    background: var(--primary);
+}
+.run-event-pill--phase[data-phase="planning_clarify"] .run-event-pill__dot {
+    background: var(--warning);
+}
+.run-event-pill--phase[data-phase="plan_confirmed"] .run-event-pill__dot {
+    background: var(--success);
+}
 .run-event-pill--phase[data-phase="observing"] .run-event-pill__dot {
     background: var(--accent);
 }
@@ -1205,17 +1214,27 @@ body {
     border-radius: 4px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    border: none;
+    border: 1px solid var(--border);
+    background: var(--bg-element);
+    color: var(--text-muted);
     font-family: inherit;
     cursor: pointer;
 }
-.prompt-tag.run {
+.prompt-tag.active {
+    color: #fff;
+    border-color: transparent;
+}
+.prompt-tag.run.active {
     background: var(--accent);
     color: #fff;
 }
-.prompt-tag.plan {
+.prompt-tag.plan.active {
     background: var(--secondary);
     color: var(--bg);
+}
+.prompt-tag.discuss.active {
+    background: var(--primary);
+    color: #fff;
 }
 .prompt-tag:hover {
     opacity: 0.9;

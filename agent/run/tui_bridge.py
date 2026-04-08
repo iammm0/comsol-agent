@@ -25,6 +25,10 @@ try:
     from agent.run.actions import (
         do_run,
         do_plan,
+        do_plan_mode,
+        do_discuss,
+        do_case,
+        do_ops_catalog,
         do_exec_from_file,
         do_demo,
         do_doctor,
@@ -156,14 +160,71 @@ def _handle(req: dict[str, Any]) -> None:
             return
 
         if cmd == "plan":
-            out_path = req.get("output_path")
-            path = Path(out_path) if out_path else None
-            ok, msg = do_plan(
+            ok, msg, plan_dict, plan_confirmed, clarifying_questions = do_plan_mode(
                 user_input=(req.get("input") or "").strip(),
-                output_path=path,
+                conversation_id=req.get("conversation_id") or None,
+                backend=req.get("backend") or None,
+                api_key=req.get("api_key") or None,
+                base_url=req.get("base_url") or None,
+                ollama_url=req.get("ollama_url") or None,
+                model=req.get("model") or None,
+                clarifying_answers=req.get("clarifying_answers") or None,
                 verbose=req.get("verbose", False),
             )
-            _reply(ok, msg)
+            _reply(
+                ok,
+                msg,
+                plan=plan_dict,
+                plan_confirmed=plan_confirmed,
+                clarifying_questions=clarifying_questions or [],
+                plan_needs_clarification=bool(clarifying_questions),
+            )
+            return
+
+        if cmd == "discuss":
+            ok, msg, card = do_discuss(
+                user_input=(req.get("input") or "").strip(),
+                conversation_id=req.get("conversation_id") or None,
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, discussion_card=card)
+            return
+
+        if cmd == "case":
+            model_path = (req.get("model_path") or req.get("path") or "").strip()
+            ok, msg, case_json, saved_path = do_case(
+                model_path=model_path,
+                conversation_id=req.get("conversation_id") or None,
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, case_generated=case_json, saved_path=saved_path)
+            return
+
+        if cmd == "ops_catalog":
+            query = (req.get("query") or "").strip() or None
+            try:
+                limit = int(req.get("limit") or 200)
+            except Exception:
+                limit = 200
+            try:
+                offset = int(req.get("offset") or 0)
+            except Exception:
+                offset = 0
+            ok, msg, result = do_ops_catalog(
+                query=query,
+                limit=limit,
+                offset=offset,
+                verbose=req.get("verbose", False),
+            )
+            _reply(
+                ok,
+                msg,
+                items=result.get("items", []),
+                total=result.get("total", 0),
+                limit=result.get("limit", limit),
+                offset=result.get("offset", offset),
+                categories=result.get("categories", []),
+            )
             return
 
         if cmd == "exec":

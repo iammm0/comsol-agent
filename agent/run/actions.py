@@ -2,13 +2,14 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from agent.core.dependencies import get_agent, get_context_manager, get_settings
 from agent.core.events import EventBus
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_api_controller import JavaAPIController
 from agent.memory import update_conversation_memory, update_conversation_memory_async
+from agent.run.discussion_mode import DiscussionModeHandler
 from agent.utils.env_check import check_environment
 from agent.utils.logger import setup_logging, get_logger
 from schemas.geometry import GeometryPlan
@@ -94,6 +95,20 @@ def do_run(
             return False, f"环境检查未通过: {error_msg}", False
 
     context_manager = get_context_manager(conversation_id)
+
+    # 三阶段门禁：桌面多会话场景下 /run 仅执行已确认计划。
+    if conversation_id and given_plan is None:
+        stored_plan = context_manager.load_plan()
+        if not stored_plan or not bool(stored_plan.get("plan_confirmed")):
+            return (
+                False,
+                "当前会话没有已确认的建模计划。请先使用 `/discuss` 完成探讨，再通过 `/plan` 完成澄清与确认。",
+                False,
+            )
+        given_plan = stored_plan
+        if not user_input.strip():
+            user_input = "执行已确认计划"
+
     memory_context = None if no_context else context_manager.get_context_for_planner()
     try:
         if use_react:
@@ -241,11 +256,18 @@ def do_plan_mode(
     base_url: Optional[str] = None,
     ollama_url: Optional[str] = None,
     model: Optional[str] = None,
+    clarifying_answers: Optional[List[Dict[str, Any]]] = None,
     verbose: bool = False,
-) -> Tuple[bool, str, Optional[Dict[str, Any]], bool]:
+) -> Tuple[bool, str, Optional[Dict[str, Any]], bool, Optional[List[Dict[str, Any]]]]:
     """
-    Plan 模式：多轮交互式形成 plan.json，满意后返回 should_enter_core=True 与 plan_dict。
-    返回 (ok, reply_text, plan_dict, should_enter_core)。
+    规划阶段：基于 finalized 讨论卡生成 plan.json + plan_readable.md，并执行澄清闭环。
+
+    Returns:
+    - ok
+    - reply_text
+    - plan_dict
+    - plan_confirmed
+    - pending_clarifying_questions
     """
     _ensure_logging(verbose)
     try:
@@ -261,11 +283,91 @@ def do_plan_mode(
             ollama_url=ollama_url,
             model=model,
         )
-        reply, plan_dict, should_enter_core = handler.process(user_input)
-        return True, reply, plan_dict, should_enter_core
+        reply, plan_dict, plan_confirmed, clarifying_questions = handler.process(
+            user_input,
+            clarifying_answers=clarifying_answers,
+        )
+        return True, reply, plan_dict, plan_confirmed, clarifying_questions
     except Exception as e:
         logger.exception("do_plan_mode 失败: %s", e)
-        return False, str(e), None, False
+        return False, str(e), None, False, None
+
+
+def do_discuss(
+    user_input: str,
+    conversation_id: Optional[str] = None,
+    verbose: bool = False,
+) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+    """讨论阶段：更新并持久化 discussion card。"""
+    _ensure_logging(verbose)
+    try:
+        context_manager = get_context_manager(conversation_id)
+        handler = DiscussionModeHandler(context_manager=context_manager)
+        reply, card = handler.process(user_input)
+        return True, reply, card
+    except Exception as e:
+        logger.exception("do_discuss 失败")
+        return False, str(e), None
+
+
+def do_case(
+    model_path: str,
+    conversation_id: Optional[str] = None,
+    verbose: bool = False,
+) -> Tuple[bool, str, Optional[Dict[str, Any]], Optional[str]]:
+    """读取 mph 模型并提取结构化操作案例 JSON。"""
+    _ensure_logging(verbose)
+    model_path = (model_path or "").strip()
+    if not model_path:
+        return False, "缺少 model_path", None, None
+    path = Path(model_path)
+    if not path.exists():
+        return False, f"模型文件不存在: {model_path}", None, None
+    if path.suffix.lower() != ".mph":
+        return False, "仅支持 .mph 文件", None, None
+    try:
+        ctrl = JavaAPIController()
+        result = ctrl.extract_model_operation_case(str(path.resolve()))
+        if result.get("status") != "success":
+            return False, result.get("message", "案例提取失败"), None, None
+
+        case_dict = result.get("case")
+        if not isinstance(case_dict, dict):
+            return False, "案例提取返回格式错误", None, None
+
+        cm = get_context_manager(conversation_id)
+        saved = cm.save_case_file(case_dict, path.stem)
+        summary = case_dict.get("summary") or "案例提取完成"
+        return True, f"{summary}\n已保存到: {saved}", case_dict, str(saved)
+    except Exception as e:
+        logger.exception("do_case 失败")
+        return False, str(e), None, None
+
+
+def do_ops_catalog(
+    query: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """返回 COMSOL 操作能力目录（native + wrapper）。"""
+    _ensure_logging(verbose)
+    try:
+        ctrl = JavaAPIController()
+        result = ctrl.get_ops_catalog(query=query, limit=limit, offset=offset)
+        ok = result.get("status") == "success"
+        message = result.get("message", "ok" if ok else "error")
+        return ok, str(message), result
+    except Exception as e:
+        logger.exception("do_ops_catalog 失败")
+        return False, str(e), {
+            "status": "error",
+            "message": str(e),
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+        }
 
 
 def do_plan(

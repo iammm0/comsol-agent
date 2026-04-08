@@ -1,4 +1,4 @@
-"""ReAct Agent 核心类"""
+﻿"""ReAct Agent 核心类"""
 
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, cast
@@ -138,9 +138,13 @@ class ReActAgent:
                     "case_library_suggestions": getattr(plan, "case_library_suggestions", None),
                 },
             )
+            if getattr(plan, "plan_confirmed", False):
+                self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "plan_confirmed"})
 
         # Plan-only 模式：若存在澄清问题且本次未带 clarifying_answers，则仅返回计划，等待前端提问
         if plan.clarifying_questions and not clarifying_answers:
+            if self._event_bus:
+                self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "planning_clarify"})
             # 使用特定错误类型由上层捕获并转换为「计划已生成，等待澄清问题」
             raise PlanNeedsClarification("计划已生成，等待澄清问题", plan)
 
@@ -454,19 +458,29 @@ class ReActAgent:
             from agent.react.reasoning_engine import _task_plan_to_execution_path
             from schemas.geometry import GeometryPlan
             from schemas.material import MaterialPlan
+            from schemas.mesh import MeshPlan
             from schemas.physics import PhysicsPlan
             from schemas.study import StudyPlan
-            from schemas.task import TaskPlan
+            from schemas.task import GlobalDefinitionPlan, TaskPlan
 
             g = given_plan.get("geometry")
             m = given_plan.get("material")
+            mesh = given_plan.get("mesh")
             p = given_plan.get("physics")
             s = given_plan.get("study")
+            globals_plan = []
+            for item in given_plan.get("global_definitions", []) or []:
+                try:
+                    globals_plan.append(GlobalDefinitionPlan.model_validate(item))
+                except Exception:
+                    continue
             task_plan = TaskPlan(
                 geometry=GeometryPlan.from_dict(g) if g else None,
                 material=MaterialPlan.from_dict(m) if m else None,
+                mesh=MeshPlan.model_validate(mesh) if mesh else None,
                 physics=PhysicsPlan.model_validate(p) if p else None,
                 study=StudyPlan.model_validate(s) if s else None,
+                global_definitions=globals_plan,
             )
             execution_path = _task_plan_to_execution_path(task_plan)
             reasoning_path = self.reasoning_engine.plan_reasoning_path(execution_path)
@@ -485,9 +499,13 @@ class ReActAgent:
             initial_plan.geometry_plan = task_plan.geometry
             initial_plan.material_plan = task_plan.material
             initial_plan.physics_plan = task_plan.physics
+            initial_plan.mesh_plan = task_plan.mesh
             initial_plan.study_plan = task_plan.study
+            initial_plan.global_definitions = task_plan.global_definitions
             initial_plan.clarifying_questions = None
             initial_plan.clarifying_answers = None
+            initial_plan.discussion_card_ref = given_plan.get("discussion_card_ref")
+            initial_plan.plan_confirmed = bool(given_plan.get("plan_confirmed"))
         else:
             initial_plan = self.reasoning_engine.understand_and_plan(
                 user_input,
@@ -517,6 +535,7 @@ class ReActAgent:
         # 根据 action 确定步骤类型
         step_type_map = {
             "create_geometry": "geometry",
+            "define_globals": "global",
             "add_material": "material",
             "update_material_property": "material",
             "add_physics": "physics",
@@ -526,6 +545,7 @@ class ReActAgent:
             "import_geometry": "geometry_io",
             "create_selection": "selection",
             "export_results": "postprocess",
+            "call_official_api": "java_api",
         }
 
         step_type = step_type_map.get(action, "geometry")

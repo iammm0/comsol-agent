@@ -85,6 +85,12 @@ export function Prompt() {
     }
   }, []);
 
+  const modeItems: Array<{ mode: "discuss" | "plan" | "run"; label: string }> = [
+    { mode: "discuss", label: "Discuss" },
+    { mode: "plan", label: "Plan" },
+    { mode: "run", label: "Run" },
+  ];
+
   return (
     <div className="prompt-area">
       <div className="prompt-wrapper" style={{ position: "relative" }}>
@@ -109,19 +115,17 @@ export function Prompt() {
           </div>
         )}
         <div className="prompt-tags">
-          <button
-            type="button"
-            className={`prompt-tag ${state.mode === "plan" ? "plan" : "run"}`}
-            onClick={() =>
-              dispatch({
-                type: "SET_MODE",
-                mode: state.mode === "plan" ? "run" : "plan",
-              })
-            }
-            title={state.mode === "plan" ? "切换到 Build" : "切换到 Plan"}
-          >
-            {state.mode === "plan" ? "Plan" : "Build"}
-          </button>
+          {modeItems.map((item) => (
+            <button
+              key={item.mode}
+              type="button"
+              className={`prompt-tag ${item.mode} ${state.mode === item.mode ? "active" : ""}`}
+              onClick={() => dispatch({ type: "SET_MODE", mode: item.mode })}
+              title={`切换到 ${item.label}`}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
         <textarea
           ref={textareaRef}

@@ -24,14 +24,32 @@ export function useBridge() {
           cmd,
           payload: { ...payload, conversation_id: cid },
         });
+
+        if (cmd === "plan") {
+          const questions: ClarifyingQuestion[] = normalizeClarifyingQuestions(
+            res.clarifying_questions
+          );
+          const needsClarification =
+            Boolean(res.plan_needs_clarification) ||
+            (questions.length > 0 && !Boolean(res.plan_confirmed));
+          if (needsClarification && questions.length > 0) {
+            dispatch({ type: "SET_PLAN_QUESTIONS", questions });
+            dispatch({ type: "SET_DIALOG", dialog: "planQuestions" });
+          } else {
+            dispatch({ type: "CLEAR_PLAN_QUESTIONS" });
+          }
+        }
+
         addMessage("assistant", res.message, { success: res.ok });
+        return res;
       } catch (e) {
         addMessage("assistant", "请求失败: " + String(e), { success: false });
+        return null;
       } finally {
         dispatch({ type: "SET_BUSY_CONVERSATION", conversationId: null });
       }
     },
-    [cid, dispatch, addMessage],
+    [cid, dispatch, addMessage]
   );
 
   const sendStreamCommand = useCallback(
@@ -124,12 +142,17 @@ export function useBridge() {
         }
         if (cmd === "/run") {
           dispatch({ type: "SET_MODE", mode: "run" });
-          addMessage("system", "已切换为 Build 模式");
+          addMessage("system", "已切换为执行模式（/run）");
+          return;
+        }
+        if (cmd === "/discuss") {
+          dispatch({ type: "SET_MODE", mode: "discuss" });
+          addMessage("system", "已切换为探讨模式（/discuss）");
           return;
         }
         if (cmd === "/plan") {
           dispatch({ type: "SET_MODE", mode: "plan" });
-          addMessage("system", "已切换为 Plan 模式");
+          addMessage("system", "已切换为规划模式（/plan）");
           return;
         }
         if (cmd === "/help") {
@@ -138,6 +161,16 @@ export function useBridge() {
         }
         if (cmd === "/ops") {
           dispatch({ type: "SET_DIALOG", dialog: "ops" });
+          return;
+        }
+        if (cmd === "/case") {
+          const modelPath = line.slice(cmd.length).trim();
+          if (!modelPath) {
+            addMessage("system", "用法: /case <path_to_model.mph>", { success: false });
+            return;
+          }
+          addMessage("user", line);
+          sendCommand("case", { model_path: modelPath });
           return;
         }
         if (cmd === "/api") {
@@ -186,7 +219,9 @@ export function useBridge() {
         dispatch({ type: "SET_CONVERSATION_TITLE", id: cid, title });
       }
 
-      if (state.mode === "plan") {
+      if (state.mode === "discuss") {
+        sendCommand("discuss", { input: line });
+      } else if (state.mode === "plan") {
         const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
         sendCommand("plan", { input: line, ...apiPayload });
       } else {
