@@ -1,0 +1,80 @@
+name: rewrite-ts-ci
+
+on:
+  push:
+    branches:
+      - rewrite-ts
+  pull_request:
+    branches:
+      - rewrite-ts
+
+jobs:
+  ts-build:
+    name: TypeScript Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install workspace deps
+        run: npm install
+
+      - name: Build contracts
+        run: npm run build -w @mph-agent/contracts
+
+      - name: Build agent-core
+        run: npm run build -w @mph-agent/agent-core
+
+      - name: Build agent-sidecar
+        run: npm run build -w @mph-agent/agent-sidecar
+
+      - name: Build desktop frontend
+        run: npm run build -w @mph-agent/desktop
+
+      - name: Prepare desktop runtime resources
+        run: npm run prepare:runtime -w @mph-agent/desktop
+
+      - name: Run contracts and agent-core tests
+        run: npm run test
+
+  rust-check:
+    name: Tauri Rust Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo check
+        working-directory: apps/desktop/src-tauri
+        run: cargo check
+
+  java-sidecar-check:
+    name: Java Sidecar Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Java sidecar shadow jar
+        working-directory: apps/comsol-java-sidecar
+        run: ./gradlew --no-daemon shadowJar

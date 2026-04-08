@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "mph-agent",
+  "version": "1.0.0",
+  "identifier": "com.sensorai.mph-agent",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "security": {
+      "capabilities": ["default"],
+      "csp": null
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "mph-agent",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"],
+    "resources": [
+      "resources/runtime/java",
+      "resources/runtime/node",
+      "resources/sidecar",
+      "resources/skills",
+      "resources/prompts"
+    ]
+  }
+}

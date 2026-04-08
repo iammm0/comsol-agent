@@ -75,6 +75,7 @@ htmlcov/
 *.jar
 build/
 target/
+!apps/comsol-java-sidecar/gradle/wrapper/gradle-wrapper.jar
 
 # OS
 Thumbs.db
@@ -89,3 +90,24 @@ desktop/src-tauri/resources/runtime/java/*
 !desktop/src-tauri/resources/runtime/java/.gitkeep
 # 桌面安装包内嵌 Python bridge（PyInstaller 构建，不提交）
 desktop/src-tauri/binaries/
+
+# rewrite-ts workspace
+apps/*/node_modules/
+packages/*/node_modules/
+apps/*/dist/
+packages/*/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/resources/runtime/java/*
+!apps/desktop/src-tauri/resources/runtime/java/.gitkeep
+apps/desktop/src-tauri/resources/runtime/node/*
+!apps/desktop/src-tauri/resources/runtime/node/.gitkeep
+apps/desktop/src-tauri/resources/sidecar/*
+!apps/desktop/src-tauri/resources/sidecar/.gitkeep
+!apps/desktop/src-tauri/resources/sidecar/java/
+apps/desktop/src-tauri/resources/sidecar/java/*
+!apps/desktop/src-tauri/resources/sidecar/java/.gitkeep
+apps/desktop/src-tauri/resources/skills/*
+!apps/desktop/src-tauri/resources/skills/.gitkeep
+apps/desktop/src-tauri/resources/prompts/*
+!apps/desktop/src-tauri/resources/prompts/.gitkeep
+.context-ts/

@@ -1,0 +1,20 @@
+{
+  "name": "mph-agent-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Pure TypeScript rewrite for mph-agent",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/contracts && npm run build -w packages/agent-core && npm run build -w apps/agent-sidecar && npm run build -w apps/desktop",
+    "test": "npm run build -w packages/contracts && npm run build -w packages/agent-core && npm run test -w packages/contracts && npm run test -w packages/agent-core && npm run test -w apps/agent-sidecar",
+    "lint": "npm run lint -w apps/desktop && npm run lint -w apps/agent-sidecar && npm run lint -w packages/contracts && npm run lint -w packages/agent-core",
+    "dev:desktop": "npm run tauri dev -w apps/desktop",
+    "dev:sidecar": "npm run dev -w apps/agent-sidecar"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@mph-agent/desktop",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "lint": "tsc --noEmit -p tsconfig.json --pretty false",
+    "prepare:runtime": "node scripts/prepare-runtime.mjs",
+    "bundle": "npm run build && npm run prepare:runtime && npm run tauri build"
+  },
+  "dependencies": {
+    "@mph-agent/contracts": "file:../../packages/contracts",
+    "@tauri-apps/api": "~2.10.1",
+    "solid-js": "^1.9.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.21",
+    "@tauri-apps/cli": "~2.10.1",
+    "typescript": "^5.8.3",
+    "vite": "^8.0.0",
+    "vite-plugin-solid": "^2.11.8"
+  }
+}
