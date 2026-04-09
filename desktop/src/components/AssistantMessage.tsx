@@ -3,6 +3,8 @@ import { ReasoningStream } from "./run-events/ReasoningStream";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "../context/AppStateContext";
 import type { RunEvent } from "../lib/types";
+import { MarkdownContent } from "./MarkdownContent";
+import { sanitizeLLMDisplayText } from "../lib/textSanitizer";
 
 /** 合并连续的 llm_stream_chunk 为单条，便于展示完整思维过程 */
 function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
@@ -62,6 +64,17 @@ function extractModelPath(text: string): string | null {
   return slice || null;
 }
 
+function extractStreamedAssistantText(events: RunEvent[] | undefined): string {
+  if (!events?.length) return "";
+  let out = "";
+  for (const e of events) {
+    if (e.type !== "llm_stream_chunk") continue;
+    const chunk = (e.data?.chunk ?? e.data?.text ?? "") as string;
+    if (chunk) out += chunk;
+  }
+  return sanitizeLLMDisplayText(out);
+}
+
 function openInFolder(path: string) {
   invoke("open_in_folder", { path }).catch(() => {
     if (navigator.clipboard?.writeText) {
@@ -84,11 +97,14 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
   const hasEvents = (message.events?.length ?? 0) > 0;
   const isError = message.success === false;
   const isCurrentBusy = state.busyConversationId === state.currentConversationId;
-  const showText = !isError && (message.text || !hasEvents);
+  const streamedText = extractStreamedAssistantText(message.events);
+  const renderText = sanitizeLLMDisplayText(message.text || "") || (isCurrentBusy ? streamedText : "");
+  const showText = !isError && (Boolean(renderText) || !hasEvents);
+  const isStreamingText = Boolean(isCurrentBusy && !message.text && streamedText);
   const modelPath =
     message.modelPath ?? extractModelPath(message.text || "");
   const phaseLabel = getPhaseLabel(message.events);
-  const placeholderText = message.text || (isCurrentBusy ? phaseLabel : "") || "—";
+  const placeholderText = renderText || (isCurrentBusy ? phaseLabel : "") || "—";
 
   return (
     <div className="assistant-msg">
@@ -102,7 +118,9 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
       )}
       {isError && (
         <div className="assistant-msg-body error">
-          <div className="assistant-msg-text">{message.text}</div>
+          <div className="assistant-msg-text">
+            <MarkdownContent content={sanitizeLLMDisplayText(message.text)} />
+          </div>
           {modelPath && (
             <div className="assistant-msg-meta">
               <button
@@ -128,7 +146,8 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
       {showText && (
         <div className="assistant-msg-body success">
           <div className="assistant-msg-text">
-            {placeholderText}
+            <MarkdownContent content={placeholderText} />
+            {isStreamingText && <span className="assistant-msg-stream-cursor" aria-hidden />}
           </div>
           <div className="assistant-msg-meta">
             {modelPath && (

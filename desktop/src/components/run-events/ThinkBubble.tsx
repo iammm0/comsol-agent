@@ -1,4 +1,5 @@
 import type { RunEvent } from "../../lib/types";
+import { sanitizeLLMDisplayText } from "../../lib/textSanitizer";
 
 /** 思维流（LLM 流式 / think_chunk）：气泡样式 */
 export function ThinkBubble({ event }: { event: RunEvent }) {
@@ -6,7 +7,7 @@ export function ThinkBubble({ event }: { event: RunEvent }) {
   const type = event.type;
 
   if (type === "llm_stream_chunk") {
-    const chunk = String(d.chunk ?? d.text ?? "").trim();
+    const chunk = sanitizeLLMDisplayText(String(d.chunk ?? d.text ?? ""));
     const phase = (d.phase as string) ?? "";
     if (!chunk) return null;
     return (

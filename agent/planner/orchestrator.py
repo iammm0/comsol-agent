@@ -280,30 +280,264 @@ def _build_clarifying_questions(user_input: str) -> List[str]:
 
 def _wrap_clarifying_questions_as_structured(raw_questions: List[str]) -> List[ClarifyingQuestion]:
     """
-    将简单的字符串问题包装为结构化 ClarifyingQuestion，供前端直接展示。
-    第一个选项为推荐选项（采用当前描述中的合理默认），便于用户一键采纳。
+    将字符串问题包装为结构化 ClarifyingQuestion，供前端直接展示。
+    根据问题语义生成具体可选项，避免“自动选择/跳过”这类占位选项。
     """
-    structured: List[ClarifyingQuestion] = []
-    for idx, q in enumerate(raw_questions, start=1):
-        q_id = f"q{idx}"
-        options = [
+
+    def supplement_option() -> ClarifyingOption:
+        return ClarifyingOption(
+            id="opt_supplement",
+            label="其他（请补充）",
+            value="supplement",
+        )
+
+    def build_options(question_text: str) -> List[ClarifyingOption]:
+        text = (question_text or "").strip()
+        lower = text.lower()
+
+        if ("二维" in text and "三维" in text) or ("2d" in lower and "3d" in lower):
+            return [
+                ClarifyingOption(
+                    id="opt_3d",
+                    label="推荐：三维(3D)",
+                    value="3d",
+                    recommended=True,
+                ),
+                ClarifyingOption(id="opt_2d", label="二维(2D)", value="2d"),
+                ClarifyingOption(
+                    id="opt_2d_axisymmetric",
+                    label="二维轴对称",
+                    value="2d_axisymmetric",
+                ),
+                supplement_option(),
+            ]
+
+        if "尺寸" in text and "单位" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_unit_mm",
+                    label="推荐：毫米(mm)，关键尺寸后续补充",
+                    value="unit_mm",
+                    recommended=True,
+                ),
+                ClarifyingOption(id="opt_unit_m", label="米(m)", value="unit_m"),
+                ClarifyingOption(id="opt_unit_cm", label="厘米(cm)", value="unit_cm"),
+                supplement_option(),
+            ]
+
+        if "结构材料" in text or ("e" in lower and "nu" in lower):
+            return [
+                ClarifyingOption(
+                    id="opt_structural_steel",
+                    label="推荐：结构钢（E=210 GPa, nu=0.30）",
+                    value="structural_steel_E210GPa_nu03",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_aluminum",
+                    label="铝合金（E=70 GPa, nu=0.33）",
+                    value="aluminum_E70GPa_nu033",
+                ),
+                ClarifyingOption(
+                    id="opt_custom_E_nu",
+                    label="自定义 E 与 nu",
+                    value="custom_E_nu",
+                ),
+                supplement_option(),
+            ]
+
+        if "载荷" in text or "约束" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_fixed_plus_load",
+                    label="推荐：固定约束 + 外载荷",
+                    value="fixed_support_plus_load",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_fixed_plus_disp",
+                    label="固定约束 + 位移边界",
+                    value="fixed_support_plus_displacement",
+                ),
+                ClarifyingOption(
+                    id="opt_force_or_moment",
+                    label="集中力/力矩载荷",
+                    value="force_or_moment",
+                ),
+                supplement_option(),
+            ]
+
+        if "热源" in text or "热通量" in text or "初始温度" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_temperature_plus_convection",
+                    label="推荐：给定温度边界 + 自然对流",
+                    value="temperature_bc_plus_natural_convection",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_heat_flux_bc",
+                    label="给定热通量边界",
+                    value="heat_flux_bc",
+                ),
+                ClarifyingOption(
+                    id="opt_volumetric_heat",
+                    label="体热源功率",
+                    value="volumetric_heat_source",
+                ),
+                supplement_option(),
+            ]
+
+        if "入口" in text and "出口" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_velocity_pressure",
+                    label="推荐：入口速度 + 出口压力（层流）",
+                    value="inlet_velocity_outlet_pressure_laminar",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_flowrate_pressure",
+                    label="入口体积流量 + 出口压力",
+                    value="inlet_flowrate_outlet_pressure",
+                ),
+                ClarifyingOption(
+                    id="opt_pressure_in_out",
+                    label="入口压力 + 出口压力",
+                    value="pressure_inlet_outlet",
+                ),
+                supplement_option(),
+            ]
+
+        if "电磁" in text or "电压" in text or "电流" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_current_excitation",
+                    label="推荐：电流激励 + 绝缘边界",
+                    value="current_excitation_with_insulation",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_voltage_excitation",
+                    label="电压激励 + 接地边界",
+                    value="voltage_excitation_with_ground",
+                ),
+                ClarifyingOption(
+                    id="opt_frequency_sweep",
+                    label="频域扫频设置",
+                    value="frequency_sweep",
+                ),
+                supplement_option(),
+            ]
+
+        if "数据库" in text and "自定义" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_material_library",
+                    label="推荐：先用材料库标准材料",
+                    value="material_library_default",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_material_custom",
+                    label="完全自定义材料参数",
+                    value="custom_material_parameters",
+                ),
+                ClarifyingOption(
+                    id="opt_material_hybrid",
+                    label="材料库 + 局部参数修正",
+                    value="library_with_parameter_tuning",
+                ),
+                supplement_option(),
+            ]
+
+        if "网格精度" in text or "加密" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_mesh_normal_refine",
+                    label="推荐：常规网格，关键区域局部加密",
+                    value="normal_with_local_refinement",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_mesh_coarse",
+                    label="全局粗网格（快速试算）",
+                    value="coarse_mesh",
+                ),
+                ClarifyingOption(
+                    id="opt_mesh_fine",
+                    label="全局细网格（精度优先）",
+                    value="fine_mesh",
+                ),
+                supplement_option(),
+            ]
+
+        if "稳态" in text or "瞬态" in text or "频域" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_study_stationary",
+                    label="推荐：稳态研究",
+                    value="stationary",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_study_transient",
+                    label="瞬态研究",
+                    value="transient",
+                ),
+                ClarifyingOption(
+                    id="opt_study_frequency",
+                    label="频域研究",
+                    value="frequency_domain",
+                ),
+                supplement_option(),
+            ]
+
+        if "输出指标" in text or "结果图" in text:
+            return [
+                ClarifyingOption(
+                    id="opt_output_contour_extrema",
+                    label="推荐：主物理量云图 + 最大/最小值",
+                    value="contour_and_extrema",
+                    recommended=True,
+                ),
+                ClarifyingOption(
+                    id="opt_output_probe_curve",
+                    label="局部点/线/面监测曲线",
+                    value="probe_curve",
+                ),
+                ClarifyingOption(
+                    id="opt_output_report",
+                    label="导出报告图表与关键数值",
+                    value="report_and_tables",
+                ),
+                supplement_option(),
+            ]
+
+        return [
             ClarifyingOption(
-                id="opt_recommended",
-                label="推荐：采用当前描述中的合理默认",
-                value="auto",
+                id="opt_conservative_default",
+                label="推荐：先按保守默认值建立首版模型",
+                value="conservative_default",
                 recommended=True,
             ),
             ClarifyingOption(
-                id="opt_skip", label="暂不限定，由我后续在 COMSOL 里补充", value="skip"
+                id="opt_fast_iteration",
+                label="先快速建模并在结果基础上迭代",
+                value="fast_iteration",
             ),
-            ClarifyingOption(id="opt_supplement", label="其他（请补充）", value="supplement"),
+            supplement_option(),
         ]
+
+    structured: List[ClarifyingQuestion] = []
+    for idx, q in enumerate(raw_questions, start=1):
+        q_id = f"q{idx}"
         structured.append(
             ClarifyingQuestion(
                 id=q_id,
                 text=q.strip(),
                 type="single",
-                options=options,
+                options=build_options(q),
             )
         )
     return structured

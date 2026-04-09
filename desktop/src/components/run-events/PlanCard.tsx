@@ -21,8 +21,14 @@ export function PlanEndCard({ event }: { event: RunEvent }) {
   const desc = d.plan_description as string | undefined;
   const questions = Array.isArray(d.clarifying_questions)
     ? (d.clarifying_questions as Array<unknown>)
-        .map((q) => String(q ?? "").trim())
-        .filter(Boolean)
+        .map((q) => {
+          if (q && typeof q === "object") {
+            const obj = q as Record<string, unknown>;
+            return String(obj.text ?? "").trim();
+          }
+          return String(q ?? "").trim();
+        })
+        .filter((q) => q && !/^(问题|question)\s*\d+$/i.test(q))
     : [];
   const cases = Array.isArray(d.case_library_suggestions)
     ? (d.case_library_suggestions as Array<unknown>)

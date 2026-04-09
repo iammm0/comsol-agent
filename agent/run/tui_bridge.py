@@ -40,6 +40,7 @@ try:
         do_context_clear,
         do_ollama_ping,
         do_config_save,
+        do_conversation_title_suggest,
     )
     from agent.core.events import EventBus, Event, EventType
     from agent.executor.java_api_controller import JavaAPIController
@@ -130,6 +131,7 @@ def _handle(req: dict[str, Any]) -> None:
                     ok, msg, plan_needs_clarification = do_run(
                         user_input=(req.get("input") or "").strip(),
                         output=req.get("output") or None,
+                        workspace_dir=req.get("workspace_dir") or None,
                         use_react=req.get("use_react", True),
                         no_context=req.get("no_context", False),
                         conversation_id=req.get("conversation_id") or None,
@@ -186,6 +188,11 @@ def _handle(req: dict[str, Any]) -> None:
                 user_input=(req.get("input") or "").strip(),
                 conversation_id=req.get("conversation_id") or None,
                 verbose=req.get("verbose", False),
+                backend=req.get("backend") or None,
+                api_key=req.get("api_key") or None,
+                base_url=req.get("base_url") or None,
+                ollama_url=req.get("ollama_url") or None,
+                model=req.get("model") or None,
             )
             _reply(ok, msg, discussion_card=card)
             return
@@ -371,6 +378,18 @@ def _handle(req: dict[str, Any]) -> None:
                 _reply(True, "已删除对话及其关联的 COMSOL 模型", deleted_paths=deleted_paths)
             except Exception as e:
                 _reply(False, str(e), deleted_paths=[])
+            return
+
+        if cmd == "conversation_title_suggest":
+            ok, title = do_conversation_title_suggest(
+                user_input=(req.get("input") or "").strip(),
+                backend=req.get("backend") or None,
+                api_key=req.get("api_key") or None,
+                base_url=req.get("base_url") or None,
+                ollama_url=req.get("ollama_url") or None,
+                model=req.get("model") or None,
+            )
+            _reply(ok, title, title=title if ok else None)
             return
 
         _reply(False, f"未知命令: {cmd}")

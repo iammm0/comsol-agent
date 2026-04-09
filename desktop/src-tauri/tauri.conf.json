@@ -1,5 +1,5 @@
 {
-  "productName": "Multiphysics Modeling Agent",
+  "productName": "多物理场建模智能体",
   "version": "0.1.0",
   "identifier": "com.sensorai.mph-agent",
   "build": {
@@ -12,7 +12,7 @@
     "security": { "csp": null },
     "windows": [
       {
-        "title": "Multiphysics Modeling Agent",
+        "title": "多物理场建模智能体",
         "width": 1200,
         "height": 800,
         "resizable": true,

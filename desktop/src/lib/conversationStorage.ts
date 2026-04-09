@@ -1,9 +1,11 @@
-import type { Conversation } from "./types";
+import type { Conversation, ConversationGroup } from "./types";
 import type { ChatMessage } from "./types";
 
 const CONVERSATIONS_KEY = "mph-agent-conversations";
 const MESSAGES_KEY = "mph-agent-messages";
 const CURRENT_ID_KEY = "mph-agent-current-conversation-id";
+const GROUPS_KEY = "mph-agent-conversation-groups";
+const WORKSPACE_DIR_KEY = "mph-agent-workspace-dir";
 
 export function loadConversations(): Conversation[] {
   try {
@@ -54,5 +56,40 @@ export function loadCurrentConversationId(): string | null {
 export function saveCurrentConversationId(id: string): void {
   try {
     localStorage.setItem(CURRENT_ID_KEY, id);
+  } catch (_) {}
+}
+
+export function loadConversationGroups(): ConversationGroup[] {
+  try {
+    const raw = localStorage.getItem(GROUPS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      return Array.isArray(parsed) ? (parsed as ConversationGroup[]) : [];
+    }
+  } catch (_) {}
+  return [];
+}
+
+export function saveConversationGroups(groups: ConversationGroup[]): void {
+  try {
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
+  } catch (_) {}
+}
+
+export function loadWorkspaceDir(): string | null {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_DIR_KEY);
+    return typeof raw === "string" && raw.trim() ? raw : null;
+  } catch (_) {}
+  return null;
+}
+
+export function saveWorkspaceDir(dir: string | null): void {
+  try {
+    if (!dir) {
+      localStorage.removeItem(WORKSPACE_DIR_KEY);
+      return;
+    }
+    localStorage.setItem(WORKSPACE_DIR_KEY, dir);
   } catch (_) {}
 }

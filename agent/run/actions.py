@@ -2,16 +2,22 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent.core.dependencies import get_agent, get_context_manager, get_settings
-from agent.core.events import EventBus
+from agent.core.events import Event, EventBus, EventType
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_api_controller import JavaAPIController
 from agent.memory import update_conversation_memory, update_conversation_memory_async
-from agent.run.discussion_mode import DiscussionModeHandler
+from agent.agents.qa_agent import QAAgent
+from agent.run.discussion_mode import (
+    DiscussionModeHandler,
+    format_card_brief,
+    is_chitchat_only,
+)
 from agent.utils.env_check import check_environment
 from agent.utils.logger import setup_logging, get_logger
+from agent.utils.llm import LLMClient
 from schemas.geometry import GeometryPlan
 from schemas.task import ClarifyingAnswer
 from agent.react.exceptions import PlanNeedsClarification, ReActNeedsReorchestrate
@@ -67,9 +73,96 @@ def _ensure_logging(verbose: bool = False) -> None:
     setup_logging("DEBUG" if verbose else "INFO")
 
 
+def _redact(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return "***"
+
+
+def _make_dialog_logger(
+    context_manager: Any,
+    *,
+    command: str,
+    user_input: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[
+    Optional[str],
+    Callable[..., None],
+    Callable[[bool, str, Optional[Dict[str, Any]]], None],
+]:
+    log_id: Optional[str] = None
+    try:
+        started = context_manager.start_dialog_log(
+            command=command,
+            user_input=user_input,
+            metadata=metadata or {},
+        )
+        log_id = started.get("log_id")
+    except Exception as e:
+        logger.warning("创建对话动作日志失败: %s", e)
+
+    def log_action(
+        action: str,
+        detail: str = "",
+        *,
+        level: str = "INFO",
+        source: str = "runtime",
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not log_id:
+            return
+        try:
+            context_manager.append_dialog_action(
+                log_id,
+                action=action,
+                detail=detail,
+                level=level,
+                source=source,
+                data=data,
+            )
+        except Exception:
+            pass
+
+    def finish(success: bool, summary: str, data: Optional[Dict[str, Any]] = None) -> None:
+        if not log_id:
+            return
+        try:
+            context_manager.finish_dialog_log(
+                log_id,
+                success=success,
+                summary=summary,
+                data=data,
+            )
+        except Exception:
+            pass
+
+    return log_id, log_action, finish
+
+
+def _attach_event_bus_logger(event_bus: Optional[EventBus], log_action: Callable[..., None]) -> None:
+    if event_bus is None:
+        return
+
+    def _handler(event: Event) -> None:
+        payload: Dict[str, Any] = dict(event.data or {})
+        if event.type == EventType.LLM_STREAM_CHUNK:
+            chunk = str(payload.get("chunk", ""))
+            if len(chunk) > 300:
+                payload["chunk"] = chunk[:300] + "...(truncated)"
+        log_action(
+            f"event:{event.type.value}",
+            detail=f"iteration={event.iteration}" if event.iteration is not None else "",
+            source="event_bus",
+            data={"data": payload, "iteration": event.iteration},
+        )
+
+    event_bus.subscribe_all(_handler)
+
+
 def do_run(
     user_input: str,
     output: Optional[str] = None,
+    workspace_dir: Optional[str] = None,
     use_react: bool = True,
     no_context: bool = False,
     conversation_id: Optional[str] = None,
@@ -89,32 +182,80 @@ def do_run(
     _ensure_logging(verbose)
     from agent.utils.env_check import validate_environment
 
+    context_manager = get_context_manager(conversation_id)
+    _log_id, log_action, finish_log = _make_dialog_logger(
+        context_manager,
+        command="run",
+        user_input=user_input,
+        metadata={
+            "conversation_id": conversation_id or "default",
+            "use_react": use_react,
+            "skip_check": skip_check,
+            "no_context": no_context,
+            "workspace_dir": workspace_dir or "",
+            "backend": backend or "",
+            "model": model or "",
+            "output": output or "",
+            "has_api_key": bool(api_key),
+            "api_key": _redact(api_key),
+            "base_url": base_url or "",
+            "ollama_url": ollama_url or "",
+            "max_iterations": max_iterations,
+            "clarifying_answers_count": len(clarifying_answers or []),
+            "has_given_plan": given_plan is not None,
+        },
+    )
+    log_action("run_invoked", data={"input_length": len((user_input or "").strip())})
+
     if not skip_check:
+        log_action("environment_check_started")
         is_valid, error_msg = validate_environment()
         if not is_valid:
-            return False, f"环境检查未通过: {error_msg}", False
+            msg = f"环境检查未通过: {error_msg}"
+            log_action("environment_check_failed", detail=msg, level="ERROR")
+            finish_log(False, msg, {"phase": "validate_environment"})
+            return False, msg, False
+        log_action("environment_check_passed")
+    else:
+        log_action("environment_check_skipped")
 
-    context_manager = get_context_manager(conversation_id)
-
-    # 三阶段门禁：桌面多会话场景下 /run 仅执行已确认计划。
+    # 若本会话已有「已确认」的建模计划，/run 优先沿用；否则不拦截，按自然语言直接走 ReAct（可跳过 discuss/plan）。
     if conversation_id and given_plan is None:
         stored_plan = context_manager.load_plan()
-        if not stored_plan or not bool(stored_plan.get("plan_confirmed")):
-            return (
-                False,
-                "当前会话没有已确认的建模计划。请先使用 `/discuss` 完成探讨，再通过 `/plan` 完成澄清与确认。",
-                False,
+        if stored_plan and bool(stored_plan.get("plan_confirmed")):
+            given_plan = stored_plan
+            input_rewritten = not bool((user_input or "").strip())
+            if input_rewritten:
+                user_input = "执行已确认计划"
+            log_action(
+                "reuse_confirmed_plan",
+                data={"plan_confirmed": True, "input_rewritten": input_rewritten},
             )
-        given_plan = stored_plan
-        if not user_input.strip():
-            user_input = "执行已确认计划"
 
     memory_context = None if no_context else context_manager.get_context_for_planner()
+    log_action(
+        "planner_memory_loaded",
+        data={
+            "has_memory_context": bool((memory_context or "").strip()),
+            "memory_context_length": len(memory_context or ""),
+        },
+    )
     try:
         if use_react:
-            output_dir = context_manager.context_dir if conversation_id else None
+            if workspace_dir:
+                output_dir = Path(workspace_dir).expanduser().resolve()
+                output_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                output_dir = context_manager.context_dir if conversation_id else None
             if conversation_id:
                 context_manager.start_run_log(user_input)
+                log_action(
+                    "operations_markdown_started",
+                    data={"operations_file": str(context_manager.operations_file)},
+                )
+
+            active_event_bus = event_bus or EventBus()
+            _attach_event_bus_logger(active_event_bus, log_action)
             core = get_agent(
                 "core",
                 backend=backend,
@@ -123,8 +264,15 @@ def do_run(
                 ollama_url=ollama_url,
                 model=model,
                 max_iterations=max_iterations,
-                event_bus=event_bus,
+                event_bus=active_event_bus,
                 context_manager=context_manager if conversation_id else None,
+            )
+            log_action(
+                "core_agent_ready",
+                data={
+                    "event_bus_attached": True,
+                    "output_dir": str(output_dir) if output_dir else "",
+                },
             )
 
             # 将前端传来的 clarifying_answers dict 列表转换为 Pydantic 模型列表
@@ -136,6 +284,13 @@ def do_run(
                         clarifying_models.append(ClarifyingAnswer.model_validate(item))
                     except Exception:
                         continue
+            log_action(
+                "clarifying_answers_parsed",
+                data={
+                    "raw_count": len(clarifying_answers or []),
+                    "validated_count": len(clarifying_models or []),
+                },
+            )
 
             try:
                 model_path = core.run(
@@ -146,9 +301,11 @@ def do_run(
                     clarifying_answers=clarifying_models,
                     given_plan=given_plan,
                 )
+                log_action("core_run_finished", data={"model_path": str(model_path)})
             except PlanNeedsClarification as e:
                 # 计划已生成但需要澄清问题：视为成功，交由前端展示 PLAN_END 事件与问题列表
                 logger.info("Plan 阶段已完成，等待澄清问题回答: %s", e)
+                log_action("plan_needs_clarification", detail=str(e))
                 context_manager.add_conversation(
                     user_input=user_input,
                     plan={"architecture": "react", "status": "plan_needs_clarification"},
@@ -162,7 +319,9 @@ def do_run(
                         "计划已生成，等待澄清问题回答",
                         True,
                     )
-                return True, "计划已生成，等待澄清问题回答", True
+                msg = "计划已生成，等待澄清问题回答"
+                finish_log(True, msg, {"phase": "clarification"})
+                return True, msg, True
 
             except ReActNeedsReorchestrate as e:
                 # 无效迭代/建议重新编排：调用 PlannerOrchestrator.reorchestrate 并返回用户说明
@@ -170,6 +329,11 @@ def do_run(
                 from agent.planner.orchestrator import PlannerOrchestrator
 
                 failure_summary = (e.message or "").replace(REORCHESTRATE_PREFIX, "").strip()
+                log_action(
+                    "react_needs_reorchestrate",
+                    detail=failure_summary,
+                    level="WARNING",
+                )
                 orchestrator = PlannerOrchestrator(
                     backend=backend,
                     api_key=api_key,
@@ -181,8 +345,14 @@ def do_run(
                     _task_plan, _ctx, _serial_plan, user_message = orchestrator.reorchestrate(
                         user_input, failure_summary, context=memory_context
                     )
+                    log_action("reorchestrate_success")
                 except Exception as orch_e:
                     logger.warning("重新编排失败: %s", orch_e)
+                    log_action(
+                        "reorchestrate_failed",
+                        detail=str(orch_e),
+                        level="ERROR",
+                    )
                     user_message = "执行遇到问题，建议重新编排任务；重新编排调用失败: " + str(orch_e)
                 context_manager.add_conversation(
                     user_input=user_input,
@@ -197,6 +367,7 @@ def do_run(
                         user_message,
                         True,
                     )
+                finish_log(True, user_message, {"phase": "reorchestrate"})
                 return True, user_message, True
 
             context_manager.add_conversation(
@@ -212,7 +383,9 @@ def do_run(
                     f"模型已生成: {model_path}",
                     True,
                 )
-            return True, f"模型已生成: {model_path}", False
+            msg = f"模型已生成: {model_path}"
+            finish_log(True, msg, {"model_path": str(model_path), "phase": "run"})
+            return True, msg, False
         else:
             context = memory_context
             planner = get_agent(
@@ -232,6 +405,7 @@ def do_run(
                 model_path=str(model_path),
                 success=True,
             )
+            log_action("planner_direct_run_success", data={"model_path": str(model_path)})
             if conversation_id:
                 _update_memory_after_run(
                     conversation_id,
@@ -239,12 +413,16 @@ def do_run(
                     f"模型已生成: {model_path}",
                     True,
                 )
-            return True, f"模型已生成: {model_path}", False
+            msg = f"模型已生成: {model_path}"
+            finish_log(True, msg, {"model_path": str(model_path), "phase": "planner_direct"})
+            return True, msg, False
     except Exception as e:
         logger.exception("do_run 失败")
+        log_action("run_failed", detail=str(e), level="ERROR", data={"exception_type": type(e).__name__})
         context_manager.add_conversation(user_input=user_input, success=False, error=str(e))
         if conversation_id:
             _update_memory_after_run(conversation_id, user_input, str(e), False)
+        finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), False
 
 
@@ -270,8 +448,20 @@ def do_plan_mode(
     - pending_clarifying_questions
     """
     _ensure_logging(verbose)
+    context_manager = get_context_manager(conversation_id)
+    _log_id, log_action, finish_log = _make_dialog_logger(
+        context_manager,
+        command="plan",
+        user_input=user_input,
+        metadata={
+            "conversation_id": conversation_id or "default",
+            "backend": backend or "",
+            "model": model or "",
+            "clarifying_answers_count": len(clarifying_answers or []),
+        },
+    )
+    log_action("plan_mode_invoked")
     try:
-        context_manager = get_context_manager(conversation_id)
         from agent.run.plan_mode import PlanModeHandler
 
         handler = PlanModeHandler(
@@ -287,26 +477,181 @@ def do_plan_mode(
             user_input,
             clarifying_answers=clarifying_answers,
         )
+        log_action(
+            "plan_mode_completed",
+            data={
+                "plan_confirmed": plan_confirmed,
+                "has_plan": plan_dict is not None,
+                "clarifying_questions": len(clarifying_questions or []),
+            },
+        )
+        finish_log(
+            True,
+            reply,
+            {
+                "plan_confirmed": plan_confirmed,
+                "clarifying_questions": len(clarifying_questions or []),
+            },
+        )
         return True, reply, plan_dict, plan_confirmed, clarifying_questions
     except Exception as e:
         logger.exception("do_plan_mode 失败: %s", e)
+        log_action("plan_mode_failed", detail=str(e), level="ERROR")
+        finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None, False, None
+
+
+DISCUSS_CHITCHAT_PROMPT = (
+    "你是友善、轻松的助手。用户在本软件的 Discuss 模式里，主要想与 LLM 自然闲聊。\n"
+    "请用简短、口语化的中文回复，语气亲切，不要像系统通知。\n"
+    "可轻描淡写带一句：若要在 COMSOL 里正式建模型，可切换到 Plan（规划）模式描述需求。\n"
+    "禁止输出「讨论卡已更新」「原理 N 条」「指标 N 条」等机器统计句式。"
+)
+
+DISCUSS_TOPIC_PROMPT = (
+    "你是 COMSOL Multiphysics 相关的助手。用户正在 Discuss 模式里梳理建模需求；"
+    "系统会在后台维护结构化讨论要点（用户看不到内部字段名）。\n"
+    "下面「内部摘要」仅供你参考，请用自然对话回复：回应用户输入，信息不足时温和追问 1～2 个关键点。\n"
+    "语气像在讨论方案，不要像打印状态报告。\n"
+    "禁止输出「讨论卡已更新」「原理 N 条」等模板句；若合适可提醒：需要进入下一阶段时可发送「进入规划」或使用 /plan。\n\n"
+    "【内部摘要】\n{brief}\n"
+)
+
+
+def _discuss_llm_reply(
+    user_text: str,
+    *,
+    system_prompt: str,
+    backend: Optional[str],
+    api_key: Optional[str],
+    base_url: Optional[str],
+    ollama_url: Optional[str],
+    model: Optional[str],
+) -> str:
+    qa = QAAgent(
+        system_prompt=system_prompt,
+        backend=backend,
+        api_key=api_key,
+        base_url=base_url,
+        ollama_url=ollama_url,
+        model=model,
+    )
+    return qa.process(user_text)
 
 
 def do_discuss(
     user_input: str,
     conversation_id: Optional[str] = None,
     verbose: bool = False,
+    backend: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    ollama_url: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-    """讨论阶段：更新并持久化 discussion card。"""
+    """Discuss 阶段：优先 LLM 自然对话；技术性输入仍增量写入 discussion card。"""
     _ensure_logging(verbose)
+    context_manager = get_context_manager(conversation_id)
+    _log_id, log_action, finish_log = _make_dialog_logger(
+        context_manager,
+        command="discuss",
+        user_input=user_input,
+        metadata={
+            "conversation_id": conversation_id or "default",
+            "backend": backend or "",
+            "model": model or "",
+            "has_api_key": bool(api_key),
+            "api_key": _redact(api_key),
+            "base_url": base_url or "",
+            "ollama_url": ollama_url or "",
+        },
+    )
+    log_action("discuss_invoked")
     try:
-        context_manager = get_context_manager(conversation_id)
         handler = DiscussionModeHandler(context_manager=context_manager)
-        reply, card = handler.process(user_input)
-        return True, reply, card
+        resolved = handler.try_resolve_control_messages(user_input)
+        if resolved:
+            msg, card = resolved
+            log_action("discuss_control_message_resolved")
+            finish_log(
+                True,
+                msg,
+                {"control_message": True, "card_finalized": bool(card.get("finalized")) if isinstance(card, dict) else None},
+            )
+            return True, msg, card
+
+        text = (user_input or "").strip()
+        llm_kw = dict(
+            backend=backend,
+            api_key=api_key,
+            base_url=base_url,
+            ollama_url=ollama_url,
+            model=model,
+        )
+
+        if is_chitchat_only(text):
+            try:
+                reply = _discuss_llm_reply(
+                    text, system_prompt=DISCUSS_CHITCHAT_PROMPT, **llm_kw
+                )
+                log_action("discuss_chitchat_llm_success")
+            except Exception as e:
+                logger.warning("Discuss 闲聊 LLM 失败，使用兜底: %s", e)
+                log_action("discuss_chitchat_llm_failed", detail=str(e), level="WARNING")
+                reply = "你好！我在这儿。想聊什么都可以；若要开始整理 COMSOL 建模需求，可以切换到 Plan 模式。"
+            card = handler._load_or_create_card()
+            finish_log(
+                True,
+                reply,
+                {
+                    "mode": "chitchat",
+                    "card_finalized": bool(getattr(card, "finalized", False)),
+                },
+            )
+            return True, reply, card.model_dump(mode="json")
+
+        card = handler._load_or_create_card()
+        handler._update_card(card, text)
+        handler._save_card(card)
+        brief = format_card_brief(card)
+        log_action(
+            "discussion_card_updated",
+            data={
+                "physical_principles": len(card.physical_principles),
+                "target_metrics": len(card.target_metrics),
+                "known_inputs": len(card.known_inputs),
+                "unknowns": len(card.unknowns),
+                "risks": len(card.risks),
+            },
+        )
+        try:
+            reply = _discuss_llm_reply(
+                text,
+                system_prompt=DISCUSS_TOPIC_PROMPT.format(brief=brief),
+                **llm_kw,
+            )
+            log_action("discuss_topic_llm_success")
+        except Exception as e:
+            logger.warning("Discuss 技术向 LLM 失败，使用兜底: %s", e)
+            log_action("discuss_topic_llm_failed", detail=str(e), level="WARNING")
+            reply = (
+                "已记下你的描述。若准备生成可执行规划，可发送「进入规划」或切换到 `/plan`；"
+                "也可继续补充几何、材料、边界与目标结果。"
+            )
+        finish_log(
+            True,
+            reply,
+            {
+                "mode": "topic",
+                "card_finalized": bool(card.finalized),
+                "unknowns": len(card.unknowns),
+            },
+        )
+        return True, reply, card.model_dump(mode="json")
     except Exception as e:
         logger.exception("do_discuss 失败")
+        log_action("discuss_failed", detail=str(e), level="ERROR")
+        finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None
 
 
@@ -317,30 +662,60 @@ def do_case(
 ) -> Tuple[bool, str, Optional[Dict[str, Any]], Optional[str]]:
     """读取 mph 模型并提取结构化操作案例 JSON。"""
     _ensure_logging(verbose)
+    context_manager = get_context_manager(conversation_id)
+    _log_id, log_action, finish_log = _make_dialog_logger(
+        context_manager,
+        command="case",
+        user_input=model_path,
+        metadata={
+            "conversation_id": conversation_id or "default",
+            "model_path": model_path or "",
+        },
+    )
+    log_action("case_extract_invoked")
     model_path = (model_path or "").strip()
     if not model_path:
-        return False, "缺少 model_path", None, None
+        msg = "缺少 model_path"
+        log_action("case_extract_failed", detail=msg, level="ERROR")
+        finish_log(False, msg)
+        return False, msg, None, None
     path = Path(model_path)
     if not path.exists():
-        return False, f"模型文件不存在: {model_path}", None, None
+        msg = f"模型文件不存在: {model_path}"
+        log_action("case_extract_failed", detail=msg, level="ERROR")
+        finish_log(False, msg)
+        return False, msg, None, None
     if path.suffix.lower() != ".mph":
-        return False, "仅支持 .mph 文件", None, None
+        msg = "仅支持 .mph 文件"
+        log_action("case_extract_failed", detail=msg, level="ERROR")
+        finish_log(False, msg)
+        return False, msg, None, None
     try:
         ctrl = JavaAPIController()
         result = ctrl.extract_model_operation_case(str(path.resolve()))
         if result.get("status") != "success":
-            return False, result.get("message", "案例提取失败"), None, None
+            msg = result.get("message", "案例提取失败")
+            log_action("case_extract_failed", detail=msg, level="ERROR")
+            finish_log(False, msg)
+            return False, msg, None, None
 
         case_dict = result.get("case")
         if not isinstance(case_dict, dict):
-            return False, "案例提取返回格式错误", None, None
+            msg = "案例提取返回格式错误"
+            log_action("case_extract_failed", detail=msg, level="ERROR")
+            finish_log(False, msg)
+            return False, msg, None, None
 
-        cm = get_context_manager(conversation_id)
-        saved = cm.save_case_file(case_dict, path.stem)
+        saved = context_manager.save_case_file(case_dict, path.stem)
         summary = case_dict.get("summary") or "案例提取完成"
-        return True, f"{summary}\n已保存到: {saved}", case_dict, str(saved)
+        msg = f"{summary}\n已保存到: {saved}"
+        log_action("case_extract_success", data={"saved_path": str(saved)})
+        finish_log(True, msg, {"saved_path": str(saved)})
+        return True, msg, case_dict, str(saved)
     except Exception as e:
         logger.exception("do_case 失败")
+        log_action("case_extract_exception", detail=str(e), level="ERROR")
+        finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None, None
 
 
@@ -588,6 +963,47 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         return True, "配置已保存并已加载，将应用于后续 mph-agent 调用"
     except Exception as e:
         return False, f"写入 .env 失败: {e}"
+
+
+def do_conversation_title_suggest(
+    user_input: str,
+    backend: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    ollama_url: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """根据首条用户输入生成会话标题。"""
+    text = (user_input or "").strip()
+    if not text:
+        return False, "输入为空"
+    try:
+        settings = get_settings()
+        resolved_backend = backend or settings.llm_backend
+        llm = LLMClient(
+            backend=resolved_backend,
+            api_key=api_key or settings.get_api_key_for_backend(resolved_backend),
+            base_url=base_url or settings.get_base_url_for_backend(resolved_backend),
+            ollama_url=ollama_url or settings.ollama_url,
+            model=model or settings.get_model_for_backend(resolved_backend),
+        )
+        prompt = (
+            "请将以下建模需求总结成一个中文会话标题。"
+            "要求：8-20字、聚焦任务主题、不加引号、不加句号。\n\n"
+            f"需求：{text}\n\n标题："
+        )
+        title = (llm.call(prompt, temperature=0.2) or "").strip().strip("“”\"' \n\r\t")
+        if not title:
+            raise ValueError("empty title")
+        if len(title) > 30:
+            title = title[:30].rstrip("，,。.；;:：")
+        return True, title
+    except Exception as e:
+        logger.warning("会话标题生成失败，使用兜底: %s", e)
+        fallback = text[:18].strip()
+        if len(text) > 18:
+            fallback += "..."
+        return True, fallback or "新会话"
 
 
 def do_list_apis(

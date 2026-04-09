@@ -28,7 +28,7 @@ export function HelpDialog() {
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/discuss</span>
-          <span className="dialog-row-val">切换到探讨模式（生成讨论卡）</span>
+          <span className="dialog-row-val">切换到 Discuss 模式（与 LLM 闲聊）</span>
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/run</span>

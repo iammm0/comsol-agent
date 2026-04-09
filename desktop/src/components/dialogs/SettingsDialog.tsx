@@ -140,6 +140,42 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     setTimeout(() => setMemoryStatus(""), 3000);
   }, [cid]);
 
+  const pickWorkspaceDir = useCallback(async () => {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "选择建模工作目录（mph 输出目录）",
+      defaultPath: state.workspaceDir || undefined,
+    });
+    if (selected == null) return;
+    const path = String(selected);
+    dispatch({ type: "SET_WORKSPACE_DIR", path });
+    try {
+      await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "config_save",
+        payload: { config: { MODEL_OUTPUT_DIR: path } },
+      });
+      setSyncStatus("工作目录已保存");
+    } catch (e) {
+      setSyncStatus("工作目录同步失败: " + String(e));
+    }
+    setTimeout(() => setSyncStatus(""), 3000);
+  }, [state.workspaceDir, dispatch]);
+
+  const clearWorkspaceDir = useCallback(async () => {
+    dispatch({ type: "SET_WORKSPACE_DIR", path: null });
+    try {
+      await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "config_save",
+        payload: { config: { MODEL_OUTPUT_DIR: "" } },
+      });
+      setSyncStatus("工作目录已清除");
+    } catch (e) {
+      setSyncStatus("工作目录同步失败: " + String(e));
+    }
+    setTimeout(() => setSyncStatus(""), 3000);
+  }, [dispatch]);
+
   const testOllama = useCallback(async () => {
     const url = ollamaUrl.trim() || apiConfig.ollama_url;
     setOllamaTestResult(null);
@@ -474,6 +510,34 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
           {activeTab === "comsol" && (
             <div className="settings-card">
               <p className="settings-hint">通过「选择目录」在文件管理器中选择 COMSOL plugins 目录与 Java 8/11 安装目录；留空则使用内置或系统 Java。保存后将同步到 .env 并加载。</p>
+              <div className="settings-field">
+                <label>建模工作目录（MODEL_OUTPUT_DIR）</label>
+                <div className="settings-path-row">
+                  <input
+                    type="text"
+                    className="dialog-input settings-api-input settings-path-input"
+                    placeholder="未设置（使用默认输出目录）"
+                    value={state.workspaceDir ?? ""}
+                    readOnly
+                  />
+                  <button
+                    type="button"
+                    className="dialog-btn secondary"
+                    onClick={pickWorkspaceDir}
+                  >
+                    选择目录
+                  </button>
+                  {state.workspaceDir && (
+                    <button
+                      type="button"
+                      className="dialog-btn secondary"
+                      onClick={clearWorkspaceDir}
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="settings-field">
                 <label>COMSOL JAR 路径 (COMSOL_JAR_PATH)</label>
                 <div className="settings-path-row">

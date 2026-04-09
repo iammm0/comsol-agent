@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from schemas.task import DiscussionCard
 
@@ -18,6 +18,12 @@ FINALIZE_KEYWORDS = (
     "done discuss",
 )
 REOPEN_KEYWORDS = ("继续探讨", "重新探讨", "reopen discuss")
+
+# 短句寒暄/礼貌用语：不写入讨论卡，改由 LLM 自然回复（与「讨论卡已更新…」模板区分）
+_CHITCHAT_LINE = re.compile(
+    r"^(你好|您好|嗨|哈喽|在吗|在么|早上好|中午好|下午好|晚上好|谢谢|多谢|辛苦了|不客气|哈哈|哈哈哈|嗯|嗯嗯|好的|好滴|行|可以|OK|ok|Hi|Hello|hello|嗨喽|拜拜|再见|喂)[!！.。…~\s]*$",
+    re.I,
+)
 
 
 def _split_points(text: str) -> List[str]:
@@ -71,6 +77,48 @@ def _looks_known_input(text: str) -> bool:
     )
 
 
+def is_chitchat_only(text: str) -> bool:
+    """是否为短句闲聊（单行、无建模语义），用于跳过讨论卡增量。"""
+    t = (text or "").strip()
+    if not t or "\n" in t:
+        return False
+    if len(t) > 48:
+        return False
+    if re.search(
+        r"(建模|COMSOL|mph|网格|物理场|边界|几何|求解|多物理|耦合|案例|模型)",
+        t,
+        re.I,
+    ):
+        return False
+    if len(t) <= 24 and re.match(
+        r"^(你好|您好|嗨|哈喽)[啊呀呢呗哦]*[!！.。…~\s]*$", t, re.I
+    ):
+        return True
+    return bool(_CHITCHAT_LINE.match(t))
+
+
+def format_card_brief(card: DiscussionCard) -> str:
+    """供 LLM 参考的人类可读摘要（避免把字段名硬塞给用户）。"""
+    lines: List[str] = []
+    if card.physical_principles:
+        lines.append("原理与机制：" + "；".join(card.physical_principles[:12]))
+    if card.target_metrics:
+        lines.append("目标与指标：" + "；".join(card.target_metrics[:12]))
+    if card.known_inputs:
+        lines.append("已知输入：" + "；".join(card.known_inputs[:12]))
+    if card.unknowns:
+        lines.append("待澄清：" + "；".join(card.unknowns[:12]))
+    if card.candidate_solutions:
+        lines.append("可行思路：" + "；".join(card.candidate_solutions[:12]))
+    if card.risks:
+        lines.append("风险：" + "；".join(card.risks[:8]))
+    if card.assumptions:
+        lines.append("假设与补充：" + "；".join(card.assumptions[:12]))
+    if not lines:
+        return "（尚未记录结构化要点，可引导用户补充物理场景、材料、边界与关心结果。）"
+    return "\n".join(lines)
+
+
 class DiscussionModeHandler:
     """Incrementally builds a structured discussion card."""
 
@@ -89,6 +137,29 @@ class DiscussionModeHandler:
     def _save_card(self, card: DiscussionCard) -> None:
         payload = card.model_dump(mode="json")
         self.context_manager.save_discussion_card(payload)
+
+    def _try_early_returns(
+        self, text: str, lowered: str, card: DiscussionCard
+    ) -> Optional[Tuple[str, DiscussionCard]]:
+        if any(k in lowered for k in REOPEN_KEYWORDS):
+            card.finalized = False
+
+        if card.finalized and not any(k in lowered for k in REOPEN_KEYWORDS):
+            self._save_card(card)
+            return (
+                "讨论卡已 finalized。请进入 `/plan` 生成建模规划；若要继续讨论，请先发送“继续探讨”。",
+                card,
+            )
+
+        if any(k in lowered for k in FINALIZE_KEYWORDS):
+            card.finalized = True
+            card.updated_at = datetime.now()
+            self._save_card(card)
+            return (
+                "探讨已确认结束，讨论卡已 finalized。现在可使用 `/plan` 进入建模规划。",
+                card,
+            )
+        return None
 
     def _update_card(self, card: DiscussionCard, user_input: str) -> None:
         points = _split_points(user_input)
@@ -123,28 +194,14 @@ class DiscussionModeHandler:
         card.updated_at = datetime.now()
 
     def process(self, user_input: str) -> Tuple[str, Dict[str, object]]:
+        """兼容旧逻辑与单元测试：非 LLM 路径仍返回「讨论卡已更新」模板。"""
         text = (user_input or "").strip()
         card = self._load_or_create_card()
         lowered = text.lower()
-
-        if any(k in lowered for k in REOPEN_KEYWORDS):
-            card.finalized = False
-
-        if card.finalized and not any(k in lowered for k in REOPEN_KEYWORDS):
-            self._save_card(card)
-            return (
-                "讨论卡已 finalized。请进入 `/plan` 生成建模规划；若要继续讨论，请先发送“继续探讨”。",
-                card.model_dump(mode="json"),
-            )
-
-        if any(k in lowered for k in FINALIZE_KEYWORDS):
-            card.finalized = True
-            card.updated_at = datetime.now()
-            self._save_card(card)
-            return (
-                "探讨已确认结束，讨论卡已 finalized。现在可使用 `/plan` 进入建模规划。",
-                card.model_dump(mode="json"),
-            )
+        early = self._try_early_returns(text, lowered, card)
+        if early:
+            msg, c = early
+            return msg, c.model_dump(mode="json")
 
         self._update_card(card, text)
         self._save_card(card)
@@ -155,4 +212,17 @@ class DiscussionModeHandler:
             "如需结束讨论，请发送“结束探讨”或“进入规划”。"
         )
         return summary, card.model_dump(mode="json")
+
+    def try_resolve_control_messages(
+        self, user_input: str
+    ) -> Optional[Tuple[str, Dict[str, object]]]:
+        """仅处理结束探讨 / 继续探讨 / finalized 守卫；若命中则返回整轮回复。"""
+        text = (user_input or "").strip()
+        card = self._load_or_create_card()
+        lowered = text.lower()
+        early = self._try_early_returns(text, lowered, card)
+        if early:
+            msg, c = early
+            return msg, c.model_dump(mode="json")
+        return None
 

@@ -13,6 +13,7 @@ from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
 from schemas.task import (
     ClarifyingAnswer,
+    ClarifyingQuestion,
     ExecutionStep,
     GlobalDefinitionPlan,
     ReActTaskPlan,
@@ -53,6 +54,81 @@ def _infer_stop_after_from_user_input(user_input: str) -> Optional[str]:
     if any(p in text for p in _MESH_STOP_PHRASES):
         return "generate_mesh"
     return None
+
+
+def _is_placeholder_question_text(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    return bool(re.fullmatch(r"(问题|question)\s*\d+", t))
+
+
+def _is_meaningful_option(option_id: str, option_value: str) -> bool:
+    oid = (option_id or "").strip().lower()
+    val = (option_value or "").strip().lower()
+    if not oid:
+        return False
+    if oid in {"opt_supplement", "opt_auto"}:
+        return False
+    if val in {"supplement", "auto", "skip"}:
+        return False
+    return True
+
+
+def _normalize_structured_clarifying_questions(
+    raw_questions: Any,
+) -> List[ClarifyingQuestion]:
+    if not isinstance(raw_questions, list):
+        return []
+    out: List[ClarifyingQuestion] = []
+    for i, item in enumerate(raw_questions, start=1):
+        try:
+            if isinstance(item, str):
+                text = item.strip()
+                if _is_placeholder_question_text(text):
+                    continue
+                item = {
+                    "id": f"q{i}",
+                    "text": text,
+                    "type": "single",
+                    "options": [],
+                }
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text", "")).strip()
+            if _is_placeholder_question_text(text):
+                continue
+            if "id" not in item or not str(item.get("id", "")).strip():
+                item = {**item, "id": f"q{i}"}
+            parsed = ClarifyingQuestion.model_validate(item)
+            if not parsed.options:
+                continue
+            if not any(_is_meaningful_option(opt.id, opt.value) for opt in parsed.options):
+                continue
+            out.append(parsed)
+        except Exception:
+            continue
+    return out
+
+
+def _generate_fallback_clarifying_questions(user_input: str) -> List[ClarifyingQuestion]:
+    try:
+        from agent.planner.orchestrator import (
+            _build_clarifying_questions,
+            _build_em_thermal_clarifying_questions,
+            _is_em_thermal_scenario,
+            _should_ask_clarifying_questions,
+            _wrap_clarifying_questions_as_structured,
+        )
+
+        if not _should_ask_clarifying_questions(user_input):
+            return []
+        if _is_em_thermal_scenario(user_input):
+            return _build_em_thermal_clarifying_questions()
+        raw = _build_clarifying_questions(user_input)
+        return _wrap_clarifying_questions_as_structured(raw)
+    except Exception:
+        return []
 
 
 def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
@@ -280,6 +356,12 @@ class ReasoningEngine:
 
         # 使用 LLM 理解需求（可注入记忆上下文）
         understanding = self.understand_requirement(user_input, memory_context=memory_context)
+        normalized_cq = _normalize_structured_clarifying_questions(
+            understanding.get("clarifying_questions")
+        )
+        if not normalized_cq:
+            normalized_cq = _generate_fallback_clarifying_questions(user_input)
+        understanding["clarifying_questions"] = [q.model_dump() for q in normalized_cq]
 
         # 若用户明确说了「只建几何」「只创建几何」等，但 LLM 未设定 stop_after_step，则按用户措辞截断，避免默认走完整流程
         inferred_stop = _infer_stop_after_from_user_input(user_input)
@@ -312,7 +394,10 @@ class ReasoningEngine:
             plan_description=plan_description.strip() or None,
             stop_after_step=stop_after_step if stop_after_step != "solve" else None,
         )
-        plan.clarifying_questions = understanding.get("clarifying_questions")
+        clarifying_from_understanding = _normalize_structured_clarifying_questions(
+            understanding.get("clarifying_questions")
+        )
+        plan.clarifying_questions = clarifying_from_understanding or None
         plan.case_library_suggestions = understanding.get("case_library_suggestions")
         params = understanding.get("parameters") or {}
         if isinstance(params, dict) and isinstance(params.get("global_definitions"), list):

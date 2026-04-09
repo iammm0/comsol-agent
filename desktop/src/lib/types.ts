@@ -22,6 +22,7 @@ export interface RunEvent {
 }
 
 export type AgentMode = "discuss" | "plan" | "run";
+export type AppView = "session" | "case-library";
 
 /** 对话框类型 */
 export type DialogType =
@@ -40,6 +41,13 @@ export type DialogType =
 export interface Conversation {
   id: string;
   title: string;
+  createdAt: number;
+  groupId?: string | null;
+}
+
+export interface ConversationGroup {
+  id: string;
+  name: string;
   createdAt: number;
 }
 
@@ -80,7 +88,7 @@ export interface SlashCommandItem {
 
 export const SLASH_COMMANDS: SlashCommandItem[] = [
   { name: "help", display: "/help", description: "显示帮助" },
-  { name: "discuss", display: "/discuss", description: "切换到探讨模式" },
+  { name: "discuss", display: "/discuss", description: "切换到 Discuss（与 LLM 闲聊）" },
   { name: "plan", display: "/plan", description: "切换到建模规划模式" },
   { name: "run", display: "/run", description: "切换到建模执行模式" },
   { name: "case", display: "/case", description: "读取 .mph 并生成案例摘要" },
@@ -97,6 +105,22 @@ export const SLASH_COMMANDS: SlashCommandItem[] = [
   { name: "demo", display: "/demo", description: "演示示例" },
   { name: "doctor", display: "/doctor", description: "环境诊断" },
   { name: "exit", display: "/exit", description: "退出" },
+];
+
+/** 输入框「+」菜单：与斜杠命令一致，不含三种模式（由旁侧模式条切换） */
+export const PROMPT_PLUS_MENU_COMMANDS: SlashCommandItem[] = SLASH_COMMANDS.filter(
+  (c) => c.name !== "discuss" && c.name !== "plan" && c.name !== "run"
+);
+
+/** 工作模式切换（Discuss / Plan / Run） */
+export const PROMPT_MODE_ITEMS: Array<{
+  mode: AgentMode;
+  label: string;
+  title: string;
+}> = [
+  { mode: "discuss", label: "探讨", title: "Discuss：与 LLM 理清需求（不执行 COMSOL）" },
+  { mode: "plan", label: "规划", title: "Plan：生成建模计划与澄清" },
+  { mode: "run", label: "执行", title: "Run：按需求或已确认计划调用 COMSOL 建模" },
 ];
 
 /** 常用场景快捷提示（MessageList 空状态） */
@@ -132,6 +156,59 @@ export interface ClarifyingAnswer {
   selected_option_ids: string[];
   supplement_text?: string;
 }
+
+/** 新会话空状态：软件使用流程说明（与快捷案例并列展示） */
+export interface UsageWorkflowStep {
+  /** 步骤序号展示用 */
+  step: number;
+  title: string;
+  /** 说明正文 */
+  body: string;
+}
+
+export const USAGE_WORKFLOW_HEADLINE = "使用流程";
+export const USAGE_WORKFLOW_INTRO =
+  "本客户端通过「对话 + 模式切换」驱动 COMSOL 自动化建模；按下面顺序操作即可上手。";
+
+export const USAGE_WORKFLOW_STEPS: UsageWorkflowStep[] = [
+  {
+    step: 1,
+    title: "描述需求",
+    body:
+      "在底部输入框用自然语言写清物理场景：几何大致尺寸、材料、边界条件、关心的结果（温度、应力、流速等）。可随时补充约束。",
+  },
+  {
+    step: 2,
+    title: "选择工作方式（可自由组合）",
+    body:
+      "推荐：/discuss 探讨需求 → /plan 生成结构化计划（可能有澄清）→ /run 执行 COMSOL 建模。也可跳过任一步，直接 /plan 或 /run；底部状态栏显示当前模式。",
+  },
+  {
+    step: 3,
+    title: "澄清与执行",
+    body:
+      "在 Plan 阶段若弹出澄清问题，先选择选项再继续；确认计划后切换到 Run 开始自动建模。执行中可用「停止」中断。",
+  },
+  {
+    step: 4,
+    title: "查看结果与文件",
+    body:
+      "对话区会展示推理与操作步骤；成功或结束后会给出模型文件路径。可用 /output 设置默认输出名，在设置里管理「我创建的模型」与打开目录。",
+  },
+  {
+    step: 5,
+    title: "命令与诊断",
+    body:
+      "输入 / 可浏览斜杠命令：/help 帮助、/ops 支持的 COMSOL 操作、/api 已封装 API、/backend 选择 LLM、/doctor 环境诊断。",
+  },
+];
+
+/** 使用流程区可选一键发送的快捷命令（降低上手门槛） */
+export const USAGE_WORKFLOW_SHORTCUTS: QuickPromptItem[] = [
+  { label: "/help", text: "/help" },
+  { label: "/doctor", text: "/doctor" },
+  { label: "/plan", text: "/plan" },
+];
 
 /** 快捷提示：面向案例级 3D 多物理场模型的快捷构建指令 */
 export const QUICK_PROMPT_GROUPS: QuickPromptGroup[] = [

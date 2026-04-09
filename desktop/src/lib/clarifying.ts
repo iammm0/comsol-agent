@@ -45,7 +45,7 @@ const DEFAULT_NORMALIZE_OPTIONS: Required<NormalizeClarifyingQuestionOptions> = 
   defaultType: "single",
   supplementLabel: "其他（请补充）",
   supplementValue: "supplement",
-  autoLabel: "由 Agent 根据经验自动选择",
+  autoLabel: "推荐：采用当前描述中的合理默认",
   autoValue: "auto",
 };
 
@@ -59,6 +59,21 @@ function normalizeQuestionType(
 ): ClarifyingQuestion["type"] {
   const t = normalizeText(type).toLowerCase();
   return t === "multi" ? "multi" : t === "single" ? "single" : fallback;
+}
+
+function isPlaceholderQuestionText(text: string): boolean {
+  const t = normalizeText(text).toLowerCase();
+  if (!t) return true;
+  return /^(问题|question)\s*\d+$/.test(t);
+}
+
+function isMeaningfulOption(option: ClarifyingOption): boolean {
+  const id = normalizeText(option.id).toLowerCase();
+  const value = normalizeText(option.value).toLowerCase();
+  if (!id) return false;
+  if (id === SUPPLEMENT_OPTION_ID || id === AUTO_OPTION_ID) return false;
+  if (value === "supplement" || value === "auto" || value === "skip") return false;
+  return true;
 }
 
 function dedupeOptions(options: ClarifyingOption[]): ClarifyingOption[] {
@@ -82,7 +97,8 @@ function normalizeOptionLike(
   const id = normalizeText(r.id) || `opt_${index + 1}`;
   const label = normalizeText(r.label) || normalizeText(r.value) || `选项 ${index + 1}`;
   const value = normalizeText(r.value) || id;
-  return { id, label, value };
+  const recommended = r.recommended === true;
+  return { id, label, value, recommended };
 }
 
 function ensureSupplementOption(
@@ -131,7 +147,11 @@ export function normalizeClarifyingQuestion(
 ): ClarifyingQuestion {
   const config = { ...DEFAULT_NORMALIZE_OPTIONS, ...(options ?? {}) };
 
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const r = (
+    raw && typeof raw === "object"
+      ? raw
+      : { text: raw }
+  ) as Record<string, unknown>;
   const id = normalizeText(r.id) || `q${index + 1}`;
   const text = normalizeText(r.text) || `问题 ${index + 1}`;
   const type = normalizeQuestionType(r.type, config.defaultType);
@@ -162,7 +182,12 @@ export function normalizeClarifyingQuestions(
   options?: NormalizeClarifyingQuestionOptions
 ): ClarifyingQuestion[] {
   if (!Array.isArray(rawQuestions)) return [];
-  return rawQuestions.map((q, i) => normalizeClarifyingQuestion(q, i, options));
+  const normalized = rawQuestions.map((q, i) => normalizeClarifyingQuestion(q, i, options));
+  return normalized.filter((q) => {
+    if (isPlaceholderQuestionText(q.text)) return false;
+    const hasMeaningfulOption = q.options.some((opt) => isMeaningfulOption(opt));
+    return hasMeaningfulOption;
+  });
 }
 
 /**

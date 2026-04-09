@@ -29,7 +29,18 @@
         "study_input": "稳态研究，求解"
     }},
   "plan_description": "一段完整的具体规划说明：创建何种几何、在哪些地方添加什么材料、添加什么物理场、生成什么网格、配置什么研究与求解思路。用于展示给用户，不要笼统复述需求。",
-  "clarifying_questions": ["问题 1", "问题 2"],
+  "clarifying_questions": [
+    {{
+      "id": "q_dimension",
+      "text": "模型维度采用二维(2D)还是三维(3D)？",
+      "type": "single",
+      "options": [
+        {{ "id": "opt_3d", "label": "推荐：三维(3D)", "value": "3d", "recommended": true }},
+        {{ "id": "opt_2d", "label": "二维(2D)", "value": "2d" }},
+        {{ "id": "opt_supplement", "label": "其他（请补充）", "value": "supplement" }}
+      ]
+    }}
+  ],
   "case_library_suggestions": []
 }}
 
@@ -56,6 +67,7 @@
    - target_path：从 model 出发到目标对象的链式调用路径（如需要）。
 9. parameters 中每项都要写具体、可执行描述，不要留空或写「根据用户需求」。
 10. 若关键信息缺失，请在 clarifying_questions 中列出需要澄清的问题；否则留空数组。
-11. 不要编造官方案例库链接；case_library_suggestions 留空数组即可。
+11. clarifying_questions 里禁止输出“问题1/问题2”这类占位文本；问题与选项都要具体可选。
+12. 不要编造官方案例库链接；case_library_suggestions 留空数组即可。
 
 请根据用户需求返回唯一一段合法 JSON。

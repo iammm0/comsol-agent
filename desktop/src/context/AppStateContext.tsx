@@ -10,20 +10,26 @@ import {
 } from "react";
 import type {
   AgentMode,
+  AppView,
   ChatMessage,
   MessageRole,
   RunEvent,
   DialogType,
   Conversation,
+  ConversationGroup,
   ClarifyingQuestion,
 } from "../lib/types";
 import {
   loadConversations,
   saveConversations,
+  loadConversationGroups,
+  saveConversationGroups,
   loadMessagesByConversation,
   saveMessagesByConversation,
   loadCurrentConversationId,
   saveCurrentConversationId,
+  loadWorkspaceDir,
+  saveWorkspaceDir,
 } from "../lib/conversationStorage";
 import { loadApiConfig } from "../lib/apiConfig";
 
@@ -38,8 +44,11 @@ function nextMsgId(): string {
 
 interface AppState {
   conversations: Conversation[];
+  conversationGroups: ConversationGroup[];
   currentConversationId: string | null;
   messagesByConversation: Record<string, ChatMessage[]>;
+  workspaceDir: string | null;
+  view: AppView;
   mode: AgentMode;
   backend: string | null;
   outputDefault: string | null;
@@ -53,6 +62,8 @@ interface AppState {
   pendingPlanQuestions: ClarifyingQuestion[] | null;
   /** 上一次用于生成 Plan 的原始输入，用于在澄清问题后复用 */
   lastPlanInput: string | null;
+  /** 探讨阶段讨论卡已 finalized，可提示用户进入规划 */
+  discussionReadyForPlan: boolean;
 }
 
 type AppAction =
@@ -60,6 +71,10 @@ type AppAction =
   | { type: "SWITCH_CONVERSATION"; id: string }
   | { type: "SET_CONVERSATION_TITLE"; id: string; title: string }
   | { type: "DELETE_CONVERSATION"; id: string }
+  | { type: "ADD_CONVERSATION_GROUP"; name: string }
+  | { type: "RENAME_CONVERSATION_GROUP"; id: string; name: string }
+  | { type: "DELETE_CONVERSATION_GROUP"; id: string }
+  | { type: "MOVE_CONVERSATION_TO_GROUP"; conversationId: string; groupId: string | null }
   | {
       type: "ADD_MESSAGE";
       conversationId: string;
@@ -76,6 +91,7 @@ type AppAction =
       success: boolean;
     }
   | { type: "SET_MODE"; mode: AgentMode }
+  | { type: "SET_VIEW"; view: AppView }
   | { type: "SET_BACKEND"; backend: string | null }
   | { type: "SET_OUTPUT"; output: string | null }
   | { type: "SET_EXEC_CODE_ONLY"; value: boolean }
@@ -86,15 +102,19 @@ type AppAction =
   | { type: "SET_PLAN_QUESTIONS"; questions: ClarifyingQuestion[] | null }
   | { type: "CLEAR_PLAN_QUESTIONS" }
   | { type: "SET_LAST_PLAN_INPUT"; input: string | null }
+  | { type: "SET_DISCUSSION_READY_FOR_PLAN"; value: boolean }
+  | { type: "SET_WORKSPACE_DIR"; path: string | null }
   | { type: "HYDRATE"; state: Partial<AppState> };
 
 function getInitialState(): AppState {
   const conversations = loadConversations();
+  const conversationGroups = loadConversationGroups();
   const messagesByConversation = loadMessagesByConversation() as Record<
     string,
     ChatMessage[]
   >;
   const currentId = loadCurrentConversationId();
+  const workspaceDir = loadWorkspaceDir();
   const apiCfg = loadApiConfig();
   const preferred = apiCfg.preferred_backend;
   const validBackends = ["deepseek", "kimi", "ollama", "openai-compatible"] as const;
@@ -111,8 +131,11 @@ function getInitialState(): AppState {
     };
     return {
       conversations: [first],
+      conversationGroups,
       currentConversationId: first.id,
       messagesByConversation: { [first.id]: [] },
+      workspaceDir,
+      view: "session",
       mode: "run",
       backend,
       outputDefault: null,
@@ -122,6 +145,7 @@ function getInitialState(): AppState {
       activeDialog: null,
       pendingPlanQuestions: null,
       lastPlanInput: null,
+      discussionReadyForPlan: false,
     };
   }
 
@@ -130,8 +154,11 @@ function getInitialState(): AppState {
     : conversations[0].id;
   return {
     conversations,
+    conversationGroups,
     currentConversationId: id,
     messagesByConversation,
+    workspaceDir,
+    view: "session",
     mode: "run",
     backend,
     outputDefault: null,
@@ -141,6 +168,7 @@ function getInitialState(): AppState {
     activeDialog: null,
     pendingPlanQuestions: null,
     lastPlanInput: null,
+    discussionReadyForPlan: false,
   };
 }
 
@@ -153,6 +181,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         id: genId(),
         title: "新会话",
         createdAt: Date.now(),
+        groupId: null,
       };
       return {
         ...state,
@@ -162,12 +191,50 @@ function appReducer(state: AppState, action: AppAction): AppState {
           ...state.messagesByConversation,
           [conv.id]: [],
         },
+        discussionReadyForPlan: false,
       };
     }
+    case "ADD_CONVERSATION_GROUP": {
+      const name = action.name.trim();
+      if (!name) return state;
+      const group: ConversationGroup = {
+        id: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        createdAt: Date.now(),
+      };
+      return { ...state, conversationGroups: [...state.conversationGroups, group] };
+    }
+    case "RENAME_CONVERSATION_GROUP": {
+      const name = action.name.trim();
+      if (!name) return state;
+      return {
+        ...state,
+        conversationGroups: state.conversationGroups.map((g) =>
+          g.id === action.id ? { ...g, name } : g
+        ),
+      };
+    }
+    case "DELETE_CONVERSATION_GROUP": {
+      return {
+        ...state,
+        conversationGroups: state.conversationGroups.filter((g) => g.id !== action.id),
+        conversations: state.conversations.map((c) =>
+          c.groupId === action.id ? { ...c, groupId: null } : c
+        ),
+      };
+    }
+    case "MOVE_CONVERSATION_TO_GROUP":
+      return {
+        ...state,
+        conversations: state.conversations.map((c) =>
+          c.id === action.conversationId ? { ...c, groupId: action.groupId } : c
+        ),
+      };
     case "SWITCH_CONVERSATION":
       return {
         ...state,
         currentConversationId: action.id,
+        discussionReadyForPlan: false,
       };
     case "SET_CONVERSATION_TITLE": {
       const list = state.conversations.map((c) =>
@@ -265,7 +332,16 @@ function appReducer(state: AppState, action: AppAction): AppState {
       };
     }
     case "SET_MODE":
-      return { ...state, mode: action.mode };
+      return {
+        ...state,
+        mode: action.mode,
+        discussionReadyForPlan:
+          action.mode === "discuss" ? state.discussionReadyForPlan : false,
+      };
+    case "SET_VIEW":
+      return { ...state, view: action.view };
+    case "SET_DISCUSSION_READY_FOR_PLAN":
+      return { ...state, discussionReadyForPlan: action.value };
     case "SET_BACKEND":
       return { ...state, backend: action.backend };
     case "SET_OUTPUT":
@@ -296,6 +372,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, pendingPlanQuestions: null };
     case "SET_LAST_PLAN_INPUT":
       return { ...state, lastPlanInput: action.input };
+    case "SET_WORKSPACE_DIR":
+      return { ...state, workspaceDir: action.path };
     case "HYDRATE":
       return { ...state, ...action.state };
     default:
@@ -366,6 +444,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [state.conversations]);
 
   useEffect(() => {
+    saveConversationGroups(state.conversationGroups);
+  }, [state.conversationGroups]);
+
+  useEffect(() => {
     saveMessagesByConversation(
       state.messagesByConversation as unknown as Record<string, unknown[]>
     );
@@ -376,6 +458,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       saveCurrentConversationId(state.currentConversationId);
     }
   }, [state.currentConversationId]);
+
+  useEffect(() => {
+    saveWorkspaceDir(state.workspaceDir);
+  }, [state.workspaceDir]);
 
   const value: AppStateContextValue = {
     state,

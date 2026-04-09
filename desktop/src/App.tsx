@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "./context/AppStateContext";
 import { Sidebar } from "./components/Sidebar";
 import { Session } from "./components/Session";
+import { CaseLibraryPage } from "./components/CaseLibraryPage";
 import { TitleBar } from "./components/TitleBar";
 import { DialogOverlay } from "./components/dialogs/DialogOverlay";
 import { HelpDialog } from "./components/dialogs/HelpDialog";
@@ -88,7 +89,7 @@ export default function App() {
       <div className="app-body">
         <Sidebar />
         <div className="app-main">
-          <Session />
+          {state.view === "session" ? <Session /> : <CaseLibraryPage />}
         </div>
       </div>
       {dialogContent && (

@@ -32,7 +32,18 @@ DEFAULT_TEMPLATES: Dict[str, str] = {
     "study_input": "稳态研究，求解"
   }},
   "plan_description": "一段完整的具体规划说明：创建何种几何、在哪些地方添加什么材料、添加什么物理场、生成什么网格、配置什么研究与求解思路。用于展示给用户，不要笼统复述需求。",
-  "clarifying_questions": ["问题 1", "问题 2"],
+  "clarifying_questions": [
+    {{
+      "id": "q_dimension",
+      "text": "模型维度采用二维(2D)还是三维(3D)？",
+      "type": "single",
+      "options": [
+        {{ "id": "opt_3d", "label": "推荐：三维(3D)", "value": "3d", "recommended": true }},
+        {{ "id": "opt_2d", "label": "二维(2D)", "value": "2d" }},
+        {{ "id": "opt_supplement", "label": "其他（请补充）", "value": "supplement" }}
+      ]
+    }}
+  ],
   "case_library_suggestions": []
 }}""",
     "react/planning": """根据当前状态规划下一步。模型：{model_name} 需求：{user_input} 已完成：{completed_steps} 当前步骤：{current_step} 观察：{observations} 以 JSON 返回 action, reasoning, parameters, expected_result。""",

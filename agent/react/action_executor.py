@@ -124,6 +124,13 @@ class ActionExecutor:
         thought: Dict[str, Any],
     ) -> Dict[str, Any]:
         logger.info(f"执行步骤: {step.action} ({step.step_type})")
+        if self._context_manager:
+            self._context_manager.append_operation(
+                "动作开始",
+                f"{step.action} ({step.step_type})",
+                "running",
+                getattr(plan, "model_path", None),
+            )
 
         action_handlers = {
             "create_geometry": self.execute_geometry,
@@ -144,12 +151,34 @@ class ActionExecutor:
 
         handler = action_handlers.get(step.action)
         if not handler:
+            if self._context_manager:
+                self._context_manager.append_operation(
+                    "动作失败",
+                    f"未知行动: {step.action}",
+                    "error",
+                    getattr(plan, "model_path", None),
+                )
             return {"status": "error", "message": f"未知的行动: {step.action}"}
 
         try:
-            return handler(plan, step, thought)
+            result = handler(plan, step, thought)
+            if self._context_manager:
+                self._context_manager.append_operation(
+                    "动作结束",
+                    f"{step.action} ({step.step_type})",
+                    str(result.get("status", "unknown")),
+                    getattr(plan, "model_path", None),
+                )
+            return result
         except Exception as e:
             logger.error(f"执行步骤失败: {e}")
+            if self._context_manager:
+                self._context_manager.append_operation(
+                    "动作异常",
+                    f"{step.action} ({step.step_type}) - {e}",
+                    "error",
+                    getattr(plan, "model_path", None),
+                )
             if self._error_collector:
                 self._error_collector.submit(
                     step.step_id, "exception", {"message": str(e), "step_type": step.step_type}

@@ -9,7 +9,15 @@ export function Footer() {
 
   return (
     <div className="footer">
-      <span>Multiphysics Modeling Agent</span>
+      <span className="footer-left">
+        多物理场建模智能体
+        <span
+          className="footer-workflow-hint"
+          title="推荐顺序：探讨 → 规划 → 执行。也可随时用 /discuss、/plan、/run 切换，或直接建模。"
+        >
+          探讨→规划→执行（可任选入口）
+        </span>
+      </span>
       <div className="footer-right">
         <span className="footer-mode">
           <span className="dot">●</span> {modeLabel}

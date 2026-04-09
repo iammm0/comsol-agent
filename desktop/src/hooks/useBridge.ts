@@ -40,6 +40,16 @@ export function useBridge() {
           }
         }
 
+        if (cmd === "discuss") {
+          const card = res.discussion_card;
+          const finalized = Boolean(
+            card &&
+              typeof card === "object" &&
+              (card as { finalized?: unknown }).finalized === true
+          );
+          dispatch({ type: "SET_DISCUSSION_READY_FOR_PLAN", value: finalized });
+        }
+
         addMessage("assistant", res.message, { success: res.ok });
         return res;
       } catch (e) {
@@ -147,7 +157,7 @@ export function useBridge() {
         }
         if (cmd === "/discuss") {
           dispatch({ type: "SET_MODE", mode: "discuss" });
-          addMessage("system", "已切换为探讨模式（/discuss）");
+          addMessage("system", "已切换为 Discuss 模式（/discuss），可与 LLM 闲聊");
           return;
         }
         if (cmd === "/plan") {
@@ -214,32 +224,57 @@ export function useBridge() {
       dispatch({ type: "SET_LAST_PLAN_INPUT", input: line });
 
       const userCount = messages.filter((m) => m.role === "user").length;
-      if (userCount <= 1) {
-        const title = line.length > 50 ? line.slice(0, 47) + "..." : line;
-        dispatch({ type: "SET_CONVERSATION_TITLE", id: cid, title });
-      }
+      void (async () => {
+        if (userCount <= 1) {
+          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+          try {
+            const res = await invoke<{ ok: boolean; message: string; title?: string }>("bridge_send", {
+              cmd: "conversation_title_suggest",
+              payload: {
+                input: line,
+                backend: state.backend ?? undefined,
+                ...apiPayload,
+              },
+            });
+            const suggested = (res.title ?? res.message ?? "").trim();
+            if (suggested) {
+              dispatch({ type: "SET_CONVERSATION_TITLE", id: cid, title: suggested });
+            }
+          } catch {
+            const fallback = line.length > 50 ? line.slice(0, 47) + "..." : line;
+            dispatch({ type: "SET_CONVERSATION_TITLE", id: cid, title: fallback });
+          }
+        }
 
-      if (state.mode === "discuss") {
-        sendCommand("discuss", { input: line });
-      } else if (state.mode === "plan") {
-        const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
-        sendCommand("plan", { input: line, ...apiPayload });
-      } else {
-        const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
-        sendStreamCommand("run", {
-          input: line,
-          output: state.outputDefault ?? undefined,
-          backend: state.backend ?? undefined,
-          use_react: true,
-          no_context: false,
-          ...apiPayload,
-        });
-      }
+        if (state.mode === "discuss") {
+          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+          await sendCommand("discuss", {
+            input: line,
+            backend: state.backend ?? undefined,
+            ...apiPayload,
+          });
+        } else if (state.mode === "plan") {
+          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+          await sendCommand("plan", { input: line, ...apiPayload });
+        } else {
+          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+          await sendStreamCommand("run", {
+            input: line,
+            output: state.outputDefault ?? undefined,
+            workspace_dir: state.workspaceDir ?? undefined,
+            backend: state.backend ?? undefined,
+            use_react: true,
+            no_context: false,
+            ...apiPayload,
+          });
+        }
+      })();
     },
     [
       cid,
       state.mode,
       state.outputDefault,
+      state.workspaceDir,
       state.backend,
       messages,
       dispatch,

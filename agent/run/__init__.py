@@ -17,6 +17,7 @@ from agent.run.actions import (
     do_context_clear,
     do_ollama_ping,
     do_config_save,
+    do_conversation_title_suggest,
 )
 from agent.run.tui_bridge import main as tui_bridge_main
 
@@ -38,5 +39,6 @@ __all__ = [
     "do_context_clear",
     "do_ollama_ping",
     "do_config_save",
+    "do_conversation_title_suggest",
     "tui_bridge_main",
 ]

@@ -1,7 +1,7 @@
 import type { RunEvent } from "../../lib/types";
 
 const PHASE_LABELS: Record<string, string> = {
-  discussion: "探讨中",
+  discussion: "闲聊中",
   planning: "规划中",
   planning_clarify: "规划澄清中",
   plan_confirmed: "计划已确认",

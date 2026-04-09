@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from agent.utils.config import get_install_dir
 from agent.utils.logger import get_logger
@@ -58,6 +60,162 @@ class ContextManager:
         self.plan_readable_file = self.context_dir / "plan_readable.md"
         self.discussion_file = self.context_dir / "discussion.json"
         self.cases_dir = self.context_dir / "cases"
+        self.dialog_logs_dir = self.context_dir / "dialog_logs"
+
+    # ---- Dialog logs ----
+
+    @staticmethod
+    def _json_safe(value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Path):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(k): ContextManager._json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [ContextManager._json_safe(v) for v in value]
+        if hasattr(value, "isoformat"):
+            try:
+                return value.isoformat()
+            except Exception:
+                return str(value)
+        return str(value)
+
+    @staticmethod
+    def _compact_text(value: Any, max_len: int = 1000) -> str:
+        text = value if isinstance(value, str) else json.dumps(
+            ContextManager._json_safe(value),
+            ensure_ascii=False,
+        )
+        if len(text) <= max_len:
+            return text
+        return f"{text[:max_len]}...(truncated)"
+
+    def _dialog_log_paths(self, log_id: str) -> tuple[Path, Path]:
+        return (
+            self.dialog_logs_dir / f"{log_id}.md",
+            self.dialog_logs_dir / f"{log_id}.jsonl",
+        )
+
+    def start_dialog_log(
+        self,
+        command: str,
+        user_input: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        safe_command = re.sub(r"[^a-zA-Z0-9_-]+", "-", (command or "dialog").strip()) or "dialog"
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        log_id = f"{ts}-{safe_command}-{uuid4().hex[:8]}"
+        markdown_path, jsonl_path = self._dialog_log_paths(log_id)
+        self.dialog_logs_dir.mkdir(parents=True, exist_ok=True)
+
+        started_at = datetime.now().isoformat()
+        header_lines = [
+            "# 对话动作日志",
+            "",
+            f"- 会话目录: `{self.context_dir}`",
+            f"- 日志ID: `{log_id}`",
+            f"- 命令: `{command or 'dialog'}`",
+            f"- 开始时间: `{started_at}`",
+            "",
+            "## 用户输入",
+            "",
+            (user_input or "").strip() or "（空）",
+            "",
+            "## 元数据",
+            "",
+            "```json",
+            json.dumps(self._json_safe(metadata or {}), ensure_ascii=False, indent=2),
+            "```",
+            "",
+            "## 动作流水",
+            "",
+        ]
+        markdown_path.write_text("\n".join(header_lines) + "\n", encoding="utf-8")
+        jsonl_path.write_text("", encoding="utf-8")
+        self._append_dialog_jsonl(
+            log_id,
+            {
+                "event": "dialog_start",
+                "timestamp": started_at,
+                "command": command or "dialog",
+                "user_input": user_input or "",
+                "metadata": self._json_safe(metadata or {}),
+            },
+        )
+        return {
+            "log_id": log_id,
+            "markdown_path": str(markdown_path),
+            "jsonl_path": str(jsonl_path),
+        }
+
+    def _append_dialog_jsonl(self, log_id: str, payload: Dict[str, Any]) -> None:
+        _, jsonl_path = self._dialog_log_paths(log_id)
+        with open(jsonl_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(self._json_safe(payload), ensure_ascii=False) + "\n")
+
+    def append_dialog_action(
+        self,
+        log_id: str,
+        action: str,
+        detail: str = "",
+        *,
+        level: str = "INFO",
+        source: str = "runtime",
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        ts = datetime.now().isoformat()
+        markdown_path, _ = self._dialog_log_paths(log_id)
+        safe_data = self._json_safe(data or {})
+        preview = self._compact_text(safe_data)
+        line = (
+            f"- `{ts}` [{(level or 'INFO').upper()}] `{source}` `{action}`"
+            + (f": {detail}" if detail else "")
+        )
+        with open(markdown_path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+            if safe_data:
+                f.write(f"  - data: `{preview}`\n")
+        self._append_dialog_jsonl(
+            log_id,
+            {
+                "event": "action",
+                "timestamp": ts,
+                "level": (level or "INFO").upper(),
+                "source": source,
+                "action": action,
+                "detail": detail or "",
+                "data": safe_data,
+            },
+        )
+
+    def finish_dialog_log(
+        self,
+        log_id: str,
+        success: bool,
+        summary: str,
+        data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        status = "SUCCESS" if success else "FAILED"
+        ts = datetime.now().isoformat()
+        markdown_path, _ = self._dialog_log_paths(log_id)
+        with open(markdown_path, "a", encoding="utf-8") as f:
+            f.write("\n## 结束状态\n\n")
+            f.write(f"- 状态: `{status}`\n")
+            f.write(f"- 时间: `{ts}`\n")
+            f.write(f"- 摘要: {summary or '（空）'}\n")
+            if data:
+                f.write(f"- 数据: `{self._compact_text(self._json_safe(data))}`\n")
+        self._append_dialog_jsonl(
+            log_id,
+            {
+                "event": "dialog_end",
+                "timestamp": ts,
+                "success": bool(success),
+                "summary": summary or "",
+                "data": self._json_safe(data or {}),
+            },
+        )
 
     # ---- Model pointer ----
 
@@ -452,4 +610,3 @@ def get_context_manager(conversation_id: Optional[str] = None) -> ContextManager
     if _context_manager is None:
         _context_manager = ContextManager()
     return _context_manager
-
