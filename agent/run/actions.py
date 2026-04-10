@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from agent.case_library import list_case_library_items
 from agent.core.dependencies import get_agent, get_context_manager, get_settings
 from agent.core.events import Event, EventBus, EventType
 from agent.executor.comsol_runner import COMSOLRunner
@@ -717,6 +718,43 @@ def do_case(
         log_action("case_extract_exception", detail=str(e), level="ERROR")
         finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None, None
+
+
+def do_case_library_list(
+    query: Optional[str] = None,
+    category: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Return locally indexed official COMSOL case-library items for the desktop UI."""
+
+    _ensure_logging(verbose)
+    try:
+        items, meta = list_case_library_items(
+            query=query,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
+        return True, "ok", {
+            "items": items,
+            "total": meta.get("total", len(items)),
+            "limit": meta.get("limit", limit),
+            "offset": meta.get("offset", offset),
+            "generated_at": meta.get("generated_at"),
+            "metadata": meta.get("metadata") or {},
+        }
+    except Exception as e:
+        logger.exception("do_case_library_list 失败")
+        return False, str(e), {
+            "items": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset,
+            "generated_at": None,
+            "metadata": {},
+        }
 
 
 def do_ops_catalog(

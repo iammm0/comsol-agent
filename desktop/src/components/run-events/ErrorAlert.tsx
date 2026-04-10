@@ -6,7 +6,7 @@ export function ErrorAlert({ event }: { event: RunEvent }) {
 
   return (
     <div className="run-event-alert run-event-alert--error">
-      <span className="run-event-alert__icon" aria-hidden>×</span>
+      <span className="run-event-alert__icon" aria-hidden>err</span>
       <p className="run-event-alert__text">{message}</p>
     </div>
   );

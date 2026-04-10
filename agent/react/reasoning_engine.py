@@ -158,16 +158,17 @@ def _task_plan_to_execution_path(task_plan: "TaskPlan") -> List[ExecutionStep]:
             globals_payload.append(item.model_dump())
         elif isinstance(item, dict):
             globals_payload.append(item)
-    idx += 1
-    steps.append(
-        ExecutionStep(
-            step_id=f"step_{idx}",
-            step_type="global",
-            action="define_globals",
-            parameters={"global_definitions": globals_payload},
-            status="pending",
+    if globals_payload:
+        idx += 1
+        steps.append(
+            ExecutionStep(
+                step_id=f"step_{idx}",
+                step_type="global",
+                action="define_globals",
+                parameters={"global_definitions": globals_payload},
+                status="pending",
+            )
         )
-    )
 
     if task_plan.material:
         idx += 1
@@ -382,6 +383,10 @@ class ReasoningEngine:
             understanding.get("plan_description") or understanding.get("reasoning") or ""
         )
         stop_after_step = understanding.get("stop_after_step") or "solve"
+        raw_global_definitions = params.get("global_definitions", [])
+        has_global_definitions = isinstance(raw_global_definitions, list) and any(
+            bool(item) for item in raw_global_definitions
+        )
 
         # 创建任务计划
         plan = ReActTaskPlan(
@@ -479,13 +484,12 @@ class ReasoningEngine:
 
         if not required_steps:
             if task_type == "geometry":
-                required_steps = ["create_geometry", "define_globals"]
+                required_steps = ["create_geometry"]
             elif task_type == "physics":
-                required_steps = ["create_geometry", "define_globals", "add_material", "add_physics"]
+                required_steps = ["create_geometry", "add_material", "add_physics"]
             elif task_type == "study":
                 required_steps = [
                     "create_geometry",
-                    "define_globals",
                     "add_material",
                     "add_physics",
                     "configure_study",
@@ -493,7 +497,6 @@ class ReasoningEngine:
             else:
                 required_steps = [
                     "create_geometry",
-                    "define_globals",
                     "add_material",
                     "add_physics",
                     "generate_mesh",
@@ -501,13 +504,15 @@ class ReasoningEngine:
                     "solve",
                 ]
 
-        # 全局定义是标准建模节点：若缺失则自动插入（优先放在 geometry 之后）。
-        if "define_globals" not in required_steps:
+        # 仅当已提取到全局参数时才插入 define_globals。
+        if has_global_definitions and "define_globals" not in required_steps:
             if "create_geometry" in required_steps:
                 insert_idx = required_steps.index("create_geometry") + 1
                 required_steps.insert(insert_idx, "define_globals")
             else:
                 required_steps.insert(0, "define_globals")
+        elif not has_global_definitions:
+            required_steps = [s for s in required_steps if s != "define_globals"]
 
         # 按 stop_after_step 截断：只执行到该步（含）即保存模型并结束
         step_order = [

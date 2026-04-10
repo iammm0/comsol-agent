@@ -1,13 +1,14 @@
 import type { RunEvent } from "../../lib/types";
+import { normalizeClarifyingQuestions } from "../../lib/clarifying";
 
 /** 规划开始：仅提示已进入规划，不重复展示用户输入全文 */
 export function PlanStartCard({ event: _event }: { event: RunEvent }) {
   return (
     <div className="run-event-card run-event-card--plan-start">
-      <span className="run-event-card__icon" aria-hidden>📋</span>
+      <span className="run-event-card__icon" aria-hidden>plan</span>
       <div className="run-event-card__main">
         <span className="run-event-card__title">规划开始</span>
-        <p className="run-event-card__plan-start-hint">已收到您的建模需求，正在分解任务…</p>
+        <p className="run-event-card__plan-start-hint">已收到您的建模需求，正在拆解任务...</p>
       </div>
     </div>
   );
@@ -19,17 +20,21 @@ export function PlanEndCard({ event }: { event: RunEvent }) {
   const steps = d.steps as Array<{ action?: string; step_type?: string }> | undefined;
   const model = String(d.model_name ?? "").trim();
   const desc = d.plan_description as string | undefined;
-  const questions = Array.isArray(d.clarifying_questions)
-    ? (d.clarifying_questions as Array<unknown>)
-        .map((q) => {
-          if (q && typeof q === "object") {
-            const obj = q as Record<string, unknown>;
-            return String(obj.text ?? "").trim();
-          }
-          return String(q ?? "").trim();
-        })
-        .filter((q) => q && !/^(问题|question)\s*\d+$/i.test(q))
-    : [];
+  const structuredQuestions = normalizeClarifyingQuestions(d.clarifying_questions);
+  const questions =
+    structuredQuestions.length > 0
+      ? structuredQuestions.map((q) => q.text)
+      : Array.isArray(d.clarifying_questions)
+        ? (d.clarifying_questions as Array<unknown>)
+            .map((q) => {
+              if (q && typeof q === "object") {
+                const obj = q as Record<string, unknown>;
+                return String(obj.text ?? "").trim();
+              }
+              return String(q ?? "").trim();
+            })
+            .filter((q) => q && !/^(问题|question)\s*\d+$/i.test(q))
+        : [];
   const cases = Array.isArray(d.case_library_suggestions)
     ? (d.case_library_suggestions as Array<unknown>)
         .map((item) => {
@@ -48,7 +53,7 @@ export function PlanEndCard({ event }: { event: RunEvent }) {
 
   return (
     <div className="run-event-card run-event-card--plan-end">
-      <span className="run-event-card__icon" aria-hidden>✓</span>
+      <span className="run-event-card__icon" aria-hidden>ok</span>
       <div className="run-event-card__main">
         <span className="run-event-card__title">规划完成</span>
         {model && <p className="run-event-card__model">{model}</p>}
@@ -77,7 +82,7 @@ export function PlanEndCard({ event }: { event: RunEvent }) {
               {cases.map((item, i) => (
                 <li key={i}>
                   {item.title || "案例"}
-                  {item.url ? ` — ${item.url}` : ""}
+                  {item.url ? ` - ${item.url}` : ""}
                   {item.source ? ` (${item.source})` : ""}
                 </li>
               ))}

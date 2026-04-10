@@ -1,9 +1,9 @@
 import type { RunEvent } from "../../lib/types";
 
 function getActionIcon(type: string): string {
-  if (type === "action_end") return "✓";
-  if (type === "exec_result") return "→";
-  return "▶";
+  if (type === "action_end") return "ok";
+  if (type === "exec_result") return "out";
+  return "run";
 }
 
 export function ActionStepCard({ event }: { event: RunEvent }) {
@@ -35,7 +35,9 @@ export function ActionStepCard({ event }: { event: RunEvent }) {
     const action = (ui?.action as string | undefined) ?? String(d.action ?? "完成");
     return (
       <div className="run-event-card run-event-card--action-end">
-        <span className="run-event-card__icon run-event-card__icon--done" aria-hidden>✓</span>
+        <span className="run-event-card__icon run-event-card__icon--done" aria-hidden>
+          ok
+        </span>
         <span className="run-event-card__title">{action}</span>
       </div>
     );
@@ -52,7 +54,9 @@ export function ActionStepCard({ event }: { event: RunEvent }) {
 
   return (
     <div className={`run-event-card run-event-card--result run-event-card--result-${success ? "ok" : "fail"}`}>
-      <span className="run-event-card__icon" aria-hidden>{success ? "✓" : "!"}</span>
+      <span className="run-event-card__icon" aria-hidden>
+        {success ? "ok" : "err"}
+      </span>
       <div className="run-event-card__main">
         <span className="run-event-card__title">{title}</span>
         {detail && <p className="run-event-card__detail">{detail}</p>}

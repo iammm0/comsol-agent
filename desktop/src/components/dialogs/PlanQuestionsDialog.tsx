@@ -40,7 +40,6 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   const [answers, setAnswers] = useState<AnswerState>({});
   const [supplements, setSupplements] = useState<SupplementTextState>({});
 
-  // 打开对话框时，为每个问题默认选中「推荐」选项（如 100 A 电流、50 kHz、h=10, T_inf=293.15 K）
   useEffect(() => {
     if (questions.length === 0) return;
     setAnswers((prev) => {
@@ -48,9 +47,9 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
       let changed = false;
       questions.forEach((q) => {
         if (next[q.id]?.length) return;
-        const rec = q.options.find((o) => o.recommended);
-        if (rec) {
-          next[q.id] = [rec.id];
+        const recommended = q.options.find((o) => o.recommended);
+        if (recommended) {
+          next[q.id] = [recommended.id];
           changed = true;
         }
       });
@@ -59,12 +58,12 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   }, [questions]);
 
   const handleToggleOption = (questionId: string, optionId: string) => {
-    const q = questions.find((item) => item.id === questionId);
-    if (!q) return;
+    const question = questions.find((item) => item.id === questionId);
+    if (!question) return;
 
     setAnswers((prev) => {
       const current = prev[questionId] ?? [];
-      if (!isMultiSelectQuestion(q)) {
+      if (!isMultiSelectQuestion(question)) {
         return { ...prev, [questionId]: [optionId] };
       }
       const selected = current.includes(optionId);
@@ -78,6 +77,15 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   const handleChangeSupplement = (questionId: string, value: string) => {
     setSupplements((prev) => ({ ...prev, [questionId]: value }));
   };
+
+  const answeredCount = useMemo(() => {
+    return questions.filter((q) => {
+      const selected = answers[q.id] ?? [];
+      if (selected.length === 0) return false;
+      if (!selected.includes(SUPPLEMENT_OPTION_ID)) return true;
+      return (supplements[q.id] ?? "").trim().length > 0;
+    }).length;
+  }, [questions, answers, supplements]);
 
   const canConfirm = useMemo(() => {
     if (questions.length === 0) return false;
@@ -122,13 +130,13 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
 
     if (state.mode === "plan") {
       const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
-      sendCommand("plan", {
+      void sendCommand("plan", {
         input,
         clarifying_answers: payloadAnswers,
         ...apiPayload,
       });
     } else {
-      sendStreamCommand("run", {
+      void sendStreamCommand("run", {
         input,
         clarifying_answers: payloadAnswers,
       });
@@ -145,15 +153,22 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
     onClose();
   };
 
+  const continueLabel = state.mode === "plan" ? "确认答案并继续规划" : "确认答案并继续执行";
+  const helperText =
+    questions.length > 0
+      ? `已完成 ${answeredCount}/${questions.length} 个澄清项。回答完后点击右下角继续。`
+      : "当前计划未包含需要澄清的问题。";
+
   return (
     <div className="dialog plan-questions-dialog">
       <div className="dialog-header">
-        <h2>{state.mode === "plan" ? "在规划前先澄清几个问题" : "在执行前先澄清几个问题"}</h2>
+        <h2>{state.mode === "plan" ? "继续前先澄清几个问题" : "执行前先澄清几个问题"}</h2>
       </div>
 
       <div className="dialog-body">
+        <p className="plan-questions-intro">{helperText}</p>
         {questions.length === 0 ? (
-          <p>当前计划未包含需要澄清的问题。</p>
+          <p className="plan-questions-empty">当前计划未包含需要澄清的问题。</p>
         ) : (
           <div className="plan-questions-list">
             {questions.map((q) => (
@@ -170,22 +185,32 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
         )}
       </div>
 
-      <div className="dialog-actions">
-        <button
-          type="button"
-          className="dialog-btn secondary"
-          onClick={handleCancel}
-        >
-          取消
-        </button>
-        <button
-          type="button"
-          className="dialog-btn primary"
-          onClick={handleConfirm}
-          disabled={!canConfirm}
-        >
-          {state.mode === "plan" ? "确认并继续规划" : "确认并继续执行"}
-        </button>
+      <div className="dialog-actions plan-questions-actions">
+        <div className="plan-questions-actions-status">
+          {questions.length > 0
+            ? canConfirm
+              ? "澄清答案已齐全，可以继续。"
+              : "还有未回答的问题。"
+            : "没有待处理的澄清项。"}
+        </div>
+        <div className="plan-questions-actions-buttons">
+          <button
+            type="button"
+            className="dialog-btn secondary"
+            onClick={handleCancel}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="dialog-btn primary"
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            title={continueLabel}
+          >
+            {continueLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

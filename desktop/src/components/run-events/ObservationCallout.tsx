@@ -16,7 +16,7 @@ export function ObservationCallout({ event }: { event: RunEvent }) {
       }`}
     >
       <span className="run-event-callout__icon" aria-hidden>
-        {isError ? "!" : isWarning ? "⚠" : "ℹ"}
+        {isError ? "err" : isWarning ? "warn" : "note"}
       </span>
       <p className="run-event-callout__text">{message}</p>
     </div>

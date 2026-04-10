@@ -93,6 +93,16 @@ def _json_safe(obj: Any) -> Any:
     """将对象转为 JSON 可序列化形式。"""
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
+    if hasattr(obj, "model_dump"):
+        try:
+            return _json_safe(obj.model_dump(mode="json"))
+        except TypeError:
+            return _json_safe(obj.model_dump())
+    if hasattr(obj, "dict"):
+        try:
+            return _json_safe(obj.dict())
+        except Exception:
+            pass
     if isinstance(obj, dict):
         return {k: _json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):

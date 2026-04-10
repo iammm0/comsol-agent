@@ -48,7 +48,7 @@ export function groupEventsByPhase(events: RunEvent[]): PhaseBlock[] {
 
   for (const e of merged) {
     if (e.type === "task_phase" && e.data?.phase) {
-      if (current.length > 0 || currentPhase) {
+      if (current.length > 0) {
         blocks.push({
           phase: currentPhase,
           label: PHASE_LABELS[currentPhase] ?? (currentPhase || "规划"),
@@ -59,7 +59,6 @@ export function groupEventsByPhase(events: RunEvent[]): PhaseBlock[] {
       }
       currentPhase = e.data.phase as string;
       currentLabel = PHASE_LABELS[currentPhase] ?? currentPhase;
-      current.push(e);
       continue;
     }
     if (e.type === "plan_start") {

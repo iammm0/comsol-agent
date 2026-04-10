@@ -10,6 +10,18 @@ import type {
 } from "../lib/types";
 import { normalizeClarifyingQuestions } from "../lib/clarifying";
 
+function extractClarifyingQuestionsFromResponse(
+  res: BridgeResponse
+): ClarifyingQuestion[] {
+  const topLevel = normalizeClarifyingQuestions(res.clarifying_questions);
+  if (topLevel.length > 0) return topLevel;
+
+  const planQuestions = normalizeClarifyingQuestions(
+    (res.plan as Record<string, unknown> | null | undefined)?.clarifying_questions
+  );
+  return planQuestions;
+}
+
 export function useBridge() {
   const { state, dispatch, addMessage, messages } = useAppState();
   const cid = state.currentConversationId;
@@ -26,11 +38,22 @@ export function useBridge() {
         });
 
         if (cmd === "plan") {
-          const questions: ClarifyingQuestion[] = normalizeClarifyingQuestions(
-            res.clarifying_questions
-          );
+          const questions: ClarifyingQuestion[] =
+            extractClarifyingQuestionsFromResponse(res);
+          const unresolvedCount = Array.isArray(
+            (res.plan as Record<string, unknown> | null | undefined)
+              ?.unresolved_clarifications
+          )
+            ? (
+                (res.plan as Record<string, unknown>).unresolved_clarifications as
+                  | unknown[]
+                  | null
+              )?.length ?? 0
+            : 0;
+          const hasUnresolvedInPlan = unresolvedCount > 0;
           const needsClarification =
             Boolean(res.plan_needs_clarification) ||
+            hasUnresolvedInPlan ||
             (questions.length > 0 && !Boolean(res.plan_confirmed));
           if (needsClarification && questions.length > 0) {
             dispatch({ type: "SET_PLAN_QUESTIONS", questions });
@@ -81,10 +104,24 @@ export function useBridge() {
 
         if (payload.type === "plan_end") {
           const data = payload.data ?? {};
-          const requiresClarification = Boolean(data.requires_clarification);
-          const questionsRaw = data.clarifying_questions;
+          const questionsRaw =
+            (data as Record<string, unknown>).clarifying_questions ??
+            (data as Record<string, unknown>).questions;
           const questions: ClarifyingQuestion[] =
             normalizeClarifyingQuestions(questionsRaw);
+          const unresolvedCount = Array.isArray(
+            (data as Record<string, unknown>).unresolved_clarifications
+          )
+            ? (
+                (data as Record<string, unknown>).unresolved_clarifications as
+                  | unknown[]
+                  | null
+              )?.length ?? 0
+            : 0;
+          const requiresClarification =
+            Boolean((data as Record<string, unknown>).requires_clarification) ||
+            unresolvedCount > 0 ||
+            questions.length > 0;
 
           if (requiresClarification && questions.length > 0) {
             dispatch({ type: "SET_PLAN_QUESTIONS", questions });
