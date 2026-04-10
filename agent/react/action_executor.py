@@ -315,6 +315,20 @@ class ActionExecutor:
                 "needs_planning_clarification": True,
             }
 
+        if not parsed:
+            plan.global_definitions = []
+            self._emit_step_end("参数/全局定义", "未提供全局参数，已跳过", count=0)
+            return {
+                "status": "success",
+                "message": "未提供全局参数，已跳过 define_globals",
+                "global_definitions": [],
+                "ui": {
+                    "action": "跳过全局参数",
+                    "detail": "当前计划未包含全局参数，无需写入 model.param()",
+                    "target": "全局定义",
+                },
+            }
+
         plan.global_definitions = parsed
 
         # 会话级语义保存（双写之一）

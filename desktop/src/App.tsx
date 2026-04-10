@@ -93,7 +93,9 @@ export default function App() {
         </div>
       </div>
       {dialogContent && (
-        <DialogOverlay onClose={closeDialog}>{dialogContent}</DialogOverlay>
+        <DialogOverlay onClose={closeDialog} dialogType={state.activeDialog}>
+          {dialogContent}
+        </DialogOverlay>
       )}
     </div>
   );

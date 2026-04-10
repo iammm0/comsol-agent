@@ -247,6 +247,16 @@ class IterationController:
             return plan
 
         # 路径 3：同一错误多次出现 -> 无效迭代，建议重新编排
+        current_result = current_step.result if isinstance(current_step.result, dict) else {}
+        if current_result.get("needs_planning_clarification"):
+            reason = str(
+                current_result.get("message") or observation.message or "需要回到规划阶段澄清"
+            ).strip()
+            plan.status = "failed"
+            plan.error = REORCHESTRATE_PREFIX + f"当前步骤需要回到规划阶段补充信息。原因: {reason[:200]}"
+            logger.info("步骤 %s 需要规划澄清，停止重试并建议重新编排", current_step.step_id)
+            return plan
+
         if self._is_same_error_repeated(plan, observation):
             plan.status = "failed"
             plan.error = (

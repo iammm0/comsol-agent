@@ -47,8 +47,53 @@ class TestReasoningEngine:
         path = engine.plan_execution_path(understanding)
         actions = [step.action for step in path]
 
+        assert len(path) == 3
+        assert actions == ["create_geometry", "add_physics", "solve"]
+
+    def test_plan_execution_path_with_global_definitions(self):
+        """有全局参数时才插入 define_globals。"""
+        mock_llm = Mock()
+        engine = ReasoningEngine(mock_llm)
+
+        understanding = {
+            "task_type": "full",
+            "required_steps": ["create_geometry", "add_physics", "solve"],
+            "parameters": {
+                "global_definitions": [{"name": "L", "value": "0.1[m]"}],
+            },
+        }
+
+        path = engine.plan_execution_path(understanding)
+        actions = [step.action for step in path]
+
         assert len(path) == 4
         assert actions == ["create_geometry", "define_globals", "add_physics", "solve"]
+
+    def test_understand_and_plan_retains_global_definitions_in_fallback(self):
+        """回退到 LLM 单次规划时，global_definitions 也要进入执行路径和计划。"""
+        mock_llm = Mock()
+        mock_llm.call.return_value = (
+            '{"task_type":"full","required_steps":["create_geometry","add_physics","solve"],'
+            '"parameters":{"global_definitions":[{"name":"L","value":"0.1[m]"}]}}'
+        )
+        engine = ReasoningEngine(mock_llm, use_planner_orchestrator=False)
+
+        with patch("agent.react.reasoning_engine.get_skill_injector") as mock_get_injector:
+            mock_injector = Mock()
+            mock_injector.inject_into_prompt.side_effect = lambda _query, prompt: prompt
+            mock_get_injector.return_value = mock_injector
+
+            plan = engine.understand_and_plan("创建一个参数化模型", "m_with_globals")
+
+        assert [step.action for step in plan.execution_path] == [
+            "create_geometry",
+            "define_globals",
+            "add_physics",
+            "solve",
+        ]
+        assert len(plan.global_definitions) == 1
+        assert plan.global_definitions[0].name == "L"
+        assert plan.global_definitions[0].value == "0.1[m]"
 
     def test_plan_execution_path_new_actions(self):
         """规划路径支持 import_geometry / create_selection / export_results。"""
@@ -212,6 +257,36 @@ class TestActionExecutor:
         assert len(plan.global_definitions) == 1
         mocked_controller.define_global_parameters.assert_called_once()
 
+    def test_execute_define_globals_empty_is_noop(self):
+        """未提供全局参数时，define_globals 应直接跳过而不是报错。"""
+        executor = ActionExecutor()
+        plan = ReActTaskPlan(
+            task_id="g3",
+            model_name="m3",
+            user_input="u3",
+            execution_path=[],
+            model_path="E:/tmp/in.mph",
+        )
+        step = ExecutionStep(
+            step_id="s_global_3",
+            step_type="global",
+            action="define_globals",
+            status="pending",
+        )
+
+        mocked_controller = Mock()
+        executor._java_api_controller = mocked_controller
+
+        result = executor.execute_define_globals(
+            plan,
+            step,
+            {"parameters": {"global_definitions": []}},
+        )
+
+        assert result["status"] == "success"
+        assert result["global_definitions"] == []
+        mocked_controller.define_global_parameters.assert_not_called()
+
     def test_execute_geometry(self):
         """测试几何执行"""
         executor = ActionExecutor()
@@ -360,6 +435,40 @@ class TestIterationController:
         assert "观察结果" in feedback
         assert "当前步骤" in feedback
         assert "进度" in feedback
+
+    def test_update_plan_stops_retry_when_step_needs_planning_clarification(self):
+        """需要规划澄清的错误应直接终止重试并建议重新编排。"""
+        controller = IterationController(Mock())
+        step = ExecutionStep(
+            step_id="step_global_1",
+            step_type="global",
+            action="define_globals",
+            parameters={},
+            status="failed",
+            result={
+                "status": "error",
+                "message": "global definitions are empty",
+                "needs_planning_clarification": True,
+            },
+        )
+        plan = ReActTaskPlan(
+            task_id="t_iter_1",
+            model_name="m_iter_1",
+            user_input="u_iter_1",
+            execution_path=[step],
+        )
+        observation = Observation(
+            observation_id="obs_iter_1",
+            step_id="step_global_1",
+            status="error",
+            message="global definitions are empty",
+        )
+
+        updated = controller.update_plan(plan, observation)
+
+        assert updated.status == "failed"
+        assert updated.error is not None
+        assert updated.error.startswith("[REORCHESTRATE]")
 
 
 class TestReActAgent:

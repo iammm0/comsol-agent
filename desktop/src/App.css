@@ -2267,12 +2267,17 @@ body {
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
     animation: slide-up 0.15s ease;
 }
-.dialog-box:has(.plan-questions-dialog) {
+.dialog-overlay--planQuestions {
+    padding-top: min(8vh, 72px);
+    padding-bottom: 20px;
+}
+.dialog-box--planQuestions {
     width: 720px;
-    max-height: 82vh;
+    max-height: min(82vh, 820px);
+    height: min(82vh, 820px);
     padding: 0;
 }
-.dialog-box:has(.settings-dialog) {
+.dialog-box--settings {
     width: 640px;
     max-height: 75vh;
     padding: 0;
@@ -2566,9 +2571,10 @@ body {
 }
 
 @media (max-width: 760px) {
-    .dialog-box:has(.plan-questions-dialog) {
+    .dialog-box--planQuestions {
         width: calc(100vw - 20px);
-        max-height: 86vh;
+        max-height: min(86vh, calc(100vh - 20px));
+        height: min(86vh, calc(100vh - 20px));
     }
     .plan-questions-actions {
         flex-direction: column;

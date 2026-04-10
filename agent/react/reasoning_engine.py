@@ -383,10 +383,6 @@ class ReasoningEngine:
             understanding.get("plan_description") or understanding.get("reasoning") or ""
         )
         stop_after_step = understanding.get("stop_after_step") or "solve"
-        raw_global_definitions = params.get("global_definitions", [])
-        has_global_definitions = isinstance(raw_global_definitions, list) and any(
-            bool(item) for item in raw_global_definitions
-        )
 
         # 创建任务计划
         plan = ReActTaskPlan(
@@ -481,6 +477,10 @@ class ReasoningEngine:
         required_steps = understanding.get("required_steps", [])
         params = understanding.get("parameters") or {}
         stop_after_step = understanding.get("stop_after_step") or "solve"
+        raw_global_definitions = params.get("global_definitions", [])
+        has_global_definitions = isinstance(raw_global_definitions, list) and any(
+            bool(item) for item in raw_global_definitions
+        )
 
         if not required_steps:
             if task_type == "geometry":
