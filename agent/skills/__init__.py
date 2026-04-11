@@ -13,6 +13,7 @@ __all__ = [
     "SkillVectorStore",
     "get_default_embedder",
     "get_skill_injector",
+    "reset_skill_injector",
     "build_api_capability_entries",
     "ApiCapabilityEntry",
 ]
@@ -37,3 +38,10 @@ def get_skill_injector(
                 vector_store = None
         _injector = SkillInjector(loader=loader, vector_store=vector_store, top_k=top_k)
     return _injector
+
+
+def reset_skill_injector() -> None:
+    """Clear the cached injector so newly added skills are visible immediately."""
+
+    global _injector
+    _injector = None

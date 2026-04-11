@@ -1,10 +1,16 @@
 """无 Typer 依赖的纯函数：供 TUI 与 CLI 子命令共用的 do_run、do_plan、do_exec 等。"""
 import asyncio
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock, Thread
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from agent.case_library import list_case_library_items
+from agent.case_library import (
+    get_default_case_library_path,
+    list_case_library_items,
+    load_case_library,
+)
 from agent.core.dependencies import get_agent, get_context_manager, get_settings
 from agent.core.events import Event, EventBus, EventType
 from agent.executor.comsol_runner import COMSOLRunner
@@ -22,8 +28,33 @@ from agent.utils.llm import LLMClient
 from schemas.geometry import GeometryPlan
 from schemas.task import ClarifyingAnswer
 from agent.react.exceptions import PlanNeedsClarification, ReActNeedsReorchestrate
+from agent.skills import reset_skill_injector
+from agent.skills.manager import (
+    create_local_skill_library,
+    import_skill_library,
+    list_local_skill_libraries,
+    list_online_skill_library,
+)
 
 logger = get_logger(__name__)
+
+_CASE_LIBRARY_SYNC_LOCK = Lock()
+_CASE_LIBRARY_SYNC_STATE: Dict[str, Any] = {
+    "running": False,
+    "status": "idle",
+    "message": "",
+    "saved_items": 0,
+    "total_shallow_records": 0,
+}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _case_library_sync_state_copy() -> Dict[str, Any]:
+    with _CASE_LIBRARY_SYNC_LOCK:
+        return dict(_CASE_LIBRARY_SYNC_STATE)
 
 # 与桌面端新会话快捷提示词一致，用于 /demo，与 COMSOL 案例库风格类似：偏 3D、多物理场、包含求解与结果导出。
 QUICK_TEST_PROMPTS = [
@@ -757,6 +788,200 @@ def do_case_library_list(
         }
 
 
+def do_case_library_sync_status(verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    """Return current local case-library sync state for the desktop UI."""
+
+    _ensure_logging(verbose)
+    state = _case_library_sync_state_copy()
+    try:
+        output = state.get("output")
+        payload = load_case_library(Path(output)) if output else load_case_library()
+        state["indexed_items"] = int(payload.get("total") or 0)
+        state["generated_at"] = payload.get("generated_at")
+        metadata = payload.get("metadata") or {}
+        if isinstance(metadata, dict):
+            state["metadata"] = metadata
+            if not state.get("saved_items"):
+                state["saved_items"] = int(metadata.get("saved_items") or 0)
+            if not state.get("total_shallow_records"):
+                state["total_shallow_records"] = int(metadata.get("total_shallow_records") or 0)
+        else:
+            state["metadata"] = {}
+    except Exception as e:
+        logger.exception("do_case_library_sync_status failed")
+        state.setdefault("metadata", {})
+        state["load_error"] = str(e)
+    return True, "ok", state
+
+
+def do_case_library_sync(
+    start_page: int = 1,
+    end_page: int = 0,
+    limit: int = 0,
+    workers: int = 4,
+    timeout: float = 20.0,
+    delay_ms: int = 100,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Start background crawling for the local COMSOL case-library index."""
+
+    _ensure_logging(verbose)
+    output_path = get_default_case_library_path()
+
+    with _CASE_LIBRARY_SYNC_LOCK:
+        if _CASE_LIBRARY_SYNC_STATE.get("running"):
+            return True, "案例库同步已在进行中", dict(_CASE_LIBRARY_SYNC_STATE)
+
+        _CASE_LIBRARY_SYNC_STATE.clear()
+        _CASE_LIBRARY_SYNC_STATE.update(
+            {
+                "running": True,
+                "status": "starting",
+                "message": "正在启动案例库同步...",
+                "saved_items": 0,
+                "total_shallow_records": 0,
+                "indexed_items": 0,
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "output": str(output_path),
+                "metadata": {},
+                "last_error": None,
+            }
+        )
+
+    def progress(payload: Dict[str, Any]) -> None:
+        with _CASE_LIBRARY_SYNC_LOCK:
+            _CASE_LIBRARY_SYNC_STATE["status"] = str(payload.get("event") or "running")
+            if payload.get("message"):
+                _CASE_LIBRARY_SYNC_STATE["message"] = str(payload.get("message"))
+            if payload.get("saved_items") is not None:
+                _CASE_LIBRARY_SYNC_STATE["saved_items"] = int(payload.get("saved_items") or 0)
+                _CASE_LIBRARY_SYNC_STATE["indexed_items"] = int(payload.get("saved_items") or 0)
+            if payload.get("total_shallow_records") is not None:
+                _CASE_LIBRARY_SYNC_STATE["total_shallow_records"] = int(
+                    payload.get("total_shallow_records") or 0
+                )
+            if payload.get("completed") is not None:
+                _CASE_LIBRARY_SYNC_STATE["detail_completed"] = int(payload.get("completed") or 0)
+            if payload.get("total") is not None:
+                _CASE_LIBRARY_SYNC_STATE["detail_total"] = int(payload.get("total") or 0)
+            for key in ("page", "title", "official_url", "stage"):
+                if payload.get(key) is not None:
+                    _CASE_LIBRARY_SYNC_STATE[key] = payload.get(key)
+
+    def worker() -> None:
+        try:
+            from scripts.sync_comsol_case_library import CrawlConfig, sync_case_library
+
+            config = CrawlConfig(
+                start_page=max(1, int(start_page or 1)),
+                end_page=max(1, int(end_page)) if end_page else None,
+                limit=max(1, int(limit)) if limit else None,
+                workers=max(1, int(workers or 4)),
+                timeout=max(5.0, float(timeout or 20.0)),
+                delay_ms=max(0, int(delay_ms or 0)),
+                output=output_path,
+                refresh=False,
+                progress=progress,
+            )
+            result = sync_case_library(config)
+            payload = load_case_library(output_path)
+            with _CASE_LIBRARY_SYNC_LOCK:
+                _CASE_LIBRARY_SYNC_STATE.update(
+                    {
+                        "running": False,
+                        "status": "completed",
+                        "message": "案例库同步完成",
+                        "saved_items": int(result.get("saved_items") or 0),
+                        "indexed_items": int(payload.get("total") or 0),
+                        "total_shallow_records": int(result.get("total_shallow_records") or 0),
+                        "finished_at": _utc_now_iso(),
+                        "metadata": payload.get("metadata") or {},
+                        "generated_at": payload.get("generated_at"),
+                        "last_error": None,
+                    }
+                )
+        except Exception as e:
+            logger.exception("do_case_library_sync failed")
+            with _CASE_LIBRARY_SYNC_LOCK:
+                _CASE_LIBRARY_SYNC_STATE.update(
+                    {
+                        "running": False,
+                        "status": "error",
+                        "message": f"案例库同步失败: {e}",
+                        "finished_at": _utc_now_iso(),
+                        "last_error": str(e),
+                    }
+                )
+
+    Thread(target=worker, name="case-library-sync", daemon=True).start()
+    return True, "案例库同步已启动", _case_library_sync_state_copy()
+
+
+def do_skills_list_local(verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    """Return repo-local skill libraries for the desktop UI."""
+
+    _ensure_logging(verbose)
+    try:
+        items = list_local_skill_libraries()
+        return True, "ok", {"items": items, "total": len(items)}
+    except Exception as e:
+        logger.exception("do_skills_list_local failed")
+        return False, str(e), {"items": [], "total": 0}
+
+
+def do_skills_create_local(
+    name: str,
+    description: str = "",
+    tags: Optional[List[str]] = None,
+    triggers: Optional[List[str]] = None,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Create a new repo-local skill library."""
+
+    _ensure_logging(verbose)
+    try:
+        result = create_local_skill_library(
+            name=name,
+            description=description,
+            tags=tags or [],
+            triggers=triggers or [],
+        )
+        reset_skill_injector()
+        return True, "技能库已创建", result
+    except Exception as e:
+        logger.exception("do_skills_create_local failed")
+        return False, str(e), {"item": None}
+
+
+def do_skills_import_local(
+    source_path: str,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Import an existing skill directory or SKILL.md into the repo-local skill library."""
+
+    _ensure_logging(verbose)
+    try:
+        result = import_skill_library(source_path)
+        reset_skill_injector()
+        return True, "技能库已导入", result
+    except Exception as e:
+        logger.exception("do_skills_import_local failed")
+        return False, str(e), {"item": None}
+
+
+def do_skills_list_online(verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    """Return a curated read-only online skill catalog."""
+
+    _ensure_logging(verbose)
+    try:
+        items = list_online_skill_library()
+        return True, "ok", {"items": items, "total": len(items)}
+    except Exception as e:
+        logger.exception("do_skills_list_online failed")
+        return False, str(e), {"items": [], "total": 0}
+
+
 def do_ops_catalog(
     query: Optional[str] = None,
     limit: int = 200,
@@ -968,6 +1193,7 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         "OLLAMA_MODEL",
         "COMSOL_JAR_PATH",
         "JAVA_HOME",
+        "MODEL_OUTPUT_DIR",
     ]
     # 读取已有行
     if env_path.exists():

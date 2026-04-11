@@ -484,7 +484,9 @@ def save_case_library(
         "total": len(normalized),
         "items": normalized,
     }
-    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(output_path)
     return output_path
 
 

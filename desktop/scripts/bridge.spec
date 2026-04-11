@@ -26,6 +26,7 @@ a = Analysis(
         "agent.utils",
         "agent.utils.config",
         "agent.utils.java_runtime",
+        "scripts.sync_comsol_case_library",
         "schemas",
         "dotenv",
         "pydantic",

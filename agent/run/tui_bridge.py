@@ -28,6 +28,13 @@ try:
         do_plan_mode,
         do_discuss,
         do_case,
+        do_case_library_list,
+        do_case_library_sync,
+        do_case_library_sync_status,
+        do_skills_list_local,
+        do_skills_create_local,
+        do_skills_import_local,
+        do_skills_list_online,
         do_ops_catalog,
         do_exec_from_file,
         do_demo,
@@ -215,6 +222,105 @@ def _handle(req: dict[str, Any]) -> None:
                 verbose=req.get("verbose", False),
             )
             _reply(ok, msg, case_generated=case_json, saved_path=saved_path)
+            return
+
+        if cmd == "case_library_list":
+            try:
+                limit = int(req.get("limit") or 200)
+            except Exception:
+                limit = 200
+            try:
+                offset = int(req.get("offset") or 0)
+            except Exception:
+                offset = 0
+            ok, msg, result = do_case_library_list(
+                query=(req.get("query") or "").strip() or None,
+                category=(req.get("category") or "").strip() or None,
+                limit=limit,
+                offset=offset,
+                verbose=req.get("verbose", False),
+            )
+            _reply(
+                ok,
+                msg,
+                items=result.get("items", []),
+                total=result.get("total", 0),
+                limit=result.get("limit", limit),
+                offset=result.get("offset", offset),
+                generated_at=result.get("generated_at"),
+                metadata=result.get("metadata", {}),
+            )
+            return
+
+        if cmd == "case_library_sync":
+            def _int(name: str, default: int) -> int:
+                try:
+                    return int(req.get(name) or default)
+                except Exception:
+                    return default
+
+            def _float(name: str, default: float) -> float:
+                try:
+                    return float(req.get(name) or default)
+                except Exception:
+                    return default
+
+            ok, msg, state = do_case_library_sync(
+                start_page=_int("start_page", 1),
+                end_page=_int("end_page", 0),
+                limit=_int("limit", 0),
+                workers=_int("workers", 4),
+                timeout=_float("timeout", 20.0),
+                delay_ms=_int("delay_ms", 100),
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, sync=state)
+            return
+
+        if cmd == "case_library_sync_status":
+            ok, msg, state = do_case_library_sync_status(verbose=req.get("verbose", False))
+            _reply(ok, msg, sync=state)
+            return
+
+        if cmd == "skills_list_local":
+            ok, msg, result = do_skills_list_local(verbose=req.get("verbose", False))
+            _reply(
+                ok,
+                msg,
+                items=result.get("items", []),
+                total=result.get("total", 0),
+            )
+            return
+
+        if cmd == "skills_create_local":
+            tags = req.get("tags")
+            triggers = req.get("triggers")
+            ok, msg, result = do_skills_create_local(
+                name=(req.get("name") or "").strip(),
+                description=(req.get("description") or "").strip(),
+                tags=tags if isinstance(tags, list) else None,
+                triggers=triggers if isinstance(triggers, list) else None,
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, item=result.get("item"))
+            return
+
+        if cmd == "skills_import_local":
+            ok, msg, result = do_skills_import_local(
+                source_path=(req.get("source_path") or "").strip(),
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, item=result.get("item"))
+            return
+
+        if cmd == "skills_list_online":
+            ok, msg, result = do_skills_list_online(verbose=req.get("verbose", False))
+            _reply(
+                ok,
+                msg,
+                items=result.get("items", []),
+                total=result.get("total", 0),
+            )
             return
 
         if cmd == "ops_catalog":
