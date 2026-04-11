@@ -31,7 +31,11 @@ import {
   loadWorkspaceDir,
   saveWorkspaceDir,
 } from "../lib/conversationStorage";
-import { loadApiConfig } from "../lib/apiConfig";
+import {
+  loadApiConfig,
+  isProviderId,
+  type LLMBackendId,
+} from "../lib/apiConfig";
 
 function genId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -50,7 +54,7 @@ interface AppState {
   workspaceDir: string | null;
   view: AppView;
   mode: AgentMode;
-  backend: string | null;
+  backend: LLMBackendId | null;
   outputDefault: string | null;
   execCodeOnly: boolean;
   /** 正在执行 run/stream 的会话 id，null 表示无执行中 */
@@ -92,7 +96,7 @@ type AppAction =
     }
   | { type: "SET_MODE"; mode: AgentMode }
   | { type: "SET_VIEW"; view: AppView }
-  | { type: "SET_BACKEND"; backend: string | null }
+  | { type: "SET_BACKEND"; backend: LLMBackendId | null }
   | { type: "SET_OUTPUT"; output: string | null }
   | { type: "SET_EXEC_CODE_ONLY"; value: boolean }
   | { type: "SET_BUSY_CONVERSATION"; conversationId: string | null }
@@ -117,11 +121,7 @@ function getInitialState(): AppState {
   const workspaceDir = loadWorkspaceDir();
   const apiCfg = loadApiConfig();
   const preferred = apiCfg.preferred_backend;
-  const validBackends = ["deepseek", "kimi", "ollama", "openai-compatible"] as const;
-  const backend =
-    preferred && validBackends.includes(preferred as (typeof validBackends)[number])
-      ? preferred
-      : null;
+  const backend = preferred && isProviderId(preferred) ? preferred : null;
 
   if (conversations.length === 0) {
     const first: Conversation = {

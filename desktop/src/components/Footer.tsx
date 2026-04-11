@@ -1,11 +1,12 @@
 import { useAppState } from "../context/AppStateContext";
+import { getProviderLabel } from "../lib/apiConfig";
 
 export function Footer() {
   const { state } = useAppState();
 
   const modeLabel =
     state.mode === "discuss" ? "Discuss" : state.mode === "plan" ? "Plan" : "Run";
-  const backendLabel = state.backend ?? "default";
+  const backendLabel = getProviderLabel(state.backend);
 
   return (
     <div className="footer">

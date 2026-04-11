@@ -11,11 +11,11 @@ export function Header() {
         <button
           type="button"
           className="header-settings-btn"
-          onClick={() => dispatch({ type: "SET_DIALOG", dialog: "settings" })}
+          onClick={() => dispatch({ type: "SET_VIEW", view: "settings" })}
           title="设置"
           aria-label="设置"
         >
-          ⚙
+          设置
         </button>
       </div>
     </div>

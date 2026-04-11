@@ -1,113 +1,589 @@
 const STORAGE_KEY = "mph-agent-api-config";
 const LEGACY_STORAGE_KEY = "comsol-agent-api-config";
 
-export type LLMBackendId = "deepseek" | "kimi" | "ollama" | "openai-compatible";
+export type RuntimeBackendId =
+  | "deepseek"
+  | "kimi"
+  | "ollama"
+  | "openai-compatible";
+
+export type LLMBackendId =
+  | "deepseek"
+  | "kimi"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "xai"
+  | "qwen"
+  | "zhipu"
+  | "openrouter"
+  | "groq"
+  | "together"
+  | "fireworks"
+  | "siliconflow"
+  | "perplexity"
+  | "mistral"
+  | "volcengine-ark"
+  | "azure-openai"
+  | "custom-openai"
+  | "ollama";
+
+export interface ProviderConfig {
+  api_key: string;
+  base_url: string;
+  model: string;
+}
 
 export interface ApiConfig {
   preferred_backend: LLMBackendId | null;
-  deepseek_api_key: string;
-  deepseek_model: string;
-  kimi_api_key: string;
-  kimi_model: string;
-  openai_compatible_base_url: string;
-  openai_compatible_api_key: string;
-  openai_compatible_model: string;
-  ollama_url: string;
-  ollama_model: string;
+  providers: Record<LLMBackendId, ProviderConfig>;
   comsol_jar_path: string;
   /** Java 8 或 11 安装目录（JAVA_HOME），留空使用内置或系统 Java */
   java_home: string;
 }
 
-const defaultConfig: ApiConfig = {
-  preferred_backend: null,
-  deepseek_api_key: "",
-  deepseek_model: "deepseek-reasoner",
-  kimi_api_key: "",
-  kimi_model: "moonshot-v1-8k",
-  openai_compatible_base_url: "",
-  openai_compatible_api_key: "",
-  openai_compatible_model: "gpt-3.5-turbo",
-  ollama_url: "http://localhost:11434",
-  ollama_model: "llama3",
-  comsol_jar_path: "",
-  java_home: "",
-};
+export interface ProviderCatalogEntry {
+  id: LLMBackendId;
+  label: string;
+  shortLabel?: string;
+  description: string;
+  runtimeBackend: RuntimeBackendId;
+  defaultBaseUrl: string;
+  defaultModel: string;
+  requiresApiKey: boolean;
+  supportsBaseUrl: boolean;
+  baseUrlLabel?: string;
+  group: "native" | "compatible" | "custom" | "local";
+}
+
+type RawApiConfig = Partial<ApiConfig> &
+  Record<string, unknown> & {
+    preferred_backend?: string | null;
+  };
+
+export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    description: "DeepSeek 官方接口，Python 运行时内置直连。",
+    runtimeBackend: "deepseek",
+    defaultBaseUrl: "",
+    defaultModel: "deepseek-reasoner",
+    requiresApiKey: true,
+    supportsBaseUrl: false,
+    group: "native",
+  },
+  {
+    id: "kimi",
+    label: "Kimi / Moonshot",
+    shortLabel: "Kimi",
+    description: "Moonshot Kimi 官方接口，Python 运行时内置直连。",
+    runtimeBackend: "kimi",
+    defaultBaseUrl: "",
+    defaultModel: "moonshot-v1-8k",
+    requiresApiKey: true,
+    supportsBaseUrl: false,
+    group: "native",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    description: "OpenAI 官方 API，按 OpenAI-compatible 运行时发送。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.openai.com/v1",
+    defaultModel: "gpt-4.1-mini",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic Claude",
+    shortLabel: "Claude",
+    description: "Anthropic OpenAI SDK 兼容层，适合接入 Claude 系列模型。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.anthropic.com/v1/",
+    defaultModel: "claude-sonnet-4-5-20250929",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "gemini",
+    label: "Google Gemini",
+    shortLabel: "Gemini",
+    description: "Google Gemini OpenAI 兼容接口。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.5-flash",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "xai",
+    label: "xAI Grok",
+    shortLabel: "xAI",
+    description: "xAI 官方 OpenAI 兼容接口。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.x.ai/v1",
+    defaultModel: "grok-4-latest",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "qwen",
+    label: "通义千问 / DashScope",
+    shortLabel: "Qwen",
+    description: "阿里云百炼 DashScope OpenAI 兼容模式。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    defaultModel: "qwen-plus",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "zhipu",
+    label: "智谱 GLM",
+    shortLabel: "GLM",
+    description: "智谱 BigModel OpenAI 兼容接口。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4/",
+    defaultModel: "glm-4-plus",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    description: "多模型聚合网关，使用 OpenAI 兼容协议。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://openrouter.ai/api/v1",
+    defaultModel: "openai/gpt-4.1-mini",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "groq",
+    label: "Groq",
+    description: "GroqCloud OpenAI 兼容接口，适合高速推理模型。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.groq.com/openai/v1",
+    defaultModel: "openai/gpt-oss-20b",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "together",
+    label: "Together AI",
+    description: "Together AI OpenAI 兼容接口。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.together.xyz/v1",
+    defaultModel: "openai/gpt-oss-20b",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "fireworks",
+    label: "Fireworks AI",
+    description: "Fireworks 推理 API，使用 OpenAI 兼容协议。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.fireworks.ai/inference/v1",
+    defaultModel: "accounts/fireworks/models/llama-v3p1-8b-instruct",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "siliconflow",
+    label: "SiliconFlow",
+    description: "硅基流动 OpenAI 兼容接口。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.siliconflow.cn/v1",
+    defaultModel: "Qwen/Qwen3-32B",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    description: "Perplexity Sonar API，使用 OpenAI 兼容协议。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.perplexity.ai",
+    defaultModel: "sonar",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "mistral",
+    label: "Mistral AI",
+    description: "Mistral 官方 API，使用 OpenAI 兼容协议。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://api.mistral.ai/v1",
+    defaultModel: "mistral-small-latest",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "volcengine-ark",
+    label: "火山方舟 Ark",
+    shortLabel: "Ark",
+    description: "火山引擎 Ark OpenAI 兼容接口，模型名通常填写方舟 endpoint/model ID。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    defaultModel: "doubao-seed-1-6-251015",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "compatible",
+  },
+  {
+    id: "azure-openai",
+    label: "Azure OpenAI",
+    shortLabel: "Azure",
+    description: "Azure OpenAI v1 兼容接口；Base URL 需要替换为你的 Azure 资源地址。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl:
+      "https://YOUR-RESOURCE.openai.azure.com/openai/v1",
+    defaultModel: "gpt-4.1-mini",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    baseUrlLabel: "Azure Base URL",
+    group: "custom",
+  },
+  {
+    id: "custom-openai",
+    label: "自定义 OpenAI 兼容",
+    shortLabel: "自定义兼容",
+    description: "任意兼容 /v1/chat/completions 的中转、私有网关或企业代理。",
+    runtimeBackend: "openai-compatible",
+    defaultBaseUrl: "",
+    defaultModel: "gpt-4o-mini",
+    requiresApiKey: true,
+    supportsBaseUrl: true,
+    group: "custom",
+  },
+  {
+    id: "ollama",
+    label: "Ollama",
+    description: "本地或远程 Ollama 服务，不需要 API Key。",
+    runtimeBackend: "ollama",
+    defaultBaseUrl: "http://localhost:11434",
+    defaultModel: "llama3",
+    requiresApiKey: false,
+    supportsBaseUrl: true,
+    baseUrlLabel: "Ollama 地址",
+    group: "local",
+  },
+];
+
+const PROVIDER_ID_SET = new Set<string>(
+  PROVIDER_CATALOG.map((provider) => provider.id)
+);
+
+function makeDefaultProviderConfig(
+  provider: ProviderCatalogEntry
+): ProviderConfig {
+  return {
+    api_key: "",
+    base_url: provider.defaultBaseUrl,
+    model: provider.defaultModel,
+  };
+}
+
+function makeDefaultProviders(): Record<LLMBackendId, ProviderConfig> {
+  return PROVIDER_CATALOG.reduce((acc, provider) => {
+    acc[provider.id] = makeDefaultProviderConfig(provider);
+    return acc;
+  }, {} as Record<LLMBackendId, ProviderConfig>);
+}
+
+function makeDefaultConfig(): ApiConfig {
+  return {
+    preferred_backend: null,
+    providers: makeDefaultProviders(),
+    comsol_jar_path: "",
+    java_home: "",
+  };
+}
+
+function mergeProviderConfig(
+  provider: ProviderCatalogEntry,
+  raw?: Partial<ProviderConfig>
+): ProviderConfig {
+  const defaults = makeDefaultProviderConfig(provider);
+  return {
+    api_key: typeof raw?.api_key === "string" ? raw.api_key : defaults.api_key,
+    base_url:
+      typeof raw?.base_url === "string" ? raw.base_url : defaults.base_url,
+    model: typeof raw?.model === "string" ? raw.model : defaults.model,
+  };
+}
+
+function normalizeUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+function inferCompatibleProvider(baseUrl: string): LLMBackendId {
+  const normalized = normalizeUrl(baseUrl);
+  const match = PROVIDER_CATALOG.find(
+    (provider) =>
+      provider.runtimeBackend === "openai-compatible" &&
+      provider.id !== "custom-openai" &&
+      normalizeUrl(provider.defaultBaseUrl) === normalized
+  );
+  return match?.id ?? "custom-openai";
+}
+
+function mergeStoredConfig(raw: RawApiConfig): ApiConfig {
+  const config = makeDefaultConfig();
+  const preferredBackend: string | null =
+    typeof raw.preferred_backend === "string" ? raw.preferred_backend : null;
+
+  if (preferredBackend && isProviderId(preferredBackend)) {
+    config.preferred_backend = preferredBackend;
+  } else if (preferredBackend === "openai-compatible") {
+    const legacyBaseUrl =
+      typeof raw.openai_compatible_base_url === "string"
+        ? raw.openai_compatible_base_url
+        : "";
+    config.preferred_backend = inferCompatibleProvider(legacyBaseUrl);
+  }
+
+  if (raw.providers && typeof raw.providers === "object") {
+    const rawProviders = raw.providers as Record<string, Partial<ProviderConfig>>;
+    for (const provider of PROVIDER_CATALOG) {
+      config.providers[provider.id] = mergeProviderConfig(
+        provider,
+        rawProviders[provider.id]
+      );
+    }
+  }
+
+  const legacyCompatibleId = inferCompatibleProvider(
+    typeof raw.openai_compatible_base_url === "string"
+      ? raw.openai_compatible_base_url
+      : ""
+  );
+
+  const legacyProviderMap: Array<[LLMBackendId, Partial<ProviderConfig>]> = [
+    [
+      "deepseek",
+      {
+        api_key:
+          typeof raw.deepseek_api_key === "string"
+            ? raw.deepseek_api_key
+            : undefined,
+        model:
+          typeof raw.deepseek_model === "string"
+            ? raw.deepseek_model
+            : undefined,
+      },
+    ],
+    [
+      "kimi",
+      {
+        api_key:
+          typeof raw.kimi_api_key === "string" ? raw.kimi_api_key : undefined,
+        model:
+          typeof raw.kimi_model === "string" ? raw.kimi_model : undefined,
+      },
+    ],
+    [
+      legacyCompatibleId,
+      {
+        api_key:
+          typeof raw.openai_compatible_api_key === "string"
+            ? raw.openai_compatible_api_key
+            : undefined,
+        base_url:
+          typeof raw.openai_compatible_base_url === "string"
+            ? raw.openai_compatible_base_url
+            : undefined,
+        model:
+          typeof raw.openai_compatible_model === "string"
+            ? raw.openai_compatible_model
+            : undefined,
+      },
+    ],
+    [
+      "ollama",
+      {
+        base_url:
+          typeof raw.ollama_url === "string" ? raw.ollama_url : undefined,
+        model:
+          typeof raw.ollama_model === "string" ? raw.ollama_model : undefined,
+      },
+    ],
+  ];
+
+  for (const [providerId, partial] of legacyProviderMap) {
+    const provider = getProviderMeta(providerId);
+    config.providers[providerId] = mergeProviderConfig(provider, {
+      ...config.providers[providerId],
+      ...partial,
+    });
+  }
+
+  if (typeof raw.comsol_jar_path === "string") {
+    config.comsol_jar_path = raw.comsol_jar_path;
+  }
+  if (typeof raw.java_home === "string") {
+    config.java_home = raw.java_home;
+  }
+
+  return config;
+}
+
+export function getProviderCatalog(): ProviderCatalogEntry[] {
+  return PROVIDER_CATALOG.map((provider) => ({ ...provider }));
+}
+
+export function isProviderId(value: unknown): value is LLMBackendId {
+  return typeof value === "string" && PROVIDER_ID_SET.has(value);
+}
+
+export function getProviderMeta(providerId: LLMBackendId): ProviderCatalogEntry {
+  const provider = PROVIDER_CATALOG.find((item) => item.id === providerId);
+  if (!provider) {
+    throw new Error(`Unknown LLM provider: ${providerId}`);
+  }
+  return provider;
+}
+
+export function getProviderLabel(providerId: string | null | undefined): string {
+  if (!isProviderId(providerId)) return "默认";
+  return getProviderMeta(providerId).shortLabel ?? getProviderMeta(providerId).label;
+}
+
+export function getProviderConfig(
+  config: ApiConfig,
+  providerId: LLMBackendId
+): ProviderConfig {
+  return mergeProviderConfig(
+    getProviderMeta(providerId),
+    config.providers?.[providerId]
+  );
+}
+
+export function resolveRuntimeBackend(
+  providerId: LLMBackendId
+): RuntimeBackendId {
+  return getProviderMeta(providerId).runtimeBackend;
+}
 
 export function loadApiConfig(): ApiConfig {
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw && LEGACY_STORAGE_KEY) {
+    if (!raw) {
       raw = localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
-        localStorage.setItem(STORAGE_KEY, raw);
         localStorage.removeItem(LEGACY_STORAGE_KEY);
       }
     }
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<ApiConfig>;
-      return { ...defaultConfig, ...parsed };
+      const parsed = JSON.parse(raw) as RawApiConfig;
+      const config = mergeStoredConfig(parsed);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      return config;
     }
   } catch (_) {}
-  return { ...defaultConfig };
+  return makeDefaultConfig();
 }
 
 export function saveApiConfig(config: ApiConfig): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    const merged = mergeStoredConfig(config as unknown as RawApiConfig);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   } catch (_) {}
 }
 
-/** 转为 .env 风格的键值对，供后端 config_save 使用 */
+/** 转为 .env 风格的 LLM 键值对，供后端 config_save 使用 */
 export function apiConfigToEnv(config: ApiConfig): Record<string, string> {
-  const env: Record<string, string> = {};
-  if (config.preferred_backend) env.LLM_BACKEND = config.preferred_backend;
-  if (config.deepseek_api_key) env.DEEPSEEK_API_KEY = config.deepseek_api_key;
-  if (config.deepseek_model) env.DEEPSEEK_MODEL = config.deepseek_model;
-  if (config.kimi_api_key) env.KIMI_API_KEY = config.kimi_api_key;
-  if (config.kimi_model) env.KIMI_MODEL = config.kimi_model;
-  if (config.openai_compatible_base_url)
-    env.OPENAI_COMPATIBLE_BASE_URL = config.openai_compatible_base_url;
-  if (config.openai_compatible_api_key)
-    env.OPENAI_COMPATIBLE_API_KEY = config.openai_compatible_api_key;
-  if (config.openai_compatible_model)
-    env.OPENAI_COMPATIBLE_MODEL = config.openai_compatible_model;
-  if (config.ollama_url) env.OLLAMA_URL = config.ollama_url;
-  if (config.ollama_model) env.OLLAMA_MODEL = config.ollama_model;
-  if (config.comsol_jar_path) env.COMSOL_JAR_PATH = config.comsol_jar_path;
-  if (config.java_home) env.JAVA_HOME = config.java_home;
-  return env;
-}
+  const env: Record<string, string> = {
+    LLM_BACKEND: "",
+    DEEPSEEK_API_KEY: "",
+    DEEPSEEK_MODEL: "",
+    KIMI_API_KEY: "",
+    KIMI_MODEL: "",
+    OPENAI_COMPATIBLE_BASE_URL: "",
+    OPENAI_COMPATIBLE_API_KEY: "",
+    OPENAI_COMPATIBLE_MODEL: "",
+    OLLAMA_URL: "",
+    OLLAMA_MODEL: "",
+  };
 
-/** 根据当前后端从 config 中取出 API 相关 payload，供 run/plan 请求使用 */
-export function getPayloadFromConfig(
-  backend: string | null,
-  config: ApiConfig
-): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-  switch (backend) {
+  const providerId = config.preferred_backend;
+  if (!providerId) return env;
+
+  const provider = getProviderConfig(config, providerId);
+  const runtimeBackend = resolveRuntimeBackend(providerId);
+  env.LLM_BACKEND = runtimeBackend;
+
+  switch (runtimeBackend) {
     case "deepseek":
-      if (config.deepseek_api_key) payload.api_key = config.deepseek_api_key;
-      if (config.deepseek_model) payload.model = config.deepseek_model;
+      env.DEEPSEEK_API_KEY = provider.api_key;
+      env.DEEPSEEK_MODEL = provider.model;
       break;
     case "kimi":
-      if (config.kimi_api_key) payload.api_key = config.kimi_api_key;
-      if (config.kimi_model) payload.model = config.kimi_model;
+      env.KIMI_API_KEY = provider.api_key;
+      env.KIMI_MODEL = provider.model;
       break;
     case "openai-compatible":
-      if (config.openai_compatible_base_url)
-        payload.base_url = config.openai_compatible_base_url;
-      if (config.openai_compatible_api_key)
-        payload.api_key = config.openai_compatible_api_key;
-      if (config.openai_compatible_model)
-        payload.model = config.openai_compatible_model;
+      env.OPENAI_COMPATIBLE_BASE_URL = provider.base_url;
+      env.OPENAI_COMPATIBLE_API_KEY = provider.api_key;
+      env.OPENAI_COMPATIBLE_MODEL = provider.model;
       break;
     case "ollama":
-      if (config.ollama_url) payload.ollama_url = config.ollama_url;
-      if (config.ollama_model) payload.model = config.ollama_model;
+      env.OLLAMA_URL = provider.base_url;
+      env.OLLAMA_MODEL = provider.model;
       break;
     default:
       break;
   }
+
+  return env;
+}
+
+/** 根据当前提供商从 config 中取出 API payload；backend 会映射为后端实际支持的运行时类型 */
+export function getPayloadFromConfig(
+  backend: string | null,
+  config: ApiConfig
+): Record<string, unknown> {
+  const providerId =
+    isProviderId(backend) ? backend : config.preferred_backend ?? null;
+  if (!providerId) return {};
+
+  const runtimeBackend = resolveRuntimeBackend(providerId);
+  const provider = getProviderConfig(config, providerId);
+  const payload: Record<string, unknown> = { backend: runtimeBackend };
+
+  switch (runtimeBackend) {
+    case "deepseek":
+    case "kimi":
+      if (provider.api_key) payload.api_key = provider.api_key;
+      if (provider.model) payload.model = provider.model;
+      break;
+    case "openai-compatible":
+      if (provider.base_url) payload.base_url = provider.base_url;
+      if (provider.api_key) payload.api_key = provider.api_key;
+      if (provider.model) payload.model = provider.model;
+      break;
+    case "ollama":
+      if (provider.base_url) payload.ollama_url = provider.base_url;
+      if (provider.model) payload.model = provider.model;
+      break;
+    default:
+      break;
+  }
+
   return payload;
 }

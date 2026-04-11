@@ -127,9 +127,9 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
     }
 
     const payloadAnswers = buildPayloadAnswers();
+    const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
 
     if (state.mode === "plan") {
-      const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
       void sendCommand("plan", {
         input,
         clarifying_answers: payloadAnswers,
@@ -139,6 +139,11 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
       void sendStreamCommand("run", {
         input,
         clarifying_answers: payloadAnswers,
+        output: state.outputDefault ?? undefined,
+        workspace_dir: state.workspaceDir ?? undefined,
+        use_react: true,
+        no_context: false,
+        ...apiPayload,
       });
     }
 

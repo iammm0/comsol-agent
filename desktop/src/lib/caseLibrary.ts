@@ -2,77 +2,284 @@ import { invoke } from "@tauri-apps/api/core";
 
 export interface CaseLibraryItem {
   id: string;
+  applicationId: string;
+  slug: string;
   title: string;
   category: string;
   summary: string;
   officialUrl: string;
   downloadUrl: string;
+  referencePdfUrl: string;
+  englishUrl: string;
+  imageUrl: string;
+  latestVersion: string;
   tags: string[];
+  products: CaseLibraryProduct[];
+  downloads: CaseLibraryDownload[];
+}
+
+export interface CaseLibraryProduct {
+  name: string;
+  url: string;
+}
+
+export interface CaseLibraryDownload {
+  version: string;
+  filename: string;
+  url: string;
+  size: string;
+  fileType: string;
+}
+
+export interface CaseLibraryResult {
+  items: CaseLibraryItem[];
+  total: number;
+  generatedAt: string | null;
+  metadata: Record<string, unknown>;
+  ok: boolean;
+  message: string;
+}
+
+export interface CaseLibrarySyncState {
+  running: boolean;
+  status: string;
+  message: string;
+  savedItems: number;
+  indexedItems: number;
+  totalShallowRecords: number;
+  detailCompleted?: number;
+  detailTotal?: number;
+  page?: number;
+  title?: string;
+  officialUrl?: string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  generatedAt?: string | null;
+  lastError?: string | null;
+  metadata: Record<string, unknown>;
 }
 
 interface CaseLibraryBridgeResponse {
   ok: boolean;
   message: string;
   items?: Array<Record<string, unknown>>;
+  total?: number;
+  generated_at?: string | null;
+  metadata?: Record<string, unknown>;
+  sync?: Record<string, unknown>;
 }
 
-const FALLBACK_CASES: CaseLibraryItem[] = [
-  {
-    id: "heat-sink-3d",
-    title: "3D Heat Sink Cooling",
-    category: "传热",
-    summary: "典型散热片稳态传热分析，展示温度分布与散热能力评估。",
-    officialUrl: "https://www.comsol.com/model/heat-sink-3d-473",
-    downloadUrl: "https://www.comsol.com/model/download/473",
-    tags: ["热传导", "散热", "3D"],
-  },
-  {
-    id: "micromixer",
-    title: "Micromixer",
-    category: "流体",
-    summary: "微流控混合器模型，关注层流与组分传输耦合效果。",
-    officialUrl: "https://www.comsol.com/model/micromixer-14611",
-    downloadUrl: "https://www.comsol.com/model/download/14611",
-    tags: ["层流", "传质", "微流控"],
-  },
-  {
-    id: "induction-heating",
-    title: "Induction Heating",
-    category: "电磁-热",
-    summary: "电磁场与固体传热耦合，分析感应加热过程中的温升。",
-    officialUrl: "https://www.comsol.com/model/induction-heating-14595",
-    downloadUrl: "https://www.comsol.com/model/download/14595",
-    tags: ["感应加热", "电磁", "多物理场"],
-  },
-];
+interface FetchCaseLibraryOptions {
+  limit?: number;
+  query?: string;
+  category?: string;
+}
+
+interface StartCaseLibrarySyncOptions {
+  startPage?: number;
+  endPage?: number;
+  limit?: number;
+  workers?: number;
+  timeout?: number;
+  delayMs?: number;
+}
+
+export function formatCaseLibraryTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
 
 function normalizeItem(raw: Record<string, unknown>): CaseLibraryItem | null {
   const id = typeof raw.id === "string" ? raw.id : "";
+  const applicationId = typeof raw.application_id === "string" ? raw.application_id : id;
+  const slug = typeof raw.slug === "string" ? raw.slug : "";
   const title = typeof raw.title === "string" ? raw.title : "";
   const category = typeof raw.category === "string" ? raw.category : "未分类";
   const summary = typeof raw.summary === "string" ? raw.summary : "";
   const officialUrl = typeof raw.official_url === "string" ? raw.official_url : "";
   const downloadUrl = typeof raw.download_url === "string" ? raw.download_url : "";
+  const referencePdfUrl =
+    typeof raw.reference_pdf_url === "string" ? raw.reference_pdf_url : "";
+  const englishUrl = typeof raw.english_url === "string" ? raw.english_url : "";
+  const imageUrl = typeof raw.image_url === "string" ? raw.image_url : "";
+  const latestVersion = typeof raw.latest_version === "string" ? raw.latest_version : "";
   const tagsRaw = Array.isArray(raw.tags) ? raw.tags : [];
-  const tags = tagsRaw.filter((t): t is string => typeof t === "string");
+  const tags = tagsRaw.filter((tag): tag is string => typeof tag === "string");
+  const productsRaw = Array.isArray(raw.products) ? raw.products : [];
+  const products = productsRaw
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      name: typeof item.name === "string" ? item.name : "",
+      url: typeof item.url === "string" ? item.url : "",
+    }))
+    .filter((item) => item.name);
+  const downloadsRaw = Array.isArray(raw.downloads) ? raw.downloads : [];
+  const downloads = downloadsRaw
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      version: typeof item.version === "string" ? item.version : "",
+      filename: typeof item.filename === "string" ? item.filename : "",
+      url: typeof item.url === "string" ? item.url : "",
+      size: typeof item.size === "string" ? item.size : "",
+      fileType: typeof item.file_type === "string" ? item.file_type : "",
+    }))
+    .filter((item) => item.url);
   if (!id || !title || !officialUrl || !downloadUrl) return null;
-  return { id, title, category, summary, officialUrl, downloadUrl, tags };
+  return {
+    id,
+    applicationId,
+    slug,
+    title,
+    category,
+    summary,
+    officialUrl,
+    downloadUrl,
+    referencePdfUrl,
+    englishUrl,
+    imageUrl,
+    latestVersion,
+    tags,
+    products,
+    downloads,
+  };
 }
 
-export async function fetchCaseLibrary(): Promise<CaseLibraryItem[]> {
+function buildResult(
+  items: CaseLibraryItem[],
+  {
+    total,
+    generatedAt,
+    metadata,
+    ok,
+    message,
+  }: {
+    total?: number;
+    generatedAt?: string | null;
+    metadata?: Record<string, unknown>;
+    ok: boolean;
+    message: string;
+  }
+): CaseLibraryResult {
+  return {
+    items,
+    total: typeof total === "number" ? total : items.length,
+    generatedAt: typeof generatedAt === "string" ? generatedAt : null,
+    metadata: metadata ?? {},
+    ok,
+    message,
+  };
+}
+
+function normalizeSync(raw: Record<string, unknown> | undefined | null): CaseLibrarySyncState | null {
+  if (!raw) return null;
+  return {
+    running: raw.running === true,
+    status: typeof raw.status === "string" ? raw.status : "idle",
+    message: typeof raw.message === "string" ? raw.message : "",
+    savedItems: typeof raw.saved_items === "number" ? raw.saved_items : 0,
+    indexedItems: typeof raw.indexed_items === "number" ? raw.indexed_items : 0,
+    totalShallowRecords:
+      typeof raw.total_shallow_records === "number" ? raw.total_shallow_records : 0,
+    detailCompleted:
+      typeof raw.detail_completed === "number" ? raw.detail_completed : undefined,
+    detailTotal: typeof raw.detail_total === "number" ? raw.detail_total : undefined,
+    page: typeof raw.page === "number" ? raw.page : undefined,
+    title: typeof raw.title === "string" ? raw.title : undefined,
+    officialUrl: typeof raw.official_url === "string" ? raw.official_url : undefined,
+    startedAt: typeof raw.started_at === "string" ? raw.started_at : null,
+    finishedAt: typeof raw.finished_at === "string" ? raw.finished_at : null,
+    generatedAt: typeof raw.generated_at === "string" ? raw.generated_at : null,
+    lastError: typeof raw.last_error === "string" ? raw.last_error : null,
+    metadata:
+      raw.metadata && typeof raw.metadata === "object"
+        ? (raw.metadata as Record<string, unknown>)
+        : {},
+  };
+}
+
+export async function fetchCaseLibrary(
+  options: FetchCaseLibraryOptions = {}
+): Promise<CaseLibraryResult> {
+  const { limit = 200, query, category } = options;
+
   try {
     const res = await invoke<CaseLibraryBridgeResponse>("bridge_send", {
       cmd: "case_library_list",
-      payload: { limit: 200 },
+      payload: { limit, query, category },
     });
     if (!res.ok || !Array.isArray(res.items)) {
-      return FALLBACK_CASES;
+      return buildResult([], {
+        ok: false,
+        message: res.message,
+        total: typeof res.total === "number" ? res.total : 0,
+        generatedAt: res.generated_at,
+        metadata: res.metadata,
+      });
     }
     const normalized = res.items
       .map((row) => normalizeItem(row))
       .filter((item): item is CaseLibraryItem => item != null);
-    return normalized.length > 0 ? normalized : FALLBACK_CASES;
+    return buildResult(normalized, {
+      total: typeof res.total === "number" ? res.total : normalized.length,
+      generatedAt: res.generated_at,
+      metadata: res.metadata,
+      ok: true,
+      message: res.message,
+    });
+  } catch (error) {
+    return buildResult([], {
+      ok: false,
+      message: String(error),
+      metadata: {},
+    });
+  }
+}
+
+export async function startCaseLibrarySync(
+  options: StartCaseLibrarySyncOptions = {}
+): Promise<CaseLibrarySyncState | null> {
+  try {
+    const res = await invoke<CaseLibraryBridgeResponse>("bridge_send", {
+      cmd: "case_library_sync",
+      payload: {
+        start_page: options.startPage,
+        end_page: options.endPage,
+        limit: options.limit,
+        workers: options.workers,
+        timeout: options.timeout,
+        delay_ms: options.delayMs,
+      },
+    });
+    return normalizeSync(res.sync ?? null);
   } catch {
-    return FALLBACK_CASES;
+    return null;
+  }
+}
+
+export async function fetchCaseLibrarySyncStatus(): Promise<CaseLibrarySyncState | null> {
+  try {
+    const res = await invoke<CaseLibraryBridgeResponse>("bridge_send", {
+      cmd: "case_library_sync_status",
+      payload: {},
+    });
+    return normalizeSync(res.sync ?? null);
+  } catch {
+    return null;
   }
 }

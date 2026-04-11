@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "./context/AppStateContext";
+import type { AppView } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { Session } from "./components/Session";
 import { CaseLibraryPage } from "./components/CaseLibraryPage";
+import { SkillsSystemPage } from "./components/SkillsSystemPage";
 import { TitleBar } from "./components/TitleBar";
 import { DialogOverlay } from "./components/dialogs/DialogOverlay";
 import { HelpDialog } from "./components/dialogs/HelpDialog";
@@ -21,6 +23,20 @@ interface BridgeInitStatus {
   error: string | null;
 }
 
+function renderMainView(view: AppView) {
+  switch (view) {
+    case "case-library":
+      return <CaseLibraryPage />;
+    case "skills-system":
+      return <SkillsSystemPage />;
+    case "settings":
+      return <SettingsDialog pageMode />;
+    case "session":
+    default:
+      return <Session />;
+  }
+}
+
 export default function App() {
   const { state, dispatch } = useAppState();
   const [bridgeStatus, setBridgeStatus] = useState<BridgeInitStatus | null>(null);
@@ -30,8 +46,8 @@ export default function App() {
   }, [dispatch]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && state.activeDialog) {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && state.activeDialog) {
         closeDialog();
       }
     };
@@ -64,8 +80,6 @@ export default function App() {
         return <OutputDialog onClose={closeDialog} />;
       case "ops":
         return <ComsolOpsDialog onClose={closeDialog} />;
-      case "settings":
-        return <SettingsDialog onClose={closeDialog} />;
       case "api":
         return <ApiBrowserDialog onClose={closeDialog} />;
       case "planQuestions":
@@ -82,15 +96,13 @@ export default function App() {
         <div className="bridge-error-banner" role="alert">
           Bridge 未就绪：{bridgeStatus.error}
           <span className="bridge-error-hint">
-            请从项目根目录启动应用，或设置 MPH_AGENT_BRIDGE_DEBUG=1 后查看 %TEMP%\mph-agent-bridge-debug.log
+            请从项目根目录启动应用，或设置 <code>MPH_AGENT_BRIDGE_DEBUG=1</code> 后查看临时目录中的调试日志。
           </span>
         </div>
       )}
       <div className="app-body">
-        <Sidebar />
-        <div className="app-main">
-          {state.view === "session" ? <Session /> : <CaseLibraryPage />}
-        </div>
+        {state.view === "session" && <Sidebar />}
+        <div className="app-main">{renderMainView(state.view)}</div>
       </div>
       {dialogContent && (
         <DialogOverlay onClose={closeDialog} dialogType={state.activeDialog}>

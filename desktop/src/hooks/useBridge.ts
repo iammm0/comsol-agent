@@ -262,14 +262,14 @@ export function useBridge() {
 
       const userCount = messages.filter((m) => m.role === "user").length;
       void (async () => {
+        const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
+
         if (userCount <= 1) {
-          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
           try {
             const res = await invoke<{ ok: boolean; message: string; title?: string }>("bridge_send", {
               cmd: "conversation_title_suggest",
               payload: {
                 input: line,
-                backend: state.backend ?? undefined,
                 ...apiPayload,
               },
             });
@@ -284,22 +284,17 @@ export function useBridge() {
         }
 
         if (state.mode === "discuss") {
-          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
           await sendCommand("discuss", {
             input: line,
-            backend: state.backend ?? undefined,
             ...apiPayload,
           });
         } else if (state.mode === "plan") {
-          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
           await sendCommand("plan", { input: line, ...apiPayload });
         } else {
-          const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
           await sendStreamCommand("run", {
             input: line,
             output: state.outputDefault ?? undefined,
             workspace_dir: state.workspaceDir ?? undefined,
-            backend: state.backend ?? undefined,
             use_react: true,
             no_context: false,
             ...apiPayload,

@@ -1,144 +1,260 @@
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useTheme, ACCENT_PRESETS } from "../../context/ThemeContext";
 import { useAppState } from "../../context/AppStateContext";
 import {
-  loadApiConfig,
-  saveApiConfig,
   apiConfigToEnv,
+  getProviderCatalog,
+  getProviderConfig,
+  getProviderMeta,
+  loadApiConfig,
+  resolveRuntimeBackend,
+  saveApiConfig,
   type ApiConfig,
   type LLMBackendId,
+  type ProviderCatalogEntry,
 } from "../../lib/apiConfig";
 import type { BridgeResponse, MyComsolModel } from "../../lib/types";
+import {
+  clearCaseLibraryRecords,
+  loadCaseLibraryRecords,
+  removeCaseLibraryRecord,
+  type CaseLibraryRecord,
+} from "../../lib/caseLibraryRecords";
 
 type SettingsTab = "theme" | "llm" | "comsol" | "memory" | "models";
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "theme", label: "主题风格" },
+  { id: "theme", label: "主题" },
   { id: "llm", label: "LLM 配置" },
   { id: "comsol", label: "COMSOL 配置" },
+  { id: "models", label: "模型管理" },
   { id: "memory", label: "记忆管理" },
-  { id: "models", label: "我创建的 COMSOL 模型" },
 ];
 
-interface SettingsDialogProps {
-  onClose: () => void;
+const PROVIDER_GROUP_LABELS: Record<ProviderCatalogEntry["group"], string> = {
+  native: "官方直连",
+  compatible: "OpenAI 兼容",
+  custom: "自定义 / 企业网关",
+  local: "本地部署",
+};
+
+const PROVIDER_GROUP_ORDER: ProviderCatalogEntry["group"][] = [
+  "native",
+  "compatible",
+  "custom",
+  "local",
+];
+
+const RUNTIME_LABELS: Record<string, string> = {
+  deepseek: "DeepSeek runtime",
+  kimi: "Kimi runtime",
+  "openai-compatible": "OpenAI-compatible runtime",
+  ollama: "Ollama runtime",
+};
+
+function buildComsolEnv(
+  config: ApiConfig,
+  workspaceDir: string | null
+): Record<string, string> {
+  return {
+    MODEL_OUTPUT_DIR: workspaceDir ?? "",
+    COMSOL_JAR_PATH: config.comsol_jar_path,
+    JAVA_HOME: config.java_home,
+  };
 }
 
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
+interface SettingsDialogProps {
+  onClose?: () => void;
+  pageMode?: boolean;
+}
+
+function formatTime(value: number | null): string {
+  if (!value) return "未记录";
+  return new Date(value).toLocaleString();
+}
+
+function parseMemoryItems(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) =>
+      line
+        .replace(/^[-*•]\s+/, "")
+        .replace(/^\d+[.)、]\s+/, "")
+        .trim()
+    );
+}
+
+function serializeMemoryItems(items: string[]): string {
+  return items
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => (/[:：]$/.test(item) ? item : `- ${item}`))
+    .join("\n");
+}
+
+export function SettingsDialog({
+  onClose,
+  pageMode = false,
+}: SettingsDialogProps) {
   const { themeMode, accentColor, setThemeMode, setAccentColor } = useTheme();
   const { state, dispatch } = useAppState();
   const cid = state.currentConversationId;
 
+  const providerCatalog = useMemo(() => getProviderCatalog(), []);
+
   const [activeTab, setActiveTab] = useState<SettingsTab>("theme");
   const [apiConfig, setApiConfig] = useState<ApiConfig>(() => loadApiConfig());
-  const [memoryText, setMemoryText] = useState("");
+  const [memoryItems, setMemoryItems] = useState<string[]>([]);
   const [memoryStatus, setMemoryStatus] = useState("");
-  const [ollamaUrl, setOllamaUrl] = useState("");
-  const [ollamaTestResult, setOllamaTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [syncStatus, setSyncStatus] = useState("");
+  const [llmStatus, setLlmStatus] = useState("");
+  const [comsolStatus, setComsolStatus] = useState("");
+  const [ollamaTestResult, setOllamaTestResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
   const [modelsList, setModelsList] = useState<MyComsolModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [caseRecords, setCaseRecords] = useState<CaseLibraryRecord[]>(() =>
+    loadCaseLibraryRecords()
+  );
 
   useEffect(() => {
     setApiConfig(loadApiConfig());
-    setOllamaUrl(loadApiConfig().ollama_url);
   }, []);
 
-  /** 保存到本地并同步到后端 .env，加载最新配置 */
-  const saveAndSync = useCallback(async (config: ApiConfig, statusKey: "llm" | "comsol") => {
-    saveApiConfig(config);
-    setApiConfig(loadApiConfig());
-    if (statusKey === "llm") setMemoryStatus("正在同步到后端…");
-    else setSyncStatus("正在同步到后端…");
-    try {
-      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "config_save",
-        payload: { config: apiConfigToEnv(config) },
-      });
-      const msg = res.ok ? res.message : res.message;
-      if (statusKey === "llm") setMemoryStatus(res.ok ? "已保存，" + msg : msg);
-      else if (statusKey === "comsol") setSyncStatus(res.ok ? "COMSOL 已保存，" + msg : msg);
-      if (!res.ok && statusKey !== "comsol") setSyncStatus(msg);
-    } catch (e) {
-      const err = "同步失败: " + String(e);
-      setSyncStatus(err);
-      if (statusKey === "llm") setMemoryStatus(err);
-      else if (statusKey === "comsol") setSyncStatus(err);
+  const selectedProviderId =
+    apiConfig.preferred_backend ?? providerCatalog[0]?.id ?? "deepseek";
+  const selectedProviderMeta = getProviderMeta(selectedProviderId);
+  const selectedProviderConfig = getProviderConfig(apiConfig, selectedProviderId);
+  const selectedRuntimeLabel =
+    RUNTIME_LABELS[resolveRuntimeBackend(selectedProviderId)];
+  const serializedMemoryText = useMemo(
+    () => serializeMemoryItems(memoryItems),
+    [memoryItems]
+  );
+
+  const providersByGroup = useMemo(() => {
+    const groups: Record<
+      ProviderCatalogEntry["group"],
+      ProviderCatalogEntry[]
+    > = {
+      native: [],
+      compatible: [],
+      custom: [],
+      local: [],
+    };
+    for (const provider of providerCatalog) {
+      groups[provider.group].push(provider);
     }
-    setTimeout(() => {
-      setSyncStatus("");
-      if (statusKey === "llm") setMemoryStatus("");
-    }, 4000);
+    return groups;
+  }, [providerCatalog]);
+
+  const openNativePath = useCallback((path: string) => {
+    invoke("open_path", { path }).catch(() => {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(path);
+      }
+    });
   }, []);
+
+  const openInFolder = useCallback((path: string) => {
+    invoke("open_in_folder", { path }).catch(() => {
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(path);
+      }
+    });
+  }, []);
+
+  const openPreviewMd = useCallback(
+    (modelPath: string) => {
+      const dir = modelPath.replace(/[/\\][^/\\]*$/, "") || modelPath;
+      const mdPath =
+        dir + (dir.endsWith("/") || dir.endsWith("\\") ? "" : "/") + "operations.md";
+      openNativePath(mdPath);
+    },
+    [openNativePath]
+  );
+
+  const saveAndSync = useCallback(
+    async (config: ApiConfig, section: "llm" | "comsol") => {
+      saveApiConfig(config);
+      setApiConfig(loadApiConfig());
+
+      const setStatus = section === "llm" ? setLlmStatus : setComsolStatus;
+      setStatus("正在同步到后端...");
+
+      try {
+        const env =
+          section === "llm"
+            ? apiConfigToEnv(config)
+            : buildComsolEnv(config, state.workspaceDir);
+        const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
+          cmd: "config_save",
+          payload: { config: env },
+        });
+        setStatus(res.ok ? `已保存：${res.message}` : res.message);
+      } catch (error) {
+        setStatus(`同步失败：${String(error)}`);
+      }
+
+      window.setTimeout(() => setStatus(""), 4000);
+    },
+    [state.workspaceDir]
+  );
 
   const setPreferredBackend = useCallback(
-    (value: LLMBackendId | null) => {
-      setApiConfig((c: ApiConfig) => ({ ...c, preferred_backend: value }));
-      saveApiConfig({ ...apiConfig, preferred_backend: value });
+    (value: LLMBackendId) => {
+      setApiConfig((current) => {
+        const next = { ...current, preferred_backend: value };
+        saveApiConfig(next);
+        return next;
+      });
       dispatch({ type: "SET_BACKEND", backend: value });
+      setOllamaTestResult(null);
     },
-    [apiConfig, dispatch]
+    [dispatch]
+  );
+
+  const updateProviderField = useCallback(
+    (
+      providerId: LLMBackendId,
+      field: keyof ReturnType<typeof getProviderConfig>,
+      value: string
+    ) => {
+      setApiConfig((current) => ({
+        ...current,
+        providers: {
+          ...current.providers,
+          [providerId]: {
+            ...getProviderConfig(current, providerId),
+            [field]: value,
+          },
+        },
+      }));
+      if (providerId === "ollama") {
+        setOllamaTestResult(null);
+      }
+    },
+    []
   );
 
   const saveConfig = useCallback(() => {
-    saveAndSync(apiConfig, "llm");
-  }, [apiConfig, saveAndSync]);
+    const nextConfig = apiConfig.preferred_backend
+      ? apiConfig
+      : { ...apiConfig, preferred_backend: selectedProviderId };
 
-  const loadMemory = useCallback(async () => {
-    if (!cid) {
-      setMemoryStatus("无当前会话");
-      return;
+    if (!apiConfig.preferred_backend) {
+      saveApiConfig(nextConfig);
+      setApiConfig(nextConfig);
+      dispatch({ type: "SET_BACKEND", backend: selectedProviderId });
     }
-    setMemoryStatus("加载中…");
-    try {
-      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "context_get_summary",
-        payload: { conversation_id: cid },
-      });
-      setMemoryText(res.ok ? res.message : "");
-      setMemoryStatus(res.ok ? "已加载" : res.message);
-    } catch (e) {
-      setMemoryStatus("加载失败: " + String(e));
-    }
-    setTimeout(() => setMemoryStatus(""), 3000);
-  }, [cid]);
 
-  const saveMemory = useCallback(async () => {
-    if (!cid) {
-      setMemoryStatus("无当前会话");
-      return;
-    }
-    setMemoryStatus("保存中…");
-    try {
-      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "context_set_summary",
-        payload: { conversation_id: cid, text: memoryText },
-      });
-      setMemoryStatus(res.ok ? "记忆已保存" : res.message);
-    } catch (e) {
-      setMemoryStatus("保存失败: " + String(e));
-    }
-    setTimeout(() => setMemoryStatus(""), 3000);
-  }, [cid, memoryText]);
-
-  const clearMemory = useCallback(async () => {
-    if (!cid) return;
-    if (!confirm("确定清除本会话的对话历史与记忆？")) return;
-    setMemoryStatus("清除中…");
-    try {
-      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "context_clear",
-        payload: { conversation_id: cid },
-      });
-      setMemoryText("");
-      setMemoryStatus(res.ok ? "已清除" : res.message);
-    } catch (e) {
-      setMemoryStatus("清除失败: " + String(e));
-    }
-    setTimeout(() => setMemoryStatus(""), 3000);
-  }, [cid]);
+    void saveAndSync(nextConfig, "llm");
+  }, [apiConfig, dispatch, saveAndSync, selectedProviderId]);
 
   const pickWorkspaceDir = useCallback(async () => {
     const selected = await open({
@@ -148,36 +264,31 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
       defaultPath: state.workspaceDir || undefined,
     });
     if (selected == null) return;
-    const path = String(selected);
-    dispatch({ type: "SET_WORKSPACE_DIR", path });
-    try {
-      await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "config_save",
-        payload: { config: { MODEL_OUTPUT_DIR: path } },
-      });
-      setSyncStatus("工作目录已保存");
-    } catch (e) {
-      setSyncStatus("工作目录同步失败: " + String(e));
-    }
-    setTimeout(() => setSyncStatus(""), 3000);
+    dispatch({ type: "SET_WORKSPACE_DIR", path: String(selected) });
+    setComsolStatus("工作目录已更新，请点击保存同步到后端");
   }, [state.workspaceDir, dispatch]);
 
-  const clearWorkspaceDir = useCallback(async () => {
+  const clearWorkspaceDir = useCallback(() => {
     dispatch({ type: "SET_WORKSPACE_DIR", path: null });
-    try {
-      await invoke<{ ok: boolean; message: string }>("bridge_send", {
-        cmd: "config_save",
-        payload: { config: { MODEL_OUTPUT_DIR: "" } },
-      });
-      setSyncStatus("工作目录已清除");
-    } catch (e) {
-      setSyncStatus("工作目录同步失败: " + String(e));
-    }
-    setTimeout(() => setSyncStatus(""), 3000);
+    setComsolStatus("工作目录已清除，请点击保存同步到后端");
   }, [dispatch]);
 
+  const pickDirectory = useCallback(
+    (title: string, currentPath: string, onPick: (path: string) => void) => {
+      open({
+        directory: true,
+        multiple: false,
+        title,
+        defaultPath: currentPath || undefined,
+      }).then((selected) => {
+        if (selected != null) onPick(String(selected));
+      });
+    },
+    []
+  );
+
   const testOllama = useCallback(async () => {
-    const url = ollamaUrl.trim() || apiConfig.ollama_url;
+    const url = getProviderConfig(apiConfig, "ollama").base_url.trim();
     setOllamaTestResult(null);
     try {
       const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
@@ -185,17 +296,85 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
         payload: { ollama_url: url },
       });
       setOllamaTestResult({ ok: res.ok, msg: res.message });
-    } catch (e) {
-      setOllamaTestResult({ ok: false, msg: String(e) });
+    } catch (error) {
+      setOllamaTestResult({ ok: false, msg: String(error) });
     }
-  }, [ollamaUrl, apiConfig.ollama_url]);
+  }, [apiConfig]);
+
+  const loadMemory = useCallback(async () => {
+    if (!cid) {
+      setMemoryStatus("当前没有会话");
+      return;
+    }
+    setMemoryStatus("加载中...");
+    try {
+      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "context_get_summary",
+        payload: { conversation_id: cid },
+      });
+      setMemoryItems(res.ok ? parseMemoryItems(res.message) : []);
+      setMemoryStatus(res.ok ? "已加载" : res.message);
+    } catch (error) {
+      setMemoryStatus(`加载失败：${String(error)}`);
+    }
+    window.setTimeout(() => setMemoryStatus(""), 3000);
+  }, [cid]);
+
+  const saveMemory = useCallback(async () => {
+    if (!cid) {
+      setMemoryStatus("当前没有会话");
+      return;
+    }
+    setMemoryStatus("保存中...");
+    try {
+      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "context_set_summary",
+        payload: { conversation_id: cid, text: serializedMemoryText },
+      });
+      setMemoryStatus(res.ok ? "记忆已保存" : res.message);
+    } catch (error) {
+      setMemoryStatus(`保存失败：${String(error)}`);
+    }
+    window.setTimeout(() => setMemoryStatus(""), 3000);
+  }, [cid, serializedMemoryText]);
+
+  const clearMemory = useCallback(async () => {
+    if (!cid) return;
+    if (!confirm("确定清除本会话的对话历史与记忆吗？")) return;
+    setMemoryStatus("清除中...");
+    try {
+      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "context_clear",
+        payload: { conversation_id: cid },
+      });
+      setMemoryItems([]);
+      setMemoryStatus(res.ok ? "已清除" : res.message);
+    } catch (error) {
+      setMemoryStatus(`清除失败：${String(error)}`);
+    }
+    window.setTimeout(() => setMemoryStatus(""), 3000);
+  }, [cid]);
+
+  const addMemoryItem = useCallback(() => {
+    setMemoryItems((current) => [...current, ""]);
+  }, []);
+
+  const updateMemoryItem = useCallback((index: number, value: string) => {
+    setMemoryItems((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? value : item))
+    );
+  }, []);
+
+  const removeMemoryItem = useCallback((index: number) => {
+    setMemoryItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }, []);
 
   const loadModelsList = useCallback(async () => {
     setModelsLoading(true);
     try {
       const res = await invoke<BridgeResponse>("bridge_send", {
         cmd: "models_list",
-        payload: { limit: 50 },
+        payload: { limit: 80 },
       });
       setModelsList(res.ok && Array.isArray(res.models) ? res.models : []);
     } catch {
@@ -205,57 +384,56 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
     }
   }, []);
 
+  const reloadCaseRecords = useCallback(() => {
+    setCaseRecords(loadCaseLibraryRecords());
+  }, []);
+
   useEffect(() => {
-    if (activeTab === "models") loadModelsList();
-  }, [activeTab, loadModelsList]);
+    if (activeTab !== "models") return;
+    void loadModelsList();
+    reloadCaseRecords();
+  }, [activeTab, loadModelsList, reloadCaseRecords]);
 
-  const openInFolder = useCallback((path: string) => {
-    invoke("open_in_folder", { path }).catch(() => {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(path);
-        alert("已复制路径到剪贴板");
-      }
-    });
+  const handleRemoveCaseRecord = useCallback((id: string) => {
+    setCaseRecords(removeCaseLibraryRecord(id));
   }, []);
 
-  /** 打开与模型同目录的 operations.md */
-  const openPreviewMd = useCallback((modelPath: string) => {
-    const dir = modelPath.replace(/[/\\][^/\\]*$/, "") || modelPath;
-    const mdPath = dir + (dir.endsWith("/") || dir.endsWith("\\") ? "" : "/") + "operations.md";
-    invoke("open_path", { path: mdPath }).catch(() => {
-      alert("未找到操作记录文件 operations.md，请确认模型所在目录。");
-    });
+  const handleClearCaseRecords = useCallback(() => {
+    clearCaseLibraryRecords();
+    setCaseRecords([]);
   }, []);
 
-  /** 打开目录选择器，用于 COMSOL JAR 路径或 JAVA_HOME */
-  const pickDirectory = useCallback(
-    (title: string, currentPath: string, onPick: (path: string) => void) => {
-      open({
-        directory: true,
-        multiple: false,
-        title,
-        defaultPath: currentPath || undefined,
-      }).then((selected) => {
-        if (selected != null) onPick(selected);
-      });
-    },
-    []
-  );
-
-  const renderRow = (label: string, control: React.ReactNode, rowKey?: string) => (
-    <div className={`settings-pane-row ${!label ? "settings-pane-row--full" : ""}`} key={rowKey ?? (label || "action")}>
+  const renderRow = (label: string, control: ReactNode, rowKey?: string) => (
+    <div
+      className={`settings-pane-row ${!label ? "settings-pane-row--full" : ""}`}
+      key={rowKey ?? (label || "action")}
+    >
       <span className="settings-pane-label">{label}</span>
       <span className="settings-pane-control">{control}</span>
     </div>
   );
 
   return (
-    <div className="settings-dialog">
+    <div className={`settings-dialog ${pageMode ? "settings-dialog--page" : ""}`}>
       <header className="settings-dialog-header">
-        <h2 className="settings-dialog-title">设置</h2>
-        <button type="button" className="settings-dialog-close" onClick={onClose} aria-label="关闭">
-          ✕
-        </button>
+        <div>
+          <h2 className="settings-dialog-title">设置中心</h2>
+          {pageMode && (
+            <p className="settings-hint">
+              集中管理案例库记录、技能系统、LLM 提供商、COMSOL 环境、主题与模型资产。
+            </p>
+          )}
+        </div>
+        {!pageMode && onClose && (
+          <button
+            type="button"
+            className="settings-dialog-close"
+            onClick={onClose}
+            aria-label="关闭"
+          >
+            ×
+          </button>
+        )}
       </header>
       <div className="settings-dialog-body">
         <nav className="settings-sidebar" aria-label="设置分类">
@@ -263,226 +441,225 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
             <button
               key={tab.id}
               type="button"
-              className={`settings-sidebar-item ${activeTab === tab.id ? "active" : ""}`}
+              className={`settings-sidebar-item ${
+                activeTab === tab.id ? "active" : ""
+              }`}
               onClick={() => setActiveTab(tab.id)}
             >
               <span className="settings-sidebar-label">{tab.label}</span>
             </button>
           ))}
         </nav>
+
         <div className="settings-pane">
           {activeTab === "theme" && (
             <div className="settings-card">
               {renderRow(
-                  "外观",
-                  <div className="theme-toggle">
-                    <button
-                      type="button"
-                      className={`theme-toggle-btn ${themeMode === "light" ? "active" : ""}`}
-                      onClick={() => setThemeMode("light")}
-                    >
-                      浅色
-                    </button>
-                    <button
-                      type="button"
-                      className={`theme-toggle-btn ${themeMode === "dark" ? "active" : ""}`}
-                      onClick={() => setThemeMode("dark")}
-                    >
-                      深色
-                    </button>
-                    <button
-                      type="button"
-                      className={`theme-toggle-btn ${themeMode === "system" ? "active" : ""}`}
-                      onClick={() => setThemeMode("system")}
-                    >
-                      系统
-                    </button>
+                "外观",
+                <div className="theme-toggle">
+                  <button
+                    type="button"
+                    className={`theme-toggle-btn ${
+                      themeMode === "light" ? "active" : ""
+                    }`}
+                    onClick={() => setThemeMode("light")}
+                  >
+                    浅色
+                  </button>
+                  <button
+                    type="button"
+                    className={`theme-toggle-btn ${
+                      themeMode === "dark" ? "active" : ""
+                    }`}
+                    onClick={() => setThemeMode("dark")}
+                  >
+                    深色
+                  </button>
+                  <button
+                    type="button"
+                    className={`theme-toggle-btn ${
+                      themeMode === "system" ? "active" : ""
+                    }`}
+                    onClick={() => setThemeMode("system")}
+                  >
+                    跟随系统
+                  </button>
+                </div>
+              )}
+              {renderRow(
+                "强调色",
+                <>
+                  <div className="accent-chips">
+                    {ACCENT_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={`accent-chip ${
+                          accentColor === preset.value ? "active" : ""
+                        }`}
+                        style={{ backgroundColor: preset.value }}
+                        onClick={() => setAccentColor(preset.value)}
+                        title={preset.name}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
                   </div>
-                )}
-                {renderRow(
-                  "强调色",
-                  <>
-                    <div className="accent-chips">
-                      {ACCENT_PRESETS.map((preset) => (
-                        <button
-                          key={preset.value}
-                          type="button"
-                          className={`accent-chip ${accentColor === preset.value ? "active" : ""}`}
-                          style={{ backgroundColor: preset.value }}
-                          onClick={() => setAccentColor(preset.value)}
-                          title={preset.name}
-                        >
-                          {preset.name}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="color"
-                      className="accent-color-input"
-                      value={accentColor}
-                      onChange={(e) => setAccentColor(e.target.value)}
-                    />
-                    <span className="accent-hex">{accentColor}</span>
-                  </>
-                )}
-              </div>
+                  <input
+                    type="color"
+                    className="accent-color-input"
+                    value={accentColor}
+                    onChange={(event) => setAccentColor(event.target.value)}
+                  />
+                  <span className="accent-hex">{accentColor}</span>
+                </>
+              )}
+            </div>
           )}
 
           {activeTab === "llm" && (
             <div className="settings-card">
-              <p className="settings-hint">选择默认模型（LLM 后端），并填写对应配置；保存后同步到 .env。</p>
-              {renderRow(
-                "默认模型 (LLM_BACKEND)",
-                <div className="settings-backend-options">
-                  {[
-                    { id: "deepseek" as const, name: "DeepSeek" },
-                    { id: "kimi" as const, name: "Kimi" },
-                    { id: "openai-compatible" as const, name: "OpenAI 兼容" },
-                    { id: "ollama" as const, name: "Ollama" },
-                  ].map(({ id, name }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`theme-toggle-btn ${(apiConfig.preferred_backend ?? null) === id ? "active" : ""}`}
-                      onClick={() => setPreferredBackend(id)}
-                    >
-                      {name}
-                    </button>
-                  ))}
+              <p className="settings-hint">
+                现在前端会维护更完整的提供商目录，但真正发给 Python 运行时的仍然只会映射到
+                4 类底层协议：DeepSeek、Kimi、Ollama、OpenAI-compatible。
+              </p>
+
+              <div className="settings-provider-groups">
+                {PROVIDER_GROUP_ORDER.map((group) => {
+                  const providers = providersByGroup[group];
+                  if (providers.length === 0) return null;
+                  return (
+                    <section key={group} className="settings-provider-section">
+                      <div className="settings-provider-section-title">
+                        {PROVIDER_GROUP_LABELS[group]}
+                      </div>
+                      <div className="settings-provider-grid">
+                        {providers.map((provider) => {
+                          const active = apiConfig.preferred_backend === provider.id;
+                          return (
+                            <button
+                              key={provider.id}
+                              type="button"
+                              className={`settings-provider-card ${
+                                active ? "active" : ""
+                              }`}
+                              onClick={() => setPreferredBackend(provider.id)}
+                              title={provider.description}
+                            >
+                              <span className="settings-provider-card-head">
+                                <span className="settings-provider-card-name">
+                                  {provider.label}
+                                </span>
+                                <span className="settings-provider-card-runtime">
+                                  {RUNTIME_LABELS[provider.runtimeBackend]}
+                                </span>
+                              </span>
+                              <span className="settings-provider-card-desc">
+                                {provider.description}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+
+              <div className="settings-provider-detail">
+                <div className="settings-provider-detail-head">
+                  <div>
+                    <h3 className="settings-pane-title">{selectedProviderMeta.label}</h3>
+                    <p className="settings-hint">{selectedProviderMeta.description}</p>
+                  </div>
+                  <span className="settings-provider-detail-runtime">
+                    {selectedRuntimeLabel}
+                  </span>
                 </div>
-              )}
-              {apiConfig.preferred_backend === "deepseek" && (
-                <>
-                  {renderRow("API Key (DEEPSEEK_API_KEY)", (
-                    <input
-                      type="password"
-                      className="dialog-input settings-api-input"
-                      placeholder="sk-…"
-                      value={apiConfig.deepseek_api_key}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({ ...c, deepseek_api_key: e.target.value }))
-                      }
-                    />
-                  ))}
-                  {renderRow("模型 (DEEPSEEK_MODEL)", (
-                    <input
-                      type="text"
-                      className="dialog-input settings-api-input"
-                      placeholder="deepseek-reasoner"
-                      value={apiConfig.deepseek_model}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({ ...c, deepseek_model: e.target.value }))
-                      }
-                    />
-                  ))}
-                </>
-              )}
-              {apiConfig.preferred_backend === "kimi" && (
-                <>
-                  {renderRow("API Key (KIMI_API_KEY)", (
-                    <input
-                      type="password"
-                      className="dialog-input settings-api-input"
-                      placeholder="…"
-                      value={apiConfig.kimi_api_key}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({ ...c, kimi_api_key: e.target.value }))
-                      }
-                    />
-                  ))}
-                  {renderRow("模型 (KIMI_MODEL)", (
-                    <input
-                      type="text"
-                      className="dialog-input settings-api-input"
-                      placeholder="moonshot-v1-8k"
-                      value={apiConfig.kimi_model}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({ ...c, kimi_model: e.target.value }))
-                      }
-                    />
-                  ))}
-                </>
-              )}
-              {apiConfig.preferred_backend === "openai-compatible" && (
-                <>
-                  {renderRow("Base URL (OPENAI_COMPATIBLE_BASE_URL)", (
+
+                {renderRow(
+                  "默认提供商",
+                  <span className="settings-provider-selected">
+                    {apiConfig.preferred_backend
+                      ? `${selectedProviderMeta.label}（已启用）`
+                      : `${selectedProviderMeta.label}（编辑中，保存时将设为默认）`}
+                  </span>,
+                  "provider-selected"
+                )}
+
+                {selectedProviderMeta.supportsBaseUrl &&
+                  renderRow(
+                    selectedProviderMeta.baseUrlLabel ?? "Base URL",
                     <input
                       type="url"
                       className="dialog-input settings-api-input"
-                      placeholder="https://api.example.com/v1"
-                      value={apiConfig.openai_compatible_base_url}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({
-                          ...c,
-                          openai_compatible_base_url: e.target.value,
-                        }))
+                      placeholder={
+                        selectedProviderMeta.defaultBaseUrl || "https://api.example.com/v1"
+                      }
+                      value={selectedProviderConfig.base_url}
+                      onChange={(event) =>
+                        updateProviderField(
+                          selectedProviderId,
+                          "base_url",
+                          event.target.value
+                        )
                       }
                     />
-                  ))}
-                  {renderRow("API Key (OPENAI_COMPATIBLE_API_KEY)", (
+                  )}
+
+                {selectedProviderMeta.requiresApiKey &&
+                  renderRow(
+                    "API Key",
                     <input
                       type="password"
                       className="dialog-input settings-api-input"
-                      placeholder="…"
-                      value={apiConfig.openai_compatible_api_key}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({
-                          ...c,
-                          openai_compatible_api_key: e.target.value,
-                        }))
+                      placeholder={`${selectedProviderMeta.label} API Key`}
+                      value={selectedProviderConfig.api_key}
+                      onChange={(event) =>
+                        updateProviderField(
+                          selectedProviderId,
+                          "api_key",
+                          event.target.value
+                        )
                       }
                     />
-                  ))}
-                  {renderRow("模型 (OPENAI_COMPATIBLE_MODEL)", (
-                    <input
-                      type="text"
-                      className="dialog-input settings-api-input"
-                      placeholder="gpt-3.5-turbo"
-                      value={apiConfig.openai_compatible_model}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({
-                          ...c,
-                          openai_compatible_model: e.target.value,
-                        }))
-                      }
-                    />
-                  ))}
-                </>
-              )}
-              {apiConfig.preferred_backend === "ollama" && (
-                <>
-                  {renderRow("Ollama 地址 (OLLAMA_URL)", (
-                    <input
-                      type="text"
-                      className="dialog-input settings-api-input"
-                      placeholder="http://localhost:11434"
-                      value={ollamaUrl}
-                      onChange={(e) => {
-                        setOllamaUrl(e.target.value);
-                        setApiConfig((c: ApiConfig) => ({ ...c, ollama_url: e.target.value }));
-                      }}
-                    />
-                  ))}
-                  {renderRow("Ollama 模型 (OLLAMA_MODEL)", (
-                    <input
-                      type="text"
-                      className="dialog-input settings-api-input"
-                      placeholder="llama3"
-                      value={apiConfig.ollama_model}
-                      onChange={(e) =>
-                        setApiConfig((c: ApiConfig) => ({ ...c, ollama_model: e.target.value }))
-                      }
-                    />
-                  ))}
-                  {renderRow(
+                  )}
+
+                {renderRow(
+                  "模型",
+                  <input
+                    type="text"
+                    className="dialog-input settings-api-input"
+                    placeholder={selectedProviderMeta.defaultModel}
+                    value={selectedProviderConfig.model}
+                    onChange={(event) =>
+                      updateProviderField(
+                        selectedProviderId,
+                        "model",
+                        event.target.value
+                      )
+                    }
+                  />
+                )}
+
+                {selectedProviderId === "ollama" &&
+                  renderRow(
                     "",
                     <>
-                      <button type="button" className="dialog-btn secondary" onClick={testOllama}>
+                      <button
+                        type="button"
+                        className="dialog-btn secondary"
+                        onClick={testOllama}
+                      >
                         测试连接
                       </button>
                       {ollamaTestResult && (
                         <span
-                          className={`settings-status ${ollamaTestResult.ok ? "settings-status-ok" : "settings-status-err"}`}
+                          className={`settings-status ${
+                            ollamaTestResult.ok
+                              ? "settings-status-ok"
+                              : "settings-status-err"
+                          }`}
                         >
                           {ollamaTestResult.msg}
                         </span>
@@ -490,33 +667,34 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     </>,
                     "ollama-test"
                   )}
-                </>
-              )}
-              {renderRow(
-                "",
-                <>
-                  <button type="button" className="dialog-btn primary" onClick={saveConfig}>
-                    保存并同步到后端
-                  </button>
-                  {memoryStatus && (
-                    <span className="settings-status">{memoryStatus}</span>
-                  )}
-                </>,
-                "llm-save"
-              )}
+
+                {renderRow(
+                  "",
+                  <>
+                    <button type="button" className="dialog-btn primary" onClick={saveConfig}>
+                      保存 LLM 配置
+                    </button>
+                    {llmStatus && <span className="settings-status">{llmStatus}</span>}
+                  </>,
+                  "llm-save"
+                )}
+              </div>
             </div>
           )}
 
           {activeTab === "comsol" && (
             <div className="settings-card">
-              <p className="settings-hint">通过「选择目录」在文件管理器中选择 COMSOL plugins 目录与 Java 8/11 安装目录；留空则使用内置或系统 Java。保存后将同步到 .env 并加载。</p>
+              <p className="settings-hint">
+                管理 COMSOL 自动建模所需的输出目录、JAR 路径和 Java 运行环境。
+              </p>
+
               <div className="settings-field">
                 <label>建模工作目录（MODEL_OUTPUT_DIR）</label>
                 <div className="settings-path-row">
                   <input
                     type="text"
                     className="dialog-input settings-api-input settings-path-input"
-                    placeholder="未设置（使用默认输出目录）"
+                    placeholder="未设置时使用默认输出目录"
                     value={state.workspaceDir ?? ""}
                     readOnly
                   />
@@ -538,8 +716,9 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                   )}
                 </div>
               </div>
+
               <div className="settings-field">
-                <label>COMSOL JAR 路径 (COMSOL_JAR_PATH)</label>
+                <label>COMSOL JAR 路径（COMSOL_JAR_PATH）</label>
                 <div className="settings-path-row">
                   <input
                     type="text"
@@ -555,7 +734,11 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       pickDirectory(
                         "选择 COMSOL plugins 目录",
                         apiConfig.comsol_jar_path,
-                        (path) => setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: path }))
+                        (path) =>
+                          setApiConfig((config) => ({
+                            ...config,
+                            comsol_jar_path: path,
+                          }))
                       )
                     }
                   >
@@ -565,20 +748,26 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     <button
                       type="button"
                       className="dialog-btn secondary"
-                      onClick={() => setApiConfig((c: ApiConfig) => ({ ...c, comsol_jar_path: "" }))}
+                      onClick={() =>
+                        setApiConfig((config) => ({
+                          ...config,
+                          comsol_jar_path: "",
+                        }))
+                      }
                     >
                       清除
                     </button>
                   )}
                 </div>
               </div>
+
               <div className="settings-field">
-                <label>Java8/11 环境 (JAVA_HOME)</label>
+                <label>Java 8 / 11 环境（JAVA_HOME）</label>
                 <div className="settings-path-row">
                   <input
                     type="text"
                     className="dialog-input settings-api-input settings-path-input"
-                    placeholder="未选择（使用内置或系统 Java）"
+                    placeholder="未选择时使用内置或系统 Java"
                     value={apiConfig.java_home}
                     readOnly
                   />
@@ -589,7 +778,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                       pickDirectory(
                         "选择 Java 8 或 11 安装目录",
                         apiConfig.java_home,
-                        (path) => setApiConfig((c: ApiConfig) => ({ ...c, java_home: path }))
+                        (path) =>
+                          setApiConfig((config) => ({ ...config, java_home: path }))
                       )
                     }
                   >
@@ -599,89 +789,230 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     <button
                       type="button"
                       className="dialog-btn secondary"
-                      onClick={() => setApiConfig((c: ApiConfig) => ({ ...c, java_home: "" }))}
+                      onClick={() =>
+                        setApiConfig((config) => ({ ...config, java_home: "" }))
+                      }
                     >
                       清除
                     </button>
                   )}
                 </div>
               </div>
-                {renderRow(
-                  "",
-                  <>
-                    <button type="button" className="dialog-btn primary" onClick={() => saveAndSync(apiConfig, "comsol")}>
-                      保存并同步到后端
-                    </button>
-                    {syncStatus && (
-                      <span className={syncStatus.startsWith("COMSOL") ? "settings-status settings-status-ok" : "settings-status settings-status-err"}>
-                        {syncStatus}
-                      </span>
-                    )}
-                  </>,
-                  "comsol-save"
-                )}
-              </div>
+
+              {renderRow(
+                "",
+                <>
+                  <button
+                    type="button"
+                    className="dialog-btn primary"
+                    onClick={() => void saveAndSync(apiConfig, "comsol")}
+                  >
+                    保存 COMSOL 配置
+                  </button>
+                  {comsolStatus && <span className="settings-status">{comsolStatus}</span>}
+                </>,
+                "comsol-save"
+              )}
+            </div>
           )}
 
           {activeTab === "memory" && (
             <div className="settings-card">
-                <p className="settings-hint">当前会话的摘要记忆，将参与后续推理。可编辑后保存。</p>
-                {renderRow(
-                  "",
-                  <div className="settings-memory-actions">
-                    <button type="button" className="dialog-btn secondary" onClick={loadMemory}>
-                      加载
-                    </button>
-                    <button type="button" className="dialog-btn primary" onClick={saveMemory}>
-                      保存
-                    </button>
-                    <button type="button" className="dialog-btn secondary" onClick={clearMemory}>
-                      清除本会话记忆
-                    </button>
-                  </div>,
-                  "memory-actions"
-                )}
-                <div className="settings-field">
-                  <label>会话记忆摘要</label>
-                  <textarea
-                    className="dialog-input settings-memory-textarea"
-                    placeholder="加载后在此编辑本会话记忆…"
-                    value={memoryText}
-                    onChange={(e) => setMemoryText(e.target.value)}
-                    rows={6}
-                  />
+              <p className="settings-hint">
+                当前会话的摘要记忆会参与后续推理。这里改为分条整理，每条记忆单独维护，保存时会自动整理成项目符号列表。
+              </p>
+
+              {renderRow(
+                "",
+                <div className="settings-memory-actions">
+                  <button type="button" className="dialog-btn secondary" onClick={loadMemory}>
+                    加载
+                  </button>
+                  <button type="button" className="dialog-btn primary" onClick={saveMemory}>
+                    保存
+                  </button>
+                  <button type="button" className="dialog-btn secondary" onClick={addMemoryItem}>
+                    新增条目
+                  </button>
+                  <button type="button" className="dialog-btn secondary" onClick={clearMemory}>
+                    清除本会话记忆
+                  </button>
+                </div>,
+                "memory-actions"
+              )}
+
+              <div className="settings-field">
+                <label>会话记忆条目</label>
+                <div className="settings-memory-list">
+                  {memoryItems.length === 0 && (
+                    <div className="settings-memory-empty">
+                      暂无记忆条目，可先点击“加载”或“新增条目”。
+                    </div>
+                  )}
+                  {memoryItems.map((item, index) => (
+                    <div key={`memory-item-${index}`} className="settings-memory-item">
+                      <span className="settings-memory-item-index">{index + 1}</span>
+                      <textarea
+                        className="dialog-input settings-memory-item-input"
+                        placeholder="输入一条记忆，例如：常用单位是 mm。"
+                        value={item}
+                        onChange={(event) => updateMemoryItem(index, event.target.value)}
+                        rows={2}
+                      />
+                      <button
+                        type="button"
+                        className="dialog-btn secondary"
+                        onClick={() => removeMemoryItem(index)}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                {memoryStatus && !memoryStatus.includes("API") && (
-                  <div className="settings-status">{memoryStatus}</div>
-                )}
+              </div>
+
+              <div className="settings-field">
+                <label>保存预览</label>
+                <pre className="settings-memory-preview">
+                  {serializedMemoryText || "暂无可保存的记忆内容。"}
+                </pre>
+              </div>
+
+              {memoryStatus && <div className="settings-status">{memoryStatus}</div>}
             </div>
           )}
 
           {activeTab === "models" && (
-            <div className="settings-card">
-              <p className="settings-hint">以下为各会话中生成过的 COMSOL 模型，可在此打开模型所在目录。</p>
-              {renderRow(
-                "",
-                <button type="button" className="dialog-btn secondary" onClick={loadModelsList} disabled={modelsLoading}>
-                  {modelsLoading ? "加载中…" : "刷新列表"}
-                </button>,
-                "models-refresh"
-              )}
-              <div className="settings-models-list">
-                {modelsLoading && modelsList.length === 0 && <div className="settings-models-loading">加载中…</div>}
-                {!modelsLoading && modelsList.length === 0 && <div className="settings-models-empty">暂无模型记录</div>}
-                {modelsList.map((m) => (
-                  <div key={m.path} className="settings-models-item">
-                    <span className="settings-models-item-title" title={m.path}>
-                      {m.title}
-                      {m.is_latest && <span className="settings-models-item-latest">最新</span>}
-                    </span>
-                    <div className="settings-models-item-actions">
-                      <button type="button" className="dialog-btn secondary" onClick={() => openInFolder(m.path)}>在文件管理器中打开</button>
-                      <button type="button" className="dialog-btn secondary" onClick={() => openPreviewMd(m.path)}>预览</button>
-                    </div>
+            <div className="settings-pane-rows">
+              <div className="settings-card">
+                <div className="settings-card-head">
+                  <div>
+                    <h3 className="settings-pane-title">案例库模型记录</h3>
+                    <p className="settings-hint">
+                      这里管理从案例库点击“查看详情”或“下载案例”时留下的记录，方便再次打开或清理。
+                    </p>
                   </div>
-                ))}
+                  <div className="settings-models-item-actions">
+                    <button
+                      type="button"
+                      className="dialog-btn secondary"
+                      onClick={reloadCaseRecords}
+                    >
+                      刷新记录
+                    </button>
+                    {caseRecords.length > 0 && (
+                      <button
+                        type="button"
+                        className="dialog-btn secondary"
+                        onClick={handleClearCaseRecords}
+                      >
+                        清空记录
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="settings-models-list">
+                  {caseRecords.length === 0 && (
+                    <div className="settings-models-empty">暂无案例库模型记录</div>
+                  )}
+                  {caseRecords.map((record) => (
+                    <div
+                      key={record.id}
+                      className="settings-models-item settings-models-item--stacked"
+                    >
+                      <div className="settings-models-item-main">
+                        <span
+                          className="settings-models-item-title"
+                          title={record.officialUrl}
+                        >
+                          {record.title}
+                        </span>
+                        <span className="settings-models-item-subtitle">
+                          {record.category || "未分类"} · 查看 {record.viewCount} 次 · 下载{" "}
+                          {record.downloadCount} 次 · 最近下载：{formatTime(record.lastDownloadedAt)}
+                        </span>
+                      </div>
+                      <div className="settings-models-item-actions">
+                        <button
+                          type="button"
+                          className="dialog-btn secondary"
+                          onClick={() => openNativePath(record.officialUrl)}
+                        >
+                          查看详情
+                        </button>
+                        <button
+                          type="button"
+                          className="dialog-btn secondary"
+                          onClick={() => openNativePath(record.downloadUrl)}
+                        >
+                          再次下载
+                        </button>
+                        <button
+                          type="button"
+                          className="dialog-btn secondary"
+                          onClick={() => handleRemoveCaseRecord(record.id)}
+                        >
+                          移除记录
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="settings-card">
+                <div className="settings-card-head">
+                  <div>
+                    <h3 className="settings-pane-title">我创建的 COMSOL 模型</h3>
+                    <p className="settings-hint">
+                      以下为各会话中生成过的 COMSOL 模型，可打开目录或预览 operations.md。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="dialog-btn secondary"
+                    onClick={loadModelsList}
+                    disabled={modelsLoading}
+                  >
+                    {modelsLoading ? "加载中..." : "刷新列表"}
+                  </button>
+                </div>
+
+                <div className="settings-models-list">
+                  {modelsLoading && modelsList.length === 0 && (
+                    <div className="settings-models-loading">加载中...</div>
+                  )}
+                  {!modelsLoading && modelsList.length === 0 && (
+                    <div className="settings-models-empty">暂无模型记录</div>
+                  )}
+                  {modelsList.map((model) => (
+                    <div key={model.path} className="settings-models-item">
+                      <span className="settings-models-item-title" title={model.path}>
+                        {model.title}
+                        {model.is_latest && (
+                          <span className="settings-models-item-latest">最新</span>
+                        )}
+                      </span>
+                      <div className="settings-models-item-actions">
+                        <button
+                          type="button"
+                          className="dialog-btn secondary"
+                          onClick={() => openInFolder(model.path)}
+                        >
+                          打开目录
+                        </button>
+                        <button
+                          type="button"
+                          className="dialog-btn secondary"
+                          onClick={() => openPreviewMd(model.path)}
+                        >
+                          预览
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

@@ -22,7 +22,7 @@ export interface RunEvent {
 }
 
 export type AgentMode = "discuss" | "plan" | "run";
-export type AppView = "session" | "case-library";
+export type AppView = "session" | "case-library" | "skills-system" | "settings";
 
 /** 对话框类型 */
 export type DialogType =
