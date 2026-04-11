@@ -6,6 +6,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Session } from "./components/Session";
 import { CaseLibraryPage } from "./components/CaseLibraryPage";
 import { SkillsSystemPage } from "./components/SkillsSystemPage";
+import { OpsCatalogPage } from "./components/OpsCatalogPage";
 import { TitleBar } from "./components/TitleBar";
 import { DialogOverlay } from "./components/dialogs/DialogOverlay";
 import { HelpDialog } from "./components/dialogs/HelpDialog";
@@ -21,6 +22,7 @@ import { PlanQuestionsDialog } from "./components/dialogs/PlanQuestionsDialog";
 interface BridgeInitStatus {
   ready: boolean;
   error: string | null;
+  initializing?: boolean;
 }
 
 function renderMainView(view: AppView) {
@@ -29,6 +31,8 @@ function renderMainView(view: AppView) {
       return <CaseLibraryPage />;
     case "skills-system":
       return <SkillsSystemPage />;
+    case "ops-catalog":
+      return <OpsCatalogPage />;
     case "settings":
       return <SettingsDialog pageMode />;
     case "session":
@@ -40,6 +44,20 @@ function renderMainView(view: AppView) {
 export default function App() {
   const { state, dispatch } = useAppState();
   const [bridgeStatus, setBridgeStatus] = useState<BridgeInitStatus | null>(null);
+
+  const refreshBridgeStatus = useCallback(async (ensureReady = false) => {
+    const command = ensureReady ? "bridge_ensure_ready" : "bridge_init_status";
+    try {
+      const res = await invoke<{ ready: boolean; error: string | null; initializing?: boolean }>(command);
+      setBridgeStatus({
+        ready: res.ready,
+        error: res.error ?? null,
+        initializing: res.initializing ?? false,
+      });
+    } catch {
+      setBridgeStatus({ ready: false, error: "无法获取 Bridge 状态", initializing: false });
+    }
+  }, []);
 
   const closeDialog = useCallback(() => {
     dispatch({ type: "SET_DIALOG", dialog: null });
@@ -61,10 +79,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    invoke<{ ready: boolean; error: string | null }>("bridge_init_status")
-      .then((res) => setBridgeStatus({ ready: res.ready, error: res.error ?? null }))
-      .catch(() => setBridgeStatus({ ready: false, error: "无法获取 Bridge 状态" }));
-  }, []);
+    void refreshBridgeStatus(true);
+  }, [refreshBridgeStatus]);
 
   const dialogContent = (() => {
     switch (state.activeDialog) {
@@ -94,10 +110,19 @@ export default function App() {
       <TitleBar />
       {bridgeStatus && !bridgeStatus.ready && bridgeStatus.error && (
         <div className="bridge-error-banner" role="alert">
-          Bridge 未就绪：{bridgeStatus.error}
-          <span className="bridge-error-hint">
-            请从项目根目录启动应用，或设置 <code>MPH_AGENT_BRIDGE_DEBUG=1</code> 后查看临时目录中的调试日志。
-          </span>
+          <div className="bridge-error-main">
+            <span>Bridge 未就绪：{bridgeStatus.error}</span>
+            <span className="bridge-error-hint">
+              应用启动时会自动重建 Bridge。若本次启动仍失败，可直接重试，无需重开整个桌面端。
+            </span>
+          </div>
+          <button
+            type="button"
+            className="dialog-btn secondary"
+            onClick={() => void refreshBridgeStatus(true)}
+          >
+            重试启动 Bridge
+          </button>
         </div>
       )}
       <div className="app-body">

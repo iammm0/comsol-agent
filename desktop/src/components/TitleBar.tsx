@@ -10,6 +10,7 @@ const NAV_ITEMS: Array<{ view: AppView; label: string }> = [
   { view: "session", label: "对话" },
   { view: "case-library", label: "案例库" },
   { view: "skills-system", label: "技能系统" },
+  { view: "ops-catalog", label: "操作" },
   { view: "settings", label: "设置" },
 ];
 

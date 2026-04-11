@@ -207,7 +207,7 @@ export function useBridge() {
           return;
         }
         if (cmd === "/ops") {
-          dispatch({ type: "SET_DIALOG", dialog: "ops" });
+          dispatch({ type: "SET_VIEW", view: "ops-catalog" });
           return;
         }
         if (cmd === "/case") {

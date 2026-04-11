@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import type { BridgeResponse, OpsCatalogItem } from "../../lib/types";
-
-interface OpsCatalogResponse extends BridgeResponse {
-  items?: OpsCatalogItem[];
-  total?: number;
-  limit?: number;
-  offset?: number;
-  categories?: string[];
-}
+import type { OpsCatalogItem } from "../../lib/types";
+import { fetchOpsCatalog } from "../../lib/opsCatalog";
 
 const PAGE_SIZE = 120;
 
@@ -25,31 +17,22 @@ export function ComsolOpsDialog({ onClose }: { onClose: () => void }) {
   const fetchCatalog = useCallback(async (nextOffset: number, nextQuery: string) => {
     setLoading(true);
     setError(null);
-    try {
-      const res = await invoke<OpsCatalogResponse>("bridge_send", {
-        cmd: "ops_catalog",
-        payload: {
-          query: nextQuery || undefined,
-          limit: PAGE_SIZE,
-          offset: nextOffset,
-        },
-      });
-      if (!res.ok) {
-        setError(res.message || "加载操作目录失败");
-        setItems([]);
-        setTotal(0);
-        return;
-      }
-      setItems(res.items ?? []);
-      setTotal(res.total ?? 0);
-      setCategories(res.categories ?? []);
-    } catch (e) {
-      setError("加载操作目录失败: " + String(e));
+    const res = await fetchOpsCatalog({
+      query: nextQuery || undefined,
+      limit: PAGE_SIZE,
+      offset: nextOffset,
+    });
+    if (!res.ok) {
+      setError(res.message || "加载操作目录失败");
       setItems([]);
       setTotal(0);
-    } finally {
       setLoading(false);
+      return;
     }
+    setItems(res.items);
+    setTotal(res.total);
+    setCategories(res.categories);
+    setLoading(false);
   }, []);
 
   useEffect(() => {

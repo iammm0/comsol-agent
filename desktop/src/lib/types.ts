@@ -22,7 +22,7 @@ export interface RunEvent {
 }
 
 export type AgentMode = "discuss" | "plan" | "run";
-export type AppView = "session" | "case-library" | "skills-system" | "settings";
+export type AppView = "session" | "case-library" | "skills-system" | "ops-catalog" | "settings";
 
 /** 对话框类型 */
 export type DialogType =
@@ -92,7 +92,7 @@ export const SLASH_COMMANDS: SlashCommandItem[] = [
   { name: "plan", display: "/plan", description: "切换到建模规划模式" },
   { name: "run", display: "/run", description: "切换到建模执行模式" },
   { name: "case", display: "/case", description: "读取 .mph 并生成案例摘要" },
-  { name: "ops", display: "/ops", description: "支持的 COMSOL 操作" },
+  { name: "ops", display: "/ops", description: "打开 COMSOL 可执行操作清单页" },
   {
     name: "api",
     display: "/api",
@@ -199,7 +199,7 @@ export const USAGE_WORKFLOW_STEPS: UsageWorkflowStep[] = [
     step: 5,
     title: "命令与诊断",
     body:
-      "输入 / 可浏览斜杠命令：/help 帮助、/ops 支持的 COMSOL 操作、/api 已封装 API、/backend 选择 LLM、/doctor 环境诊断。",
+      "输入 / 可浏览斜杠命令：/help 帮助、/ops 打开 COMSOL 可执行操作清单页、/api 已封装 API、/backend 选择 LLM、/doctor 环境诊断。",
   },
 ];
 

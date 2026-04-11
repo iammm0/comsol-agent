@@ -24,7 +24,7 @@ export function HelpDialog() {
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/ops</span>
-          <span className="dialog-row-val">支持的 COMSOL 操作</span>
+          <span className="dialog-row-val">打开 COMSOL 可执行操作清单页</span>
         </div>
         <div className="dialog-row">
           <span className="dialog-row-key">/discuss</span>

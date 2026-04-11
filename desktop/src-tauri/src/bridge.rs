@@ -15,6 +15,7 @@ pub struct BridgeStateInner {
     pub child: Option<Child>,
     pub child_pid: Option<u32>,
     pub stream_active: bool,
+    pub init_in_progress: bool,
     pub bundled_java_home: Option<PathBuf>,
     pub init_error: Option<String>,
     pub stderr_buf: Arc<std::sync::Mutex<String>>,
@@ -23,6 +24,10 @@ pub struct BridgeStateInner {
 pub type BridgeState = Arc<Mutex<BridgeStateInner>>;
 
 const HANDSHAKE_TIMEOUT_SECS: u64 = 30;
+
+fn bridge_ready(inner: &BridgeStateInner) -> bool {
+    inner.stdin.is_some() && inner.reader.is_some()
+}
 
 fn kill_pid(pid: u32) {
     #[cfg(unix)]
@@ -337,23 +342,62 @@ async fn spawn_bridge_child(bundled_java_home: &Option<PathBuf>) -> Result<Child
 }
 
 async fn restart_bridge(state: &BridgeState) {
-    let java_home = {
-        let guard = state.lock().await;
-        guard.bundled_java_home.clone()
-    };
-    match init_bridge(java_home).await {
-        Ok(handles) => {
-            let mut g = state.lock().await;
-            g.stdin = Some(handles.stdin);
-            g.reader = Some(handles.reader);
-            g.child = Some(handles.child);
-            g.child_pid = Some(handles.pid);
-            g.stderr_buf = handles.stderr_buf;
-            g.init_error = None;
-        }
-        Err(e) => {
-            let mut g = state.lock().await;
-            g.init_error = Some(e);
+    let _ = ensure_bridge_ready(state).await;
+}
+
+async fn ensure_bridge_ready(state: &BridgeState) -> Result<(), String> {
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(HANDSHAKE_TIMEOUT_SECS + 5);
+
+    loop {
+        let maybe_java_home = {
+            let mut guard = state.lock().await;
+
+            if bridge_ready(&guard) {
+                return Ok(());
+            }
+
+            if !guard.init_in_progress {
+                guard.init_in_progress = true;
+                guard.init_error = None;
+                guard.bundled_java_home.clone()
+            } else {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(
+                        guard
+                            .init_error
+                            .clone()
+                            .unwrap_or_else(|| "Bridge 初始化超时".to_string()),
+                    );
+                }
+                drop(guard);
+                tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                continue;
+            }
+        };
+
+        match init_bridge(maybe_java_home).await {
+            Ok(handles) => {
+                let mut guard = state.lock().await;
+                guard.stdin = Some(handles.stdin);
+                guard.reader = Some(handles.reader);
+                guard.child = Some(handles.child);
+                guard.child_pid = Some(handles.pid);
+                guard.stderr_buf = handles.stderr_buf;
+                guard.init_error = None;
+                guard.init_in_progress = false;
+                return Ok(());
+            }
+            Err(e) => {
+                let mut guard = state.lock().await;
+                guard.stdin = None;
+                guard.reader = None;
+                guard.child = None;
+                guard.child_pid = None;
+                guard.init_error = Some(e.clone());
+                guard.init_in_progress = false;
+                return Err(e);
+            }
         }
     }
 }
@@ -364,6 +408,8 @@ pub async fn bridge_send(
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
+    ensure_bridge_ready(state.inner()).await?;
+
     let (mut stdin, mut reader, stderr_buf) = {
         let mut guard = state.inner().lock().await;
         let s = guard.stdin.take().ok_or("Bridge 未初始化")?;
@@ -432,6 +478,8 @@ pub async fn bridge_send_stream(
     cmd: String,
     payload: Value,
 ) -> Result<Value, String> {
+    ensure_bridge_ready(state.inner()).await?;
+
     let (mut stdin, mut reader, stderr_buf, pid) = {
         let mut guard = state.inner().lock().await;
         let s = guard.stdin.take().ok_or("Bridge 未初始化")?;
@@ -566,10 +614,21 @@ pub async fn bridge_init_status(
     state: tauri::State<'_, BridgeState>,
 ) -> Result<serde_json::Value, String> {
     let guard = state.inner().lock().await;
-    let ready = guard.stdin.is_some() && guard.reader.is_some();
+    let ready = bridge_ready(&guard);
     let error = guard.init_error.clone();
+    let initializing = guard.init_in_progress;
     drop(guard);
-    Ok(serde_json::json!({ "ready": ready, "error": error }))
+    Ok(serde_json::json!({ "ready": ready, "error": error, "initializing": initializing }))
+}
+
+#[tauri::command]
+pub async fn bridge_ensure_ready(
+    state: tauri::State<'_, BridgeState>,
+) -> Result<serde_json::Value, String> {
+    match ensure_bridge_ready(state.inner()).await {
+        Ok(()) => Ok(serde_json::json!({ "ready": true, "error": null, "initializing": false })),
+        Err(e) => Ok(serde_json::json!({ "ready": false, "error": e, "initializing": false })),
+    }
 }
 
 #[tauri::command]

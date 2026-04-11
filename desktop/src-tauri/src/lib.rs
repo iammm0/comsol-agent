@@ -1,7 +1,7 @@
 mod bridge;
 
 use bridge::{
-    bridge_abort, bridge_init_status, bridge_send, bridge_send_stream, bundled_java_home_from_app,
+    bridge_abort, bridge_ensure_ready, bridge_init_status, bridge_send, bridge_send_stream, bundled_java_home_from_app,
     init_bridge, open_in_folder, open_path, BridgeState, BridgeStateInner,
 };
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub fn run() {
             child: None,
             child_pid: None,
             stream_active: false,
+            init_in_progress: false,
             bundled_java_home: None,
             init_error: None,
             stderr_buf: Arc::new(std::sync::Mutex::new(String::new())),
@@ -33,6 +34,7 @@ pub fn run() {
             bridge_send,
             bridge_send_stream,
             bridge_abort,
+            bridge_ensure_ready,
             bridge_init_status,
             open_path,
             open_in_folder,
@@ -42,6 +44,12 @@ pub fn run() {
             let state = app.state::<BridgeState>().inner().clone();
             let java_home = bundled_java_home_from_app(app);
             tauri::async_runtime::spawn(async move {
+                {
+                    let mut guard = state.lock().await;
+                    guard.bundled_java_home = java_home.clone();
+                    guard.init_in_progress = true;
+                    guard.init_error = None;
+                }
                 match init_bridge(java_home.clone()).await {
                     Ok(handles) => {
                         let mut guard = state.lock().await;
@@ -52,12 +60,14 @@ pub fn run() {
                         guard.child_pid = Some(handles.pid);
                         guard.stderr_buf = handles.stderr_buf;
                         guard.init_error = None;
+                        guard.init_in_progress = false;
                     }
                     Err(e) => {
                         eprintln!("Warning: Failed to initialize Python bridge: {}", e);
                         let mut guard = state.lock().await;
                         guard.bundled_java_home = java_home;
                         guard.init_error = Some(e);
+                        guard.init_in_progress = false;
                     }
                 }
             });
