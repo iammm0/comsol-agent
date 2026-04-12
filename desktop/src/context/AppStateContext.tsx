@@ -86,6 +86,8 @@ type AppAction =
       text: string;
       success?: boolean;
       events?: RunEvent[];
+      caseData?: ChatMessage["caseData"];
+      caseSavedPath?: string | null;
     }
   | { type: "APPEND_EVENT"; conversationId: string; event: RunEvent }
   | {
@@ -276,6 +278,8 @@ function appReducer(state: AppState, action: AppAction): AppState {
         time: Date.now(),
         success,
         events,
+        caseData: action.caseData ?? null,
+        caseSavedPath: action.caseSavedPath ?? null,
       };
       const prev = state.messagesByConversation[conversationId] ?? [];
       return {
@@ -391,7 +395,12 @@ interface AppStateContextValue {
   addMessage: (
     role: MessageRole,
     text: string,
-    opts?: { success?: boolean; events?: RunEvent[] }
+    opts?: {
+      success?: boolean;
+      events?: RunEvent[];
+      caseData?: ChatMessage["caseData"];
+      caseSavedPath?: string | null;
+    }
   ) => void;
 }
 
@@ -423,7 +432,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     (
       role: MessageRole,
       text: string,
-      opts?: { success?: boolean; events?: RunEvent[] }
+      opts?: {
+        success?: boolean;
+        events?: RunEvent[];
+        caseData?: ChatMessage["caseData"];
+        caseSavedPath?: string | null;
+      }
     ) => {
       const id = state.currentConversationId;
       if (!id) return;
@@ -434,6 +448,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         text,
         success: opts?.success,
         events: opts?.events,
+        caseData: opts?.caseData,
+        caseSavedPath: opts?.caseSavedPath ?? null,
       });
     },
     [state.currentConversationId, dispatch]

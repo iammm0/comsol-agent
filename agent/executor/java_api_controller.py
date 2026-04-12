@@ -2667,6 +2667,327 @@ class JavaAPIController:
             }
 
     @staticmethod
+    def _normalize_tree_lines(node_tree: Any, limit: int = 80) -> List[str]:
+        if node_tree is None:
+            return []
+
+        if isinstance(node_tree, (list, tuple)):
+            raw_lines = [str(item) for item in node_tree]
+        else:
+            raw_lines = str(node_tree).splitlines()
+
+        lines: List[str] = []
+        seen: set[str] = set()
+        for raw in raw_lines:
+            line = re.sub(r"\s+", " ", str(raw or "")).strip(" \t|-:")
+            if not line:
+                continue
+            low = line.lower()
+            if low in seen:
+                continue
+            seen.add(low)
+            lines.append(line)
+            if len(lines) >= limit:
+                break
+        return lines
+
+    @staticmethod
+    def _tree_excerpt(tree_lines: List[str], keywords: List[str], limit: int = 6) -> List[str]:
+        if not tree_lines:
+            return []
+        out: List[str] = []
+        seen: set[str] = set()
+        for line in tree_lines:
+            low = line.lower()
+            if not any(keyword in low for keyword in keywords):
+                continue
+            if low in seen:
+                continue
+            seen.add(low)
+            out.append(line)
+            if len(out) >= limit:
+                break
+        return out
+
+    @staticmethod
+    def _infer_physics_purpose(tag: str) -> str:
+        low = tag.lower()
+        if "ht" in low or "heat" in low:
+            return "负责热传导、热通量与温度场分布。"
+        if "spf" in low or "flow" in low or "fluid" in low:
+            return "负责流体连续性、动量守恒与流场求解。"
+        if "solid" in low or "struct" in low or "beam" in low:
+            return "负责结构响应、应力应变与位移场。"
+        if "ec" in low or "es" in low or "electric" in low:
+            return "负责电势、电流或静电场分布。"
+        if "emw" in low or "mag" in low or "mf" in low:
+            return "负责电磁场传播、磁场分布或耦合损耗。"
+        if "tds" in low or "species" in low:
+            return "负责组分输运、扩散和对流耦合。"
+        return "负责该物理接口对应的控制方程与边界条件。"
+
+    @staticmethod
+    def _infer_material_role(tag: str) -> str:
+        low = tag.lower()
+        if "air" in low:
+            return "通常用于环境域、流体域或对流换热背景介质。"
+        if "cu" in low or "copper" in low:
+            return "通常用于高导热或高导电部件。"
+        if "si" in low or "silicon" in low:
+            return "通常用于芯片、半导体或基底层。"
+        if "steel" in low or "st" in low:
+            return "通常用于承力结构、外壳或连接件。"
+        return "为对应几何域提供密度、导热率、电导率等本构属性。"
+
+    @staticmethod
+    def _infer_study_purpose(tag: str) -> str:
+        low = tag.lower()
+        if "time" in low or "td" in low:
+            return "用于分析系统的瞬态演化过程。"
+        if "freq" in low:
+            return "用于分析频域响应、幅值和相位。"
+        if "eigen" in low:
+            return "用于提取固有频率、模态或本征值。"
+        if "param" in low:
+            return "用于参数扫描和敏感性对比。"
+        return "用于获得稳态或默认求解结果。"
+
+    @staticmethod
+    def _infer_result_purpose(tag: str) -> str:
+        low = tag.lower()
+        if "plot" in low:
+            return "用于展示关键场变量分布。"
+        if "table" in low:
+            return "用于导出数值结果和对比指标。"
+        if "export" in low:
+            return "用于把图像、表格或数据导出到外部文件。"
+        if "dataset" in low:
+            return "用于组织求解数据与后处理输入。"
+        return "用于承载结果后处理或验证输出。"
+
+    def _build_geometry_setup(
+        self, geom_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(tree_lines, ["geom", "geometry", "workplane", "wp"])
+        out: List[Dict[str, Any]] = []
+        for tag in geom_tags:
+            out.append(
+                {
+                    "tag": tag,
+                    "role": "几何构建主序列",
+                    "construction_clues": excerpt[:4],
+                    "why": "几何序列定义了后续材料分配、物理场选择和网格生成的对象基础。",
+                }
+            )
+        return out
+
+    def _build_material_setup(
+        self, material_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(tree_lines, ["mat", "material"])
+        return [
+            {
+                "tag": tag,
+                "role": self._infer_material_role(tag),
+                "selection_hint": excerpt[:3],
+                "why": "材料属性会直接影响物理场方程中的本构关系与求解结果。",
+            }
+            for tag in material_tags
+        ]
+
+    def _build_physics_setup(
+        self, physics_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(
+            tree_lines,
+            ["physics", "multiphysics", "boundary", "ht", "spf", "solid", "emw"],
+        )
+        return [
+            {
+                "tag": tag,
+                "category": self._infer_category("", tag),
+                "purpose": self._infer_physics_purpose(tag),
+                "tree_clues": excerpt[:4],
+            }
+            for tag in physics_tags
+        ]
+
+    def _build_mesh_setup(
+        self, mesh_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(tree_lines, ["mesh", "size", "swept", "free"])
+        return [
+            {
+                "tag": tag,
+                "role": "网格序列",
+                "quality_hint": "建议在副本修改后重新生成网格并检查质量。",
+                "tree_clues": excerpt[:4],
+            }
+            for tag in mesh_tags
+        ]
+
+    def _build_study_setup(
+        self, study_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(tree_lines, ["study", "solver", "time", "stationary", "freq"])
+        return [
+            {
+                "tag": tag,
+                "type": "study",
+                "purpose": self._infer_study_purpose(tag),
+                "tree_clues": excerpt[:4],
+            }
+            for tag in study_tags
+        ]
+
+    def _build_postprocess_setup(
+        self, result_tags: List[str], tree_lines: List[str]
+    ) -> List[Dict[str, Any]]:
+        excerpt = self._tree_excerpt(tree_lines, ["result", "plot", "table", "dataset", "export"])
+        return [
+            {
+                "tag": tag,
+                "type": "result",
+                "purpose": self._infer_result_purpose(tag),
+                "tree_clues": excerpt[:4],
+            }
+            for tag in result_tags
+        ]
+
+    @staticmethod
+    def _infer_design_intent(
+        global_plans: List[GlobalDefinitionPlan],
+        geom: List[str],
+        mats: List[str],
+        physics: List[str],
+        meshes: List[str],
+        studies: List[str],
+        results: List[str],
+        tree_lines: List[str],
+    ) -> List[str]:
+        out: List[str] = []
+        if global_plans:
+            out.append("模型先用全局参数管理关键尺寸或工况，说明设计目标包含复用性和参数化调优。")
+        if geom:
+            out.append("几何序列独立存在，说明几何构建与后续物理设置是分层组织的，便于在副本中局部替换结构。")
+        if mats and physics:
+            out.append("材料与物理场同时出现，说明模型依赖材料本构属性来闭合控制方程，而不是纯几何展示。")
+        if meshes:
+            out.append("单独保留网格序列，说明求解精度和收敛稳定性是显式设计的一部分。")
+        if studies:
+            out.append("研究节点被保留下来，说明模型已经明确了求解类型，而不是仅停留在前处理。")
+        if results:
+            out.append("结果节点被保存，说明模型不仅用于求解，还用于验证或复盘特定输出指标。")
+        if any("selection" in line.lower() for line in tree_lines):
+            out.append("树中出现 selection/选择集，说明原模型倾向于用可复用的域或边界集合来组织赋值与边界条件。")
+        return out
+
+    @staticmethod
+    def _recommended_edit_workflow(
+        source_model_path: Path,
+        global_plans: List[GlobalDefinitionPlan],
+        geom: List[str],
+        mats: List[str],
+        physics: List[str],
+        meshes: List[str],
+        studies: List[str],
+    ) -> List[str]:
+        out = [
+            f"先基于 {source_model_path.name} 创建工作副本，不要直接覆盖原始下载模型。",
+        ]
+        if global_plans:
+            names = ", ".join(item.name for item in global_plans[:6])
+            out.append(f"优先检查并修改全局参数：{names}，因为这些参数最可能驱动尺寸、载荷或工况。")
+        if geom:
+            out.append(f"若需要改几何，先在几何序列 {', '.join(geom[:3])} 中调整特征，再重新检查相关选择集。")
+        if mats:
+            out.append(f"若修改材料，优先核对材料节点 {', '.join(mats[:3])} 的属性和分配域是否仍然匹配。")
+        if physics:
+            out.append(f"若修改物理场，重点核对接口 {', '.join(physics[:3])} 下的边界条件、初值和耦合关系。")
+        if meshes:
+            out.append("几何或材料修改后应重新生成网格，并检查网格质量是否仍适配当前求解。")
+        if studies:
+            out.append(f"最后复核研究节点 {', '.join(studies[:3])} 的求解类型与目标输出是否仍然成立。")
+        return out
+
+    @staticmethod
+    def _build_case_context_block(
+        source_model_path: Path,
+        global_plans: List[GlobalDefinitionPlan],
+        geom: List[str],
+        mats: List[str],
+        physics: List[str],
+        meshes: List[str],
+        studies: List[str],
+        results: List[str],
+        design_intent: List[str],
+    ) -> str:
+        def _bullet(items: List[str]) -> List[str]:
+            return [f"- {item}" for item in items if str(item).strip()]
+
+        lines: List[str] = [
+            f"源模型: {source_model_path}",
+            "",
+            "全局参数",
+        ]
+        if global_plans:
+            lines.extend(
+                _bullet(
+                    [
+                        f"{item.name} = {item.value}"
+                        + (f" ({item.description})" if item.description else "")
+                        for item in global_plans[:12]
+                    ]
+                )
+            )
+        else:
+            lines.append("- 未解析到全局参数")
+
+        section_map = [
+            ("几何序列", geom),
+            ("材料节点", mats),
+            ("物理场接口", physics),
+            ("网格序列", meshes),
+            ("研究节点", studies),
+            ("结果节点", results),
+        ]
+        for title, items in section_map:
+            lines.append("")
+            lines.append(title)
+            lines.extend(_bullet(items or ["未解析到相关节点"]))
+
+        if design_intent:
+            lines.append("")
+            lines.append("设计意图推断")
+            lines.extend(_bullet(design_intent[:8]))
+
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _build_copy_edit_prompt(
+        source_model_path: Path,
+        context_block: str,
+        recommended_edit_workflow: List[str],
+    ) -> str:
+        lines = [
+            "请基于这个本地 COMSOL 模型创建一个副本并继续修改，不要覆盖原始文件。",
+            f"原始模型路径: {source_model_path}",
+            "",
+            "以下是解析出的模型上下文，可直接作为修改依据：",
+            context_block,
+        ]
+        if recommended_edit_workflow:
+            lines.extend(["", "建议修改顺序："])
+            lines.extend(f"{index + 1}. {item}" for index, item in enumerate(recommended_edit_workflow[:8]))
+        lines.extend(
+            [
+                "",
+                "请先确认本轮想改的是参数、几何、材料、物理场、网格还是研究设置，然后给出修改计划。",
+            ]
+        )
+        return "\n".join(lines).strip()
+
+    @staticmethod
     def _infer_principles(physics_tags: List[str]) -> List[str]:
         out: List[str] = []
         text = " ".join(physics_tags).lower()
@@ -2736,6 +3057,7 @@ class JavaAPIController:
                 "status": "error",
                 "message": globals_res.get("message", "failed to read global parameters"),
             }
+        node_tree_res = self.get_node_tree(str(path))
 
         tree = tree_res.get("tree", {}) or {}
         geom = [str(x) for x in (tree.get("geometries") or [])]
@@ -2744,6 +3066,9 @@ class JavaAPIController:
         meshes = [str(x) for x in (tree.get("meshes") or [])]
         studies = [str(x) for x in (tree.get("studies") or [])]
         results = [str(x) for x in (tree.get("results") or [])]
+        node_tree_lines = self._normalize_tree_lines(
+            node_tree_res.get("node_tree") if node_tree_res.get("status") == "success" else None
+        )
 
         global_plans: List[GlobalDefinitionPlan] = []
         for item in globals_res.get("items", []) or []:
@@ -2783,22 +3108,73 @@ class JavaAPIController:
                 {"stage": "postprocess", "action": "export_results", "targets": results}
             )
 
+        geometry_setup = self._build_geometry_setup(geom, node_tree_lines)
+        material_setup = self._build_material_setup(mats, node_tree_lines)
+        physics_setup = self._build_physics_setup(physics, node_tree_lines)
+        mesh_setup = self._build_mesh_setup(meshes, node_tree_lines)
+        study_setup = self._build_study_setup(studies, node_tree_lines)
+        postprocess_setup = self._build_postprocess_setup(results, node_tree_lines)
+        design_intent = self._infer_design_intent(
+            global_plans=global_plans,
+            geom=geom,
+            mats=mats,
+            physics=physics,
+            meshes=meshes,
+            studies=studies,
+            results=results,
+            tree_lines=node_tree_lines,
+        )
+        recommended_edit_workflow = self._recommended_edit_workflow(
+            source_model_path=path,
+            global_plans=global_plans,
+            geom=geom,
+            mats=mats,
+            physics=physics,
+            meshes=meshes,
+            studies=studies,
+        )
+        context_block = self._build_case_context_block(
+            source_model_path=path,
+            global_plans=global_plans,
+            geom=geom,
+            mats=mats,
+            physics=physics,
+            meshes=meshes,
+            studies=studies,
+            results=results,
+            design_intent=design_intent,
+        )
+        copy_edit_prompt = self._build_copy_edit_prompt(
+            source_model_path=path,
+            context_block=context_block,
+            recommended_edit_workflow=recommended_edit_workflow,
+        )
+
         case = ModelOperationCase(
             case_id=f"case-{uuid4().hex[:12]}",
             source_model_path=str(path),
             summary=(
-                f"Extracted model case from {path.name}: "
-                f"{len(global_plans)} globals, {len(geom)} geometries, "
-                f"{len(mats)} materials, {len(physics)} physics, "
-                f"{len(meshes)} meshes, {len(studies)} studies, {len(results)} results."
+                f"已完成 {path.name} 的本地模型剖析："
+                f"{len(global_plans)} 个全局参数、{len(geom)} 个几何序列、"
+                f"{len(mats)} 个材料节点、{len(physics)} 个物理场接口、"
+                f"{len(meshes)} 个网格序列、{len(studies)} 个研究节点、"
+                f"{len(results)} 个结果节点。"
             ),
             physical_principles=self._infer_principles(physics),
             expected_behaviors=self._infer_expected_behaviors(studies, physics),
             global_definitions=global_plans,
             workflow_steps=workflow_steps,
-            physics_setup=[{"tag": tag, "category": self._infer_category("", tag)} for tag in physics],
-            study_setup=[{"tag": tag, "type": "study"} for tag in studies],
-            postprocess_setup=[{"tag": tag, "type": "result"} for tag in results],
+            geometry_setup=geometry_setup,
+            material_setup=material_setup,
+            physics_setup=physics_setup,
+            mesh_setup=mesh_setup,
+            study_setup=study_setup,
+            postprocess_setup=postprocess_setup,
+            design_intent=design_intent,
+            recommended_edit_workflow=recommended_edit_workflow,
+            context_block=context_block,
+            copy_edit_prompt=copy_edit_prompt,
+            node_tree_excerpt=node_tree_lines[:18],
             reusable_user_prompt=self._case_prompt(
                 geom=geom,
                 mats=mats,

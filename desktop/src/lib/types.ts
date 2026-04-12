@@ -12,6 +12,8 @@ export interface ChatMessage {
   time?: number;
   /** 本次构建对应的模型路径（成功/失败/中止时均有，用于打开与预览） */
   modelPath?: string | null;
+  caseData?: CaseGeneratedData | null;
+  caseSavedPath?: string | null;
 }
 
 /** 运行/流式事件（与后端 bridge-event 一致） */
@@ -70,6 +72,56 @@ export interface BridgeResponse {
   limit?: number;
   offset?: number;
   categories?: string[];
+}
+
+export interface CaseGlobalDefinition {
+  name: string;
+  value: string;
+  unit?: string | null;
+  description?: string | null;
+}
+
+export interface CaseSectionEntry {
+  tag?: string;
+  role?: string;
+  type?: string;
+  category?: string;
+  purpose?: string;
+  why?: string;
+  quality_hint?: string;
+  construction_clues?: string[];
+  selection_hint?: string[];
+  tree_clues?: string[];
+}
+
+export interface CaseWorkflowStep {
+  stage?: string;
+  action?: string;
+  count?: number;
+  targets?: string[];
+}
+
+export interface CaseGeneratedData {
+  case_id?: string;
+  source_model_path?: string;
+  summary?: string;
+  physical_principles?: string[];
+  expected_behaviors?: string[];
+  global_definitions?: CaseGlobalDefinition[];
+  workflow_steps?: CaseWorkflowStep[];
+  geometry_setup?: CaseSectionEntry[];
+  material_setup?: CaseSectionEntry[];
+  physics_setup?: CaseSectionEntry[];
+  mesh_setup?: CaseSectionEntry[];
+  study_setup?: CaseSectionEntry[];
+  postprocess_setup?: CaseSectionEntry[];
+  design_intent?: string[];
+  recommended_edit_workflow?: string[];
+  context_block?: string;
+  copy_edit_prompt?: string;
+  node_tree_excerpt?: string[];
+  reusable_user_prompt?: string;
+  extracted_at?: string;
 }
 
 /** 设置页「我创建的模型」列表项 */

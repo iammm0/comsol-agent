@@ -174,9 +174,17 @@ class ModelOperationCase(BaseModel):
     expected_behaviors: List[str] = Field(default_factory=list)
     global_definitions: List[GlobalDefinitionPlan] = Field(default_factory=list)
     workflow_steps: List[Dict[str, Any]] = Field(default_factory=list)
+    geometry_setup: List[Dict[str, Any]] = Field(default_factory=list)
+    material_setup: List[Dict[str, Any]] = Field(default_factory=list)
     physics_setup: List[Dict[str, Any]] = Field(default_factory=list)
+    mesh_setup: List[Dict[str, Any]] = Field(default_factory=list)
     study_setup: List[Dict[str, Any]] = Field(default_factory=list)
     postprocess_setup: List[Dict[str, Any]] = Field(default_factory=list)
+    design_intent: List[str] = Field(default_factory=list)
+    recommended_edit_workflow: List[str] = Field(default_factory=list)
+    context_block: str = ""
+    copy_edit_prompt: str = ""
+    node_tree_excerpt: List[str] = Field(default_factory=list)
     reusable_user_prompt: str = ""
     extracted_at: datetime = Field(default_factory=datetime.now)
 
@@ -275,4 +283,3 @@ class ReActTaskPlan(BaseModel):
 
     def has_failed(self) -> bool:
         return self.status == "failed"
-

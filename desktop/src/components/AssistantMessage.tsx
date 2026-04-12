@@ -5,6 +5,7 @@ import { useAppState } from "../context/AppStateContext";
 import type { RunEvent } from "../lib/types";
 import { MarkdownContent } from "./MarkdownContent";
 import { sanitizeLLMDisplayText } from "../lib/textSanitizer";
+import { CaseAnalysisCard } from "./CaseAnalysisCard";
 
 /** 合并连续的 llm_stream_chunk 为单条，便于展示完整思维过程 */
 function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
@@ -75,6 +76,23 @@ function extractStreamedAssistantText(events: RunEvent[] | undefined): string {
   return sanitizeLLMDisplayText(out);
 }
 
+function hasDiscussionStream(events: RunEvent[] | undefined): boolean {
+  if (!events?.length) return false;
+  return events.some((event) => {
+    if (event.type === "task_phase" && event.data?.phase === "discussion") {
+      return true;
+    }
+    if (
+      event.type === "llm_stream_chunk" &&
+      typeof event.data?.phase === "string" &&
+      event.data.phase === "discussion"
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
 function openInFolder(path: string) {
   invoke("open_in_folder", { path }).catch(() => {
     if (navigator.clipboard?.writeText) {
@@ -97,9 +115,15 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
   const hasEvents = (message.events?.length ?? 0) > 0;
   const isError = message.success === false;
   const isCurrentBusy = state.busyConversationId === state.currentConversationId;
+  const caseData = message.caseData ?? null;
   const streamedText = extractStreamedAssistantText(message.events);
+  const isDiscussionReply = hasDiscussionStream(message.events);
   const renderText = sanitizeLLMDisplayText(message.text || "") || (isCurrentBusy ? streamedText : "");
-  const showText = !isError && (Boolean(renderText) || !hasEvents);
+  const showText =
+    !isError &&
+    !isDiscussionReply &&
+    !caseData &&
+    (Boolean(renderText) || !hasEvents);
   const isStreamingText = Boolean(isCurrentBusy && !message.text && streamedText);
   const modelPath =
     message.modelPath ?? extractModelPath(message.text || "");
@@ -173,6 +197,11 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
             <span className="dot">▣</span>
             <span>{formatTime(message.time ?? Date.now())}</span>
           </div>
+        </div>
+      )}
+      {caseData && !isError && (
+        <div className="assistant-msg-body success assistant-msg-body--case">
+          <CaseAnalysisCard caseData={caseData} savedPath={message.caseSavedPath} />
         </div>
       )}
     </div>

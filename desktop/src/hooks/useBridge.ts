@@ -75,7 +75,11 @@ export function useBridge() {
           payload: { ...payload, conversation_id: cid },
         });
         applyModeResponseSideEffects(cmd, res);
-        addMessage("assistant", res.message, { success: res.ok });
+        addMessage("assistant", res.message, {
+          success: res.ok,
+          caseData: res.case_generated ?? null,
+          caseSavedPath: res.saved_path ?? null,
+        });
         return res;
       } catch (e) {
         addMessage("assistant", "请求失败: " + String(e), { success: false });
