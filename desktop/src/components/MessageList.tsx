@@ -16,7 +16,7 @@ import {
 
 export function MessageList() {
   const { messages } = useAppState();
-  const { handleSubmit } = useBridge();
+  const { handleSubmit, triggerExtensionAction } = useBridge();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [emptyPanel, setEmptyPanel] = useState<"workflow" | "cases">("workflow");
 
@@ -28,7 +28,7 @@ export function MessageList() {
     return (
       <div className="message-list">
         <div className="message-list-empty">
-          <p className="message-list-empty-hint">输入建模需求开始推理，或输入 /help 查看命令</p>
+          <p className="message-list-empty-hint">输入建模需求开始推理，扩展功能请点击输入框左侧的 +</p>
           <div className="empty-state-panels">
             <div className="empty-state-tabs" role="tablist" aria-label="新会话引导分区">
               <button
@@ -85,8 +85,12 @@ export function MessageList() {
                         key={item.label}
                         type="button"
                         className="usage-workflow-chip"
-                        onClick={() => handleSubmit(item.text)}
-                        title={item.text}
+                        onClick={() =>
+                          item.extensionName
+                            ? void triggerExtensionAction(item.extensionName)
+                            : handleSubmit(item.text)
+                        }
+                        title={item.text || item.label}
                       >
                         {item.label}
                       </button>
@@ -119,8 +123,12 @@ export function MessageList() {
                             key={`${group.title}-${item.label}`}
                             type="button"
                             className="quick-prompt-chip"
-                            onClick={() => handleSubmit(item.text)}
-                            title={item.text}
+                            onClick={() =>
+                              item.extensionName
+                                ? void triggerExtensionAction(item.extensionName)
+                                : handleSubmit(item.text)
+                            }
+                            title={item.text || item.label}
                           >
                             {item.label}
                           </button>

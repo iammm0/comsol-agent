@@ -329,7 +329,7 @@ class PlanModeHandler:
         discussion_raw = self.context_manager.load_discussion_card()
         if not discussion_raw:
             return (
-                "未找到讨论卡。请先使用 `/discuss` 进入探讨阶段，并在完成后发送“结束探讨”。",
+                "未找到讨论卡。请先切换到探讨模式，并在完成后发送“结束探讨”。",
                 None,
                 False,
                 None,
@@ -337,10 +337,10 @@ class PlanModeHandler:
         try:
             card = DiscussionCard.model_validate(discussion_raw)
         except Exception:
-            return ("讨论卡损坏，请重新 `/discuss` 生成讨论结论。", None, False, None)
+            return ("讨论卡损坏，请重新在探讨模式中生成讨论结论。", None, False, None)
         if not card.finalized:
             return (
-                "讨论卡尚未 finalized。请先在 `/discuss` 中明确发送“结束探讨/进入规划”。",
+                "讨论卡尚未 finalized。请先在探讨模式中明确发送“结束探讨”或“进入规划”。",
                 None,
                 False,
                 None,
@@ -388,7 +388,7 @@ class PlanModeHandler:
         confirmed = bool(plan_dict.get("plan_confirmed"))
         if confirmed:
             return (
-                "建模规划已确认，已写入 plan.json 与 plan_readable.md。现在可切换 `/run` 执行。",
+                "建模规划已确认，已写入 plan.json 与 plan_readable.md。现在可切换到执行模式开始运行。",
                 plan_dict,
                 True,
                 None,
@@ -399,4 +399,3 @@ class PlanModeHandler:
             False,
             None,
         )
-

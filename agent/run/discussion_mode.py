@@ -147,7 +147,7 @@ class DiscussionModeHandler:
         if card.finalized and not any(k in lowered for k in REOPEN_KEYWORDS):
             self._save_card(card)
             return (
-                "讨论卡已 finalized。请进入 `/plan` 生成建模规划；若要继续讨论，请先发送“继续探讨”。",
+                "讨论卡已 finalized。请切换到规划模式生成建模规划；若要继续讨论，请先发送“继续探讨”。",
                 card,
             )
 
@@ -156,7 +156,7 @@ class DiscussionModeHandler:
             card.updated_at = datetime.now()
             self._save_card(card)
             return (
-                "探讨已确认结束，讨论卡已 finalized。现在可使用 `/plan` 进入建模规划。",
+                "探讨已确认结束，讨论卡已 finalized。现在可切换到规划模式进入建模规划。",
                 card,
             )
         return None
@@ -225,4 +225,3 @@ class DiscussionModeHandler:
             msg, c = early
             return msg, c.model_dump(mode="json")
         return None
-

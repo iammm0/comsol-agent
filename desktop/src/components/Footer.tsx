@@ -14,7 +14,7 @@ export function Footer() {
         多物理场建模智能体
         <span
           className="footer-workflow-hint"
-          title="推荐顺序：探讨 → 规划 → 执行。也可随时用 /discuss、/plan、/run 切换，或直接建模。"
+          title="推荐顺序：探讨 → 规划 → 执行。也可随时用底部模式条或 + 扩展功能切换，或直接建模。"
         >
           探讨→规划→执行（可任选入口）
         </span>

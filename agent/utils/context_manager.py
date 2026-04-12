@@ -23,6 +23,7 @@ class ConversationEntry:
 
     timestamp: str
     user_input: str
+    assistant_summary: Optional[str] = None
     plan: Optional[Dict[str, Any]] = None
     model_path: Optional[str] = None
     success: bool = True
@@ -38,6 +39,8 @@ class ContextSummary:
     total_conversations: int
     recent_shapes: List[str]
     preferences: Dict[str, Any]
+    manual_summary: str = ""
+    auto_summary: str = ""
 
 
 class ContextManager:
@@ -342,6 +345,7 @@ class ContextManager:
     def add_conversation(
         self,
         user_input: str,
+        assistant_summary: Optional[str] = None,
         plan: Optional[Dict[str, Any]] = None,
         model_path: Optional[str] = None,
         success: bool = True,
@@ -350,6 +354,7 @@ class ContextManager:
         entry = ConversationEntry(
             timestamp=datetime.now().isoformat(),
             user_input=user_input,
+            assistant_summary=(assistant_summary or "").strip() or None,
             plan=plan,
             model_path=str(model_path) if model_path else None,
             success=success,
@@ -392,7 +397,29 @@ class ContextManager:
         if not self.summary_file.exists():
             return None
         try:
-            return ContextSummary(**json.loads(self.summary_file.read_text(encoding="utf-8")))
+            payload = json.loads(self.summary_file.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return None
+            summary_text = str(payload.get("summary", "") or "")
+            manual_summary = str(payload.get("manual_summary", "") or "")
+            auto_summary = str(payload.get("auto_summary", "") or "")
+            if not auto_summary and summary_text and summary_text != manual_summary:
+                auto_summary = summary_text
+            recent_shapes = payload.get("recent_shapes") or []
+            preferences = payload.get("preferences") or {}
+            return ContextSummary(
+                summary=summary_text,
+                last_updated=str(payload.get("last_updated", "") or ""),
+                total_conversations=int(payload.get("total_conversations", 0) or 0),
+                recent_shapes=[
+                    str(item).strip()
+                    for item in recent_shapes
+                    if str(item).strip()
+                ],
+                preferences=dict(preferences) if isinstance(preferences, dict) else {},
+                manual_summary=manual_summary,
+                auto_summary=auto_summary,
+            )
         except Exception as e:
             logger.warning("Failed to load summary.json: %s", e)
             return None
@@ -406,19 +433,72 @@ class ContextManager:
         except Exception as e:
             logger.error("Failed to save summary.json: %s", e)
 
+    @staticmethod
+    def _clean_summary_lines(text: str) -> List[str]:
+        lines: List[str] = []
+        for raw in (text or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            line = re.sub(r"^[-*•]\s*", "", line)
+            line = re.sub(r"^\d+[.)、]\s*", "", line)
+            line = line.strip()
+            if line:
+                lines.append(line)
+        return lines
+
+    @staticmethod
+    def _clip_text(text: str, limit: int = 160) -> str:
+        text = re.sub(r"\s+", " ", (text or "").strip())
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)].rstrip() + "..."
+
+    @classmethod
+    def _format_summary_block(cls, title: str, text: str) -> List[str]:
+        lines = cls._clean_summary_lines(text)
+        if not lines:
+            return []
+        return [title, *[f"- {line}" for line in lines]]
+
+    @classmethod
+    def _compose_summary_text(cls, manual_summary: str, auto_summary: str) -> str:
+        blocks: List[str] = []
+        manual_block = cls._format_summary_block("用户整理的记忆", manual_summary)
+        auto_block = cls._format_summary_block("系统自动摘要", auto_summary)
+        if manual_block:
+            blocks.extend(manual_block)
+        if auto_block:
+            if blocks:
+                blocks.append("")
+            blocks.extend(auto_block)
+        return "\n".join(blocks).strip()
+
+    def get_editable_summary_text(self) -> str:
+        summary = self.load_summary()
+        if not summary:
+            return ""
+        if summary.manual_summary.strip():
+            return summary.manual_summary.strip()
+        return summary.summary.strip()
+
     def set_summary_text(self, text: str) -> None:
         current = self.load_summary()
         history_len = len(self.load_history())
+        manual_summary = "\n".join(self._clean_summary_lines(text))
+        auto_summary = current.auto_summary if current else ""
         summary = ContextSummary(
-            summary=(text or "").strip(),
+            summary=self._compose_summary_text(manual_summary, auto_summary),
             last_updated=datetime.now().isoformat(),
             total_conversations=current.total_conversations if current else history_len,
             recent_shapes=current.recent_shapes if current else [],
             preferences=current.preferences if current else {},
+            manual_summary=manual_summary,
+            auto_summary=auto_summary,
         )
         self.save_summary(summary)
 
-    def update_summary(self) -> None:
+    def _legacy_update_summary(self) -> None:
         history = self.load_history()
         if not history:
             return
@@ -449,7 +529,7 @@ class ContextManager:
         )
         self.save_summary(summary)
 
-    def _generate_summary_text(
+    def _legacy_generate_summary_text(
         self,
         history: List[Dict[str, Any]],
         recent_shapes: List[str],
@@ -469,7 +549,7 @@ class ContextManager:
             lines.append(f"  - {user_input}... ({status})")
         return "\n".join(lines)
 
-    def get_context_for_planner(self) -> str:
+    def _legacy_get_context_for_planner(self) -> str:
         summary = self.load_summary()
         if not summary:
             return ""
@@ -478,6 +558,333 @@ class ContextManager:
             lines.append(f"最近形状类型: {', '.join(summary.recent_shapes)}")
         if summary.preferences.get("preferred_unit"):
             lines.append(f"常用单位: {summary.preferences['preferred_unit']}")
+        return "\n".join(lines)
+
+    def update_summary(self) -> None:
+        history = self.load_history()
+
+        recent_shapes: List[str] = []
+        unit_counter: Dict[str, int] = {}
+        for entry in history[-20:]:
+            plan = entry.get("plan") or {}
+            for shape in plan.get("shapes", []) if isinstance(plan, dict) else []:
+                shape_type = str(shape.get("type", "")).strip()
+                if shape_type and shape_type not in recent_shapes:
+                    recent_shapes.append(shape_type)
+            if isinstance(plan, dict):
+                unit = str(plan.get("units", "")).strip()
+                if unit:
+                    unit_counter[unit] = unit_counter.get(unit, 0) + 1
+
+        preferences: Dict[str, Any] = {}
+        if unit_counter:
+            preferences["preferred_unit"] = max(unit_counter.items(), key=lambda x: x[1])[0]
+
+        current = self.load_summary()
+        manual_summary = current.manual_summary if current else ""
+        auto_summary = self._generate_auto_summary_text(history, recent_shapes, preferences)
+        summary = ContextSummary(
+            summary=self._compose_summary_text(manual_summary, auto_summary),
+            last_updated=datetime.now().isoformat(),
+            total_conversations=len(history),
+            recent_shapes=recent_shapes,
+            preferences=preferences,
+            manual_summary=manual_summary,
+            auto_summary=auto_summary,
+        )
+        self.save_summary(summary)
+
+    def _generate_auto_summary_text(
+        self,
+        history: List[Dict[str, Any]],
+        recent_shapes: List[str],
+        preferences: Dict[str, Any],
+    ) -> str:
+        total = len(history)
+        successful = sum(1 for entry in history if entry.get("success", True))
+        if total == 0:
+            return ""
+
+        lines = [f"总计 {total} 轮对话，成功 {successful} 轮。"]
+        if recent_shapes:
+            lines.append(f"最近涉及的几何类型: {', '.join(recent_shapes)}。")
+        preferred_unit = str(preferences.get("preferred_unit", "")).strip()
+        if preferred_unit:
+            lines.append(f"常用单位: {preferred_unit}。")
+
+        recent_entries = history[-5:]
+        if recent_entries:
+            lines.append("最近几轮:")
+            for entry in recent_entries:
+                user_input = self._clip_text(str(entry.get("user_input", "")), limit=60)
+                assistant_summary = self._clip_text(
+                    str(entry.get("assistant_summary", "")),
+                    limit=80,
+                )
+                status = "成功" if entry.get("success", True) else "失败"
+                line = f"- 用户: {user_input or '（空）'} [{status}]"
+                if assistant_summary:
+                    line += f" | 助手: {assistant_summary}"
+                lines.append(line)
+
+        return "\n".join(lines)
+
+    def get_context_for_planner(self) -> str:
+        summary = self.load_summary()
+        lines: List[str] = []
+
+        if summary:
+            lines.extend(self._format_summary_block("用户长期记忆", summary.manual_summary))
+
+            auto_lines = self._clean_summary_lines(summary.auto_summary)
+            if auto_lines:
+                if lines:
+                    lines.append("")
+                lines.append("系统自动摘要")
+                lines.extend(f"- {line}" for line in auto_lines[:6])
+
+            if summary.recent_shapes:
+                if lines:
+                    lines.append("")
+                lines.append("最近涉及的几何类型")
+                lines.append(f"- {', '.join(summary.recent_shapes[:8])}")
+
+            preferred_unit = str(summary.preferences.get("preferred_unit", "")).strip()
+            if preferred_unit:
+                if lines:
+                    lines.append("")
+                lines.append("稳定偏好")
+                lines.append(f"- 常用单位: {preferred_unit}")
+
+        recent_history = self.get_recent_history(limit=4)
+        if recent_history:
+            if lines:
+                lines.append("")
+            lines.append("最近对话片段")
+            for entry in recent_history:
+                user_input = self._clip_text(str(entry.get("user_input", "")), limit=80)
+                assistant_summary = self._clip_text(
+                    str(entry.get("assistant_summary", "")),
+                    limit=100,
+                )
+                status = "成功" if entry.get("success", True) else "失败"
+                lines.append(f"- 用户: {user_input or '（空）'} [{status}]")
+                if assistant_summary:
+                    lines.append(f"  助手: {assistant_summary}")
+
+        discussion = self.load_discussion_card()
+        if isinstance(discussion, dict):
+            discussion_points: List[str] = []
+            for key in (
+                "physical_principles",
+                "target_metrics",
+                "known_inputs",
+                "unknowns",
+                "candidate_solutions",
+                "risks",
+            ):
+                values = discussion.get(key)
+                if isinstance(values, list):
+                    discussion_points.extend(
+                        self._clip_text(str(item), limit=100)
+                        for item in values[:2]
+                        if str(item).strip()
+                    )
+            if discussion_points:
+                if lines:
+                    lines.append("")
+                lines.append("当前讨论卡")
+                lines.extend(f"- {item}" for item in discussion_points[:6])
+
+        plan = self.load_plan()
+        if isinstance(plan, dict):
+            plan_lines: List[str] = []
+            if plan.get("plan_confirmed") is True:
+                plan_lines.append("已有已确认的建模规划。")
+            unresolved = plan.get("unresolved_clarifications") or []
+            if isinstance(unresolved, list) and unresolved:
+                plan_lines.append(f"仍有 {len(unresolved)} 个澄清项未闭环。")
+            steps = plan.get("steps") or []
+            if isinstance(steps, list) and steps:
+                descriptions = []
+                for step in steps[:3]:
+                    if not isinstance(step, dict):
+                        continue
+                    description = self._clip_text(str(step.get("description", "")), limit=60)
+                    if description:
+                        descriptions.append(description)
+                if descriptions:
+                    plan_lines.append("当前计划步骤: " + " | ".join(descriptions))
+            if plan_lines:
+                if lines:
+                    lines.append("")
+                lines.append("当前计划状态")
+                lines.extend(f"- {line}" for line in plan_lines)
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _clean_summary_lines(text: str) -> List[str]:
+        lines: List[str] = []
+        for raw in (text or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            line = re.sub(r"^[-*]\s*", "", line)
+            line = re.sub(r"^\d+[.)]\s*", "", line)
+            line = line.strip()
+            if line:
+                lines.append(line)
+        return lines
+
+    @classmethod
+    def _format_summary_block(cls, title: str, text: str) -> List[str]:
+        lines = cls._clean_summary_lines(text)
+        if not lines:
+            return []
+        return [title, *[f"- {line}" for line in lines]]
+
+    @classmethod
+    def _compose_summary_text(cls, manual_summary: str, auto_summary: str) -> str:
+        blocks: List[str] = []
+        manual_block = cls._format_summary_block("User Memory", manual_summary)
+        auto_block = cls._format_summary_block("Auto Summary", auto_summary)
+        if manual_block:
+            blocks.extend(manual_block)
+        if auto_block:
+            if blocks:
+                blocks.append("")
+            blocks.extend(auto_block)
+        return "\n".join(blocks).strip()
+
+    def _generate_auto_summary_text(
+        self,
+        history: List[Dict[str, Any]],
+        recent_shapes: List[str],
+        preferences: Dict[str, Any],
+    ) -> str:
+        total = len(history)
+        successful = sum(1 for entry in history if entry.get("success", True))
+        if total == 0:
+            return ""
+
+        lines = [f"Total turns: {total}; successful turns: {successful}."]
+        if recent_shapes:
+            lines.append("Recent geometry types: " + ", ".join(recent_shapes) + ".")
+
+        preferred_unit = str(preferences.get("preferred_unit", "")).strip()
+        if preferred_unit:
+            lines.append(f"Preferred unit: {preferred_unit}.")
+
+        recent_entries = history[-5:]
+        if recent_entries:
+            lines.append("Recent turns:")
+            for entry in recent_entries:
+                user_input = self._clip_text(str(entry.get("user_input", "")), limit=60)
+                assistant_summary = self._clip_text(
+                    str(entry.get("assistant_summary", "")),
+                    limit=80,
+                )
+                status = "success" if entry.get("success", True) else "failed"
+                line = f"- User: {user_input or '(empty)'} [{status}]"
+                if assistant_summary:
+                    line += f" | Assistant: {assistant_summary}"
+                lines.append(line)
+
+        return "\n".join(lines)
+
+    def get_context_for_planner(self) -> str:
+        summary = self.load_summary()
+        lines: List[str] = []
+
+        if summary:
+            lines.extend(self._format_summary_block("Long-term memory", summary.manual_summary))
+
+            auto_lines = self._clean_summary_lines(summary.auto_summary)
+            if auto_lines:
+                if lines:
+                    lines.append("")
+                lines.append("Auto summary")
+                lines.extend(f"- {line}" for line in auto_lines[:6])
+
+            if summary.recent_shapes:
+                if lines:
+                    lines.append("")
+                lines.append("Recent geometry types")
+                lines.append(f"- {', '.join(summary.recent_shapes[:8])}")
+
+            preferred_unit = str(summary.preferences.get("preferred_unit", "")).strip()
+            if preferred_unit:
+                if lines:
+                    lines.append("")
+                lines.append("Stable preferences")
+                lines.append(f"- Preferred unit: {preferred_unit}")
+
+        recent_history = self.get_recent_history(limit=4)
+        if recent_history:
+            if lines:
+                lines.append("")
+            lines.append("Recent dialogue snippets")
+            for entry in recent_history:
+                user_input = self._clip_text(str(entry.get("user_input", "")), limit=80)
+                assistant_summary = self._clip_text(
+                    str(entry.get("assistant_summary", "")),
+                    limit=100,
+                )
+                status = "success" if entry.get("success", True) else "failed"
+                lines.append(f"- User: {user_input or '(empty)'} [{status}]")
+                if assistant_summary:
+                    lines.append(f"  Assistant: {assistant_summary}")
+
+        discussion = self.load_discussion_card()
+        if isinstance(discussion, dict):
+            discussion_points: List[str] = []
+            for key in (
+                "physical_principles",
+                "target_metrics",
+                "known_inputs",
+                "unknowns",
+                "candidate_solutions",
+                "risks",
+            ):
+                values = discussion.get(key)
+                if isinstance(values, list):
+                    discussion_points.extend(
+                        self._clip_text(str(item), limit=100)
+                        for item in values[:2]
+                        if str(item).strip()
+                    )
+            if discussion_points:
+                if lines:
+                    lines.append("")
+                lines.append("Current discussion card")
+                lines.extend(f"- {item}" for item in discussion_points[:6])
+
+        plan = self.load_plan()
+        if isinstance(plan, dict):
+            plan_lines: List[str] = []
+            if plan.get("plan_confirmed") is True:
+                plan_lines.append("There is already a confirmed modeling plan.")
+            unresolved = plan.get("unresolved_clarifications") or []
+            if isinstance(unresolved, list) and unresolved:
+                plan_lines.append(f"There are still {len(unresolved)} unresolved clarifications.")
+            steps = plan.get("steps") or []
+            if isinstance(steps, list) and steps:
+                descriptions = []
+                for step in steps[:3]:
+                    if not isinstance(step, dict):
+                        continue
+                    description = self._clip_text(str(step.get("description", "")), limit=60)
+                    if description:
+                        descriptions.append(description)
+                if descriptions:
+                    plan_lines.append("Current plan steps: " + " | ".join(descriptions))
+            if plan_lines:
+                if lines:
+                    lines.append("")
+                lines.append("Current plan status")
+                lines.extend(f"- {line}" for line in plan_lines)
+
         return "\n".join(lines)
 
     # ---- Misc ----
@@ -523,6 +930,8 @@ class ContextManager:
             "successful": sum(1 for e in history if e.get("success", True)),
             "failed": sum(1 for e in history if not e.get("success", True)),
             "summary": summary.summary if summary else "暂无摘要",
+            "manual_summary": summary.manual_summary if summary else "",
+            "auto_summary": summary.auto_summary if summary else "",
             "recent_shapes": summary.recent_shapes if summary else [],
             "preferences": summary.preferences if summary else {},
         }

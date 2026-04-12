@@ -753,15 +753,10 @@ body {
         );
 }
 .message-list > .assistant-msg,
-.message-list > .user-msg {
-    margin-left: auto;
-    margin-right: auto;
-}
-.message-list > .assistant-msg {
-    margin-right: min(4vw, 40px);
-}
-.message-list > .user-msg {
-    margin-left: min(4vw, 40px);
+.message-list > .user-msg,
+.message-list > .system-msg {
+    margin-left: 0;
+    margin-right: 0;
 }
 .message-list-empty {
     flex: 1;
@@ -1047,12 +1042,12 @@ body {
 
 /* User message */
 .user-msg {
-    align-self: flex-end;
+    align-self: flex-start;
     width: min(920px, 94%);
     border-left: 3px solid var(--primary);
     padding: 11px 16px;
     background: var(--bg-panel);
-    border-radius: 12px 12px 4px 12px;
+    border-radius: 12px 12px 12px 4px;
     border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
     transition:
@@ -1283,7 +1278,9 @@ body {
 
 /* System message */
 .system-msg {
-    padding: 4px 16px 4px 24px;
+    align-self: flex-start;
+    width: min(980px, 96%);
+    padding: 4px 16px 4px 2px;
     font-size: 13px;
 }
 .system-msg.error {

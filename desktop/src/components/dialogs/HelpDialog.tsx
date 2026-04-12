@@ -17,57 +17,57 @@ export function HelpDialog() {
           <span className="dialog-row-val">换行</span>
         </div>
 
-        <div className="dialog-section-title">斜杠命令</div>
+        <div className="dialog-section-title">扩展功能</div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/help</span>
-          <span className="dialog-row-val">显示帮助</span>
+          <span className="dialog-row-key">帮助</span>
+          <span className="dialog-row-val">打开帮助面板</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/ops</span>
+          <span className="dialog-row-key">COMSOL 操作清单</span>
           <span className="dialog-row-val">打开 COMSOL 可执行操作清单页</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/discuss</span>
-          <span className="dialog-row-val">切换到 Discuss 模式（与 LLM 闲聊）</span>
+          <span className="dialog-row-key">切换到探讨</span>
+          <span className="dialog-row-val">切换到 Discuss 模式，与 LLM 理清需求</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/run</span>
+          <span className="dialog-row-key">切换到执行</span>
           <span className="dialog-row-val">切换到执行模式（执行已确认计划）</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/plan</span>
+          <span className="dialog-row-key">切换到规划</span>
           <span className="dialog-row-val">切换到规划模式（基于讨论卡生成计划）</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/case &lt;path.mph&gt;</span>
-          <span className="dialog-row-val">读取 mph 并生成结构化操作案例</span>
+          <span className="dialog-row-key">读取 .mph 案例</span>
+          <span className="dialog-row-val">选择 mph 文件并生成结构化操作案例</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/exec</span>
+          <span className="dialog-row-key">JSON 执行</span>
           <span className="dialog-row-val">根据 JSON 创建模型</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/backend</span>
+          <span className="dialog-row-key">LLM 后端</span>
           <span className="dialog-row-val">选择 LLM 后端</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/context</span>
+          <span className="dialog-row-key">上下文</span>
           <span className="dialog-row-val">查看或清除对话历史</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/output</span>
+          <span className="dialog-row-key">输出设置</span>
           <span className="dialog-row-val">设置默认输出文件名</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/demo</span>
+          <span className="dialog-row-key">演示示例</span>
           <span className="dialog-row-val">演示示例</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/doctor</span>
+          <span className="dialog-row-key">环境诊断</span>
           <span className="dialog-row-val">环境诊断</span>
         </div>
         <div className="dialog-row">
-          <span className="dialog-row-key">/exit</span>
+          <span className="dialog-row-key">退出程序</span>
           <span className="dialog-row-val">退出</span>
         </div>
 
@@ -119,7 +119,7 @@ export function HelpDialog() {
         <div className="dialog-row">
           <span className="dialog-row-key">执行链路</span>
           <span className="dialog-row-val">
-            /help 展示说明；实际调用走 java_api_controller.py → comsol_runner.py
+            帮助面板展示说明；实际调用走 java_api_controller.py → comsol_runner.py
           </span>
         </div>
         <div className="dialog-row">

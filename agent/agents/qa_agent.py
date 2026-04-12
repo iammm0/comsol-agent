@@ -1,5 +1,5 @@
 """Q&A Agent：仅对话、介绍、帮助，不调用工具。"""
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
 from agent.core.base import BaseAgent
 from agent.utils.llm import LLMClient
@@ -45,4 +45,17 @@ class QAAgent(BaseAgent):
         logger.debug("Q&A 处理: %s", user_input[:80])
         prompt = f"{self.system_prompt}\n\n用户: {user_input}\n\n助手:"
         reply = self.llm.call(prompt, temperature=0.7)
+        return (reply or "").strip()
+
+    def process_stream(
+        self,
+        user_input: str,
+        *,
+        on_chunk: Callable[[str], None],
+        **kwargs: Any,
+    ) -> str:
+        """流式对话回复，同时返回完整文本。"""
+        logger.debug("Q&A 流式处理: %s", user_input[:80])
+        prompt = f"{self.system_prompt}\n\n用户: {user_input}\n\n助手:"
+        reply = self.llm.call_stream(prompt, temperature=0.7, on_chunk=on_chunk)
         return (reply or "").strip()

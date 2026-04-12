@@ -31,6 +31,9 @@ try:
         do_case_library_list,
         do_case_library_sync,
         do_case_library_sync_status,
+        do_doc_kb_import,
+        do_doc_kb_search,
+        do_doc_kb_status,
         do_skills_list_local,
         do_skills_create_local,
         do_skills_import_local,
@@ -179,6 +182,10 @@ def _handle(req: dict[str, Any]) -> None:
             return
 
         if cmd == "plan":
+            event_bus = None
+            if req.get("stream"):
+                event_bus = EventBus()
+                event_bus.subscribe_all(_emit_event)
             ok, msg, plan_dict, plan_confirmed, clarifying_questions = do_plan_mode(
                 user_input=(req.get("input") or "").strip(),
                 conversation_id=req.get("conversation_id") or None,
@@ -189,6 +196,7 @@ def _handle(req: dict[str, Any]) -> None:
                 model=req.get("model") or None,
                 clarifying_answers=req.get("clarifying_answers") or None,
                 verbose=req.get("verbose", False),
+                event_bus=event_bus,
             )
             _reply(
                 ok,
@@ -201,6 +209,10 @@ def _handle(req: dict[str, Any]) -> None:
             return
 
         if cmd == "discuss":
+            event_bus = None
+            if req.get("stream"):
+                event_bus = EventBus()
+                event_bus.subscribe_all(_emit_event)
             ok, msg, card = do_discuss(
                 user_input=(req.get("input") or "").strip(),
                 conversation_id=req.get("conversation_id") or None,
@@ -210,6 +222,7 @@ def _handle(req: dict[str, Any]) -> None:
                 base_url=req.get("base_url") or None,
                 ollama_url=req.get("ollama_url") or None,
                 model=req.get("model") or None,
+                event_bus=event_bus,
             )
             _reply(ok, msg, discussion_card=card)
             return
@@ -280,6 +293,49 @@ def _handle(req: dict[str, Any]) -> None:
         if cmd == "case_library_sync_status":
             ok, msg, state = do_case_library_sync_status(verbose=req.get("verbose", False))
             _reply(ok, msg, sync=state)
+            return
+
+        if cmd == "doc_kb_import":
+            def _int(name: str, default: int) -> int:
+                try:
+                    return int(req.get(name) or default)
+                except Exception:
+                    return default
+
+            ok, msg, state = do_doc_kb_import(
+                source_path=(req.get("source_path") or "").strip(),
+                version=(req.get("version") or "6.3").strip() or "6.3",
+                limit=_int("limit", 0),
+                chunk_chars=_int("chunk_chars", 2400),
+                overlap_chars=_int("overlap_chars", 240),
+                verbose=req.get("verbose", False),
+            )
+            _reply(ok, msg, sync=state)
+            return
+
+        if cmd == "doc_kb_status":
+            ok, msg, state = do_doc_kb_status(verbose=req.get("verbose", False))
+            _reply(ok, msg, sync=state)
+            return
+
+        if cmd == "doc_kb_search":
+            try:
+                limit = int(req.get("limit") or 5)
+            except Exception:
+                limit = 5
+            ok, msg, result = do_doc_kb_search(
+                query=(req.get("query") or "").strip(),
+                limit=limit,
+                verbose=req.get("verbose", False),
+            )
+            _reply(
+                ok,
+                msg,
+                items=result.get("items", []),
+                total=result.get("total", 0),
+                query=result.get("query", ""),
+                limit=result.get("limit", limit),
+            )
             return
 
         if cmd == "skills_list_local":

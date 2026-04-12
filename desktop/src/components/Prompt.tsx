@@ -5,22 +5,20 @@ import {
   useEffect,
   type KeyboardEvent,
 } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState } from "../context/AppStateContext";
 import { useBridge } from "../hooks/useBridge";
 import {
-  SLASH_COMMANDS,
   PROMPT_PLUS_MENU_COMMANDS,
   PROMPT_MODE_ITEMS,
 } from "../lib/types";
-import type { SlashCommandItem, AgentMode } from "../lib/types";
+import type { PromptExtensionItem, AgentMode } from "../lib/types";
 
 export function Prompt() {
   const { state, dispatch } = useAppState();
-  const { handleSubmit, abortRun } = useBridge();
+  const { handleSubmit, abortRun, triggerExtensionAction } = useBridge();
   const [value, setValue] = useState("");
   const [modeToast, setModeToast] = useState("");
-  const [showSlash, setShowSlash] = useState(false);
-  const [slashIndex, setSlashIndex] = useState(0);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusWrapRef = useRef<HTMLDivElement>(null);
@@ -31,17 +29,6 @@ export function Prompt() {
       dispatch({ type: "SET_EDITING_DRAFT", text: null });
     }
   }, [state.editingDraft, dispatch]);
-
-  const filteredSlash = value.startsWith("/")
-    ? SLASH_COMMANDS.filter((c: SlashCommandItem) =>
-        c.display.startsWith(value.toLowerCase().split(/\s/)[0])
-      )
-    : [];
-
-  useEffect(() => {
-    setShowSlash(value.startsWith("/") && filteredSlash.length > 0);
-    setSlashIndex(0);
-  }, [value, filteredSlash.length]);
 
   useEffect(() => {
     if (!showPlusMenu) return;
@@ -66,7 +53,6 @@ export function Prompt() {
     if (!text || state.busyConversationId != null) return;
     handleSubmit(text);
     setValue("");
-    setShowSlash(false);
   }, [value, state.busyConversationId, handleSubmit]);
 
   const applyMode = useCallback(
@@ -85,24 +71,22 @@ export function Prompt() {
   );
 
   const onPlusSelect = useCallback(
-    (cmd: SlashCommandItem) => {
+    async (cmd: PromptExtensionItem) => {
       setShowPlusMenu(false);
       if (cmd.name === "case") {
-        setValue("/case ");
-        setShowSlash(false);
-        requestAnimationFrame(() => {
-          textareaRef.current?.focus();
-          const el = textareaRef.current;
-          if (el) {
-            const len = el.value.length;
-            el.setSelectionRange(len, len);
-          }
+        const selected = await open({
+          multiple: false,
+          title: "选择要读取的 COMSOL 模型文件",
+          filters: [{ name: "COMSOL Model", extensions: ["mph"] }],
         });
+        if (typeof selected === "string") {
+          await triggerExtensionAction("case", { modelPath: selected });
+        }
         return;
       }
-      handleSubmit(cmd.display);
+      await triggerExtensionAction(cmd.name);
     },
-    [handleSubmit]
+    [triggerExtensionAction]
   );
 
   const handleKeyDown = useCallback(
@@ -114,35 +98,12 @@ export function Prompt() {
           return;
         }
       }
-      if (showSlash && filteredSlash.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setSlashIndex((i: number) => Math.min(i + 1, filteredSlash.length - 1));
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setSlashIndex((i: number) => Math.max(i - 1, 0));
-          return;
-        }
-        if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-          e.preventDefault();
-          const cmd: SlashCommandItem | undefined = filteredSlash[slashIndex];
-          if (cmd) {
-            handleSubmit(cmd.display);
-            setValue("");
-            setShowSlash(false);
-          }
-          return;
-        }
-      }
-
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         submit();
       }
     },
-    [showSlash, filteredSlash, slashIndex, submit, handleSubmit, showPlusMenu]
+    [submit, showPlusMenu]
   );
 
   const autoResize = useCallback(() => {
@@ -160,7 +121,7 @@ export function Prompt() {
       {state.discussionReadyForPlan && state.mode === "discuss" && (
         <div className="prompt-plan-nudge" role="status">
           <span className="prompt-plan-nudge__text">
-            探讨结论已就绪，可进入规划模式编写建模需求；也可点下方「规划」或 + 菜单中的命令。
+            探讨结论已就绪，可进入规划模式编写建模需求；也可点下方「规划」或 + 菜单中的扩展功能。
           </span>
           <button
             type="button"
@@ -193,26 +154,6 @@ export function Prompt() {
         </div>
       </div>
       <div className="prompt-wrapper" style={{ position: "relative" }}>
-        {showSlash && (
-          <div className="slash-dropdown">
-            {filteredSlash.map((cmd: SlashCommandItem, i: number) => (
-              <div
-                key={cmd.name}
-                className={`slash-item ${i === slashIndex ? "active" : ""}`}
-                onMouseEnter={() => setSlashIndex(i)}
-                onClick={() => {
-                  handleSubmit(cmd.display);
-                  setValue("");
-                  setShowSlash(false);
-                  textareaRef.current?.focus();
-                }}
-              >
-                <span className="slash-item-name">{cmd.display}</span>
-                <span className="slash-item-desc">{cmd.description}</span>
-              </div>
-            ))}
-          </div>
-        )}
         <div className="prompt-plus-wrap" ref={plusWrapRef}>
           <button
             type="button"
@@ -220,7 +161,7 @@ export function Prompt() {
             disabled={busy}
             aria-expanded={showPlusMenu}
             aria-haspopup="menu"
-            title="命令与工具"
+            title="扩展功能"
             onClick={() => setShowPlusMenu((v) => !v)}
           >
             +
@@ -233,9 +174,9 @@ export function Prompt() {
                   type="button"
                   role="menuitem"
                   className="prompt-plus-menu-item"
-                  onClick={() => onPlusSelect(cmd)}
+                  onClick={() => void onPlusSelect(cmd)}
                 >
-                  <span className="prompt-plus-menu-cmd">{cmd.display}</span>
+                  <span className="prompt-plus-menu-cmd">{cmd.label}</span>
                   <span className="prompt-plus-menu-desc">{cmd.description}</span>
                 </button>
               ))}
@@ -246,7 +187,7 @@ export function Prompt() {
           ref={textareaRef}
           className="prompt-input"
           rows={1}
-          placeholder="输入建模需求…（仍可直接输入 / 命令）"
+          placeholder="输入建模需求…（扩展功能请点击 +）"
           value={value}
           disabled={busy}
           onChange={(e) => {

@@ -11,6 +11,12 @@ from agent.case_library import (
     list_case_library_items,
     load_case_library,
 )
+from agent.doc_knowledge import (
+    get_default_doc_kb_path,
+    import_comsol_docs,
+    load_doc_kb_status,
+    search_doc_kb,
+)
 from agent.core.dependencies import get_agent, get_context_manager, get_settings
 from agent.core.events import Event, EventBus, EventType
 from agent.executor.comsol_runner import COMSOLRunner
@@ -47,6 +53,15 @@ _CASE_LIBRARY_SYNC_STATE: Dict[str, Any] = {
     "total_shallow_records": 0,
 }
 
+_DOC_KB_SYNC_LOCK = Lock()
+_DOC_KB_SYNC_STATE: Dict[str, Any] = {
+    "running": False,
+    "status": "idle",
+    "message": "",
+    "documents": 0,
+    "chunks": 0,
+}
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -55,6 +70,11 @@ def _utc_now_iso() -> str:
 def _case_library_sync_state_copy() -> Dict[str, Any]:
     with _CASE_LIBRARY_SYNC_LOCK:
         return dict(_CASE_LIBRARY_SYNC_STATE)
+
+
+def _doc_kb_sync_state_copy() -> Dict[str, Any]:
+    with _DOC_KB_SYNC_LOCK:
+        return dict(_DOC_KB_SYNC_STATE)
 
 # 与桌面端新会话快捷提示词一致，用于 /demo，与 COMSOL 案例库风格类似：偏 3D、多物理场、包含求解与结果导出。
 QUICK_TEST_PROMPTS = [
@@ -99,6 +119,65 @@ def _update_memory_after_run(
         update_conversation_memory(
             conversation_id, user_input, assistant_summary, success
         )
+
+
+def _emit_stream_text(
+    event_bus: Optional[EventBus],
+    *,
+    phase: str,
+    text: str,
+    chunk_size: int = 48,
+) -> None:
+    if event_bus is None:
+        return
+    content = (text or "").strip()
+    if not content:
+        return
+    for index in range(0, len(content), chunk_size):
+        event_bus.emit_type(
+            EventType.LLM_STREAM_CHUNK,
+            {"phase": phase, "chunk": content[index : index + chunk_size]},
+        )
+
+
+def _summarize_plan_for_history(
+    plan_dict: Optional[Dict[str, Any]],
+    *,
+    plan_confirmed: bool,
+    clarifying_questions: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    if not isinstance(plan_dict, dict):
+        return {
+            "architecture": "plan",
+            "plan_confirmed": plan_confirmed,
+            "clarifying_questions": len(clarifying_questions or []),
+        }
+
+    summary: Dict[str, Any] = {
+        "architecture": "plan",
+        "plan_confirmed": plan_confirmed,
+        "discussion_card_ref": plan_dict.get("discussion_card_ref"),
+        "clarifying_questions": len(clarifying_questions or []),
+    }
+    unresolved = plan_dict.get("unresolved_clarifications")
+    if isinstance(unresolved, list):
+        summary["unresolved_clarifications"] = unresolved[:10]
+    steps = plan_dict.get("steps")
+    if isinstance(steps, list):
+        slim_steps = []
+        for step in steps[:5]:
+            if not isinstance(step, dict):
+                continue
+            slim_steps.append(
+                {
+                    "step_index": step.get("step_index"),
+                    "agent_type": step.get("agent_type"),
+                    "description": step.get("description"),
+                }
+            )
+        if slim_steps:
+            summary["steps"] = slim_steps
+    return summary
 
 
 def _ensure_logging(verbose: bool = False) -> None:
@@ -340,6 +419,7 @@ def do_run(
                 log_action("plan_needs_clarification", detail=str(e))
                 context_manager.add_conversation(
                     user_input=user_input,
+                    assistant_summary="计划已生成，等待澄清问题回答",
                     plan={"architecture": "react", "status": "plan_needs_clarification"},
                     model_path="",
                     success=True,
@@ -388,6 +468,7 @@ def do_run(
                     user_message = "执行遇到问题，建议重新编排任务；重新编排调用失败: " + str(orch_e)
                 context_manager.add_conversation(
                     user_input=user_input,
+                    assistant_summary=user_message,
                     plan={"architecture": "react", "status": "reorchestrate"},
                     model_path="",
                     success=True,
@@ -404,6 +485,7 @@ def do_run(
 
             context_manager.add_conversation(
                 user_input=user_input,
+                assistant_summary=f"模型已生成: {model_path}",
                 plan={"architecture": "react"},
                 model_path=str(model_path),
                 success=True,
@@ -433,6 +515,7 @@ def do_run(
             model_path = runner.create_model_from_plan(plan, output)
             context_manager.add_conversation(
                 user_input=user_input,
+                assistant_summary=f"模型已生成: {model_path}",
                 plan=plan.to_dict(),
                 model_path=str(model_path),
                 success=True,
@@ -451,7 +534,12 @@ def do_run(
     except Exception as e:
         logger.exception("do_run 失败")
         log_action("run_failed", detail=str(e), level="ERROR", data={"exception_type": type(e).__name__})
-        context_manager.add_conversation(user_input=user_input, success=False, error=str(e))
+        context_manager.add_conversation(
+            user_input=user_input,
+            assistant_summary=str(e),
+            success=False,
+            error=str(e),
+        )
         if conversation_id:
             _update_memory_after_run(conversation_id, user_input, str(e), False)
         finish_log(False, str(e), {"exception_type": type(e).__name__})
@@ -468,6 +556,7 @@ def do_plan_mode(
     model: Optional[str] = None,
     clarifying_answers: Optional[List[Dict[str, Any]]] = None,
     verbose: bool = False,
+    event_bus: Optional[EventBus] = None,
 ) -> Tuple[bool, str, Optional[Dict[str, Any]], bool, Optional[List[Dict[str, Any]]]]:
     """
     规划阶段：基于 finalized 讨论卡生成 plan.json + plan_readable.md，并执行澄清闭环。
@@ -494,6 +583,10 @@ def do_plan_mode(
     )
     log_action("plan_mode_invoked")
     try:
+        if event_bus is not None:
+            event_bus.emit_type(EventType.PLAN_START, {"user_input": user_input})
+            event_bus.emit_type(EventType.TASK_PHASE, {"phase": "planning"})
+
         from agent.run.plan_mode import PlanModeHandler
 
         handler = PlanModeHandler(
@@ -509,6 +602,34 @@ def do_plan_mode(
             user_input,
             clarifying_answers=clarifying_answers,
         )
+        if event_bus is not None:
+            _emit_stream_text(event_bus, phase="planning", text=reply)
+            event_bus.emit_type(
+                EventType.PLAN_END,
+                {
+                    "plan_confirmed": plan_confirmed,
+                    "clarifying_questions": clarifying_questions or [],
+                    "unresolved_clarifications": (
+                        plan_dict.get("unresolved_clarifications", [])
+                        if isinstance(plan_dict, dict)
+                        else []
+                    ),
+                    "plan": plan_dict,
+                },
+            )
+
+        context_manager.add_conversation(
+            user_input=user_input,
+            assistant_summary=reply,
+            plan=_summarize_plan_for_history(
+                plan_dict,
+                plan_confirmed=plan_confirmed,
+                clarifying_questions=clarifying_questions,
+            ),
+            success=True,
+        )
+        if conversation_id:
+            _update_memory_after_run(conversation_id, user_input, reply, True)
         log_action(
             "plan_mode_completed",
             data={
@@ -529,6 +650,15 @@ def do_plan_mode(
     except Exception as e:
         logger.exception("do_plan_mode 失败: %s", e)
         log_action("plan_mode_failed", detail=str(e), level="ERROR")
+        context_manager.add_conversation(
+            user_input=user_input,
+            assistant_summary=str(e),
+            plan={"architecture": "plan", "status": "error"},
+            success=False,
+            error=str(e),
+        )
+        if conversation_id:
+            _update_memory_after_run(conversation_id, user_input, str(e), False)
         finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None, False, None
 
@@ -545,7 +675,7 @@ DISCUSS_TOPIC_PROMPT = (
     "系统会在后台维护结构化讨论要点（用户看不到内部字段名）。\n"
     "下面「内部摘要」仅供你参考，请用自然对话回复：回应用户输入，信息不足时温和追问 1～2 个关键点。\n"
     "语气像在讨论方案，不要像打印状态报告。\n"
-    "禁止输出「讨论卡已更新」「原理 N 条」等模板句；若合适可提醒：需要进入下一阶段时可发送「进入规划」或使用 /plan。\n\n"
+    "禁止输出「讨论卡已更新」「原理 N 条」等模板句；若合适可提醒：需要进入下一阶段时可发送「进入规划」或切换到规划模式。\n\n"
     "【内部摘要】\n{brief}\n"
 )
 
@@ -559,16 +689,32 @@ def _discuss_llm_reply(
     base_url: Optional[str],
     ollama_url: Optional[str],
     model: Optional[str],
+    memory_context: str = "",
+    event_bus: Optional[EventBus] = None,
 ) -> str:
+    final_system_prompt = system_prompt
+    if memory_context.strip():
+        final_system_prompt = (
+            f"{system_prompt}\n\n"
+            f"【会话记忆】\n{memory_context.strip()}\n"
+        )
     qa = QAAgent(
-        system_prompt=system_prompt,
+        system_prompt=final_system_prompt,
         backend=backend,
         api_key=api_key,
         base_url=base_url,
         ollama_url=ollama_url,
         model=model,
     )
-    return qa.process(user_text)
+    if event_bus is None:
+        return qa.process(user_text)
+    return qa.process_stream(
+        user_text,
+        on_chunk=lambda chunk: event_bus.emit_type(
+            EventType.LLM_STREAM_CHUNK,
+            {"phase": "discussion", "chunk": chunk},
+        ),
+    )
 
 
 def do_discuss(
@@ -580,6 +726,7 @@ def do_discuss(
     base_url: Optional[str] = None,
     ollama_url: Optional[str] = None,
     model: Optional[str] = None,
+    event_bus: Optional[EventBus] = None,
 ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
     """Discuss 阶段：优先 LLM 自然对话；技术性输入仍增量写入 discussion card。"""
     _ensure_logging(verbose)
@@ -600,10 +747,36 @@ def do_discuss(
     )
     log_action("discuss_invoked")
     try:
+        memory_context = context_manager.get_context_for_planner()
+        log_action(
+            "discussion_memory_loaded",
+            data={
+                "has_memory_context": bool(memory_context.strip()),
+                "memory_context_length": len(memory_context),
+            },
+        )
+        if event_bus is not None:
+            event_bus.emit_type(EventType.TASK_PHASE, {"phase": "discussion"})
+
         handler = DiscussionModeHandler(context_manager=context_manager)
         resolved = handler.try_resolve_control_messages(user_input)
         if resolved:
             msg, card = resolved
+            if event_bus is not None:
+                _emit_stream_text(event_bus, phase="discussion", text=msg)
+            context_manager.add_conversation(
+                user_input=user_input,
+                assistant_summary=msg,
+                plan={
+                    "architecture": "discussion",
+                    "mode": "control",
+                    "discussion_card_ref": card.get("card_id") if isinstance(card, dict) else None,
+                    "discussion_finalized": bool(card.get("finalized")) if isinstance(card, dict) else False,
+                },
+                success=True,
+            )
+            if conversation_id:
+                _update_memory_after_run(conversation_id, user_input, msg, True)
             log_action("discuss_control_message_resolved")
             finish_log(
                 True,
@@ -624,7 +797,11 @@ def do_discuss(
         if is_chitchat_only(text):
             try:
                 reply = _discuss_llm_reply(
-                    text, system_prompt=DISCUSS_CHITCHAT_PROMPT, **llm_kw
+                    text,
+                    system_prompt=DISCUSS_CHITCHAT_PROMPT,
+                    memory_context=memory_context,
+                    event_bus=event_bus,
+                    **llm_kw,
                 )
                 log_action("discuss_chitchat_llm_success")
             except Exception as e:
@@ -632,6 +809,19 @@ def do_discuss(
                 log_action("discuss_chitchat_llm_failed", detail=str(e), level="WARNING")
                 reply = "你好！我在这儿。想聊什么都可以；若要开始整理 COMSOL 建模需求，可以切换到 Plan 模式。"
             card = handler._load_or_create_card()
+            context_manager.add_conversation(
+                user_input=user_input,
+                assistant_summary=reply,
+                plan={
+                    "architecture": "discussion",
+                    "mode": "chitchat",
+                    "discussion_card_ref": getattr(card, "card_id", None),
+                    "discussion_finalized": bool(getattr(card, "finalized", False)),
+                },
+                success=True,
+            )
+            if conversation_id:
+                _update_memory_after_run(conversation_id, user_input, reply, True)
             finish_log(
                 True,
                 reply,
@@ -660,6 +850,8 @@ def do_discuss(
             reply = _discuss_llm_reply(
                 text,
                 system_prompt=DISCUSS_TOPIC_PROMPT.format(brief=brief),
+                memory_context=memory_context,
+                event_bus=event_bus,
                 **llm_kw,
             )
             log_action("discuss_topic_llm_success")
@@ -667,9 +859,24 @@ def do_discuss(
             logger.warning("Discuss 技术向 LLM 失败，使用兜底: %s", e)
             log_action("discuss_topic_llm_failed", detail=str(e), level="WARNING")
             reply = (
-                "已记下你的描述。若准备生成可执行规划，可发送「进入规划」或切换到 `/plan`；"
+                "已记下你的描述。若准备生成可执行规划，可发送「进入规划」或切换到规划模式；"
                 "也可继续补充几何、材料、边界与目标结果。"
             )
+        context_manager.add_conversation(
+            user_input=user_input,
+            assistant_summary=reply,
+            plan={
+                "architecture": "discussion",
+                "mode": "topic",
+                "discussion_card_ref": getattr(card, "card_id", None),
+                "discussion_finalized": bool(card.finalized),
+                "unknowns": len(card.unknowns),
+                "target_metrics": len(card.target_metrics),
+            },
+            success=True,
+        )
+        if conversation_id:
+            _update_memory_after_run(conversation_id, user_input, reply, True)
         finish_log(
             True,
             reply,
@@ -683,6 +890,15 @@ def do_discuss(
     except Exception as e:
         logger.exception("do_discuss 失败")
         log_action("discuss_failed", detail=str(e), level="ERROR")
+        context_manager.add_conversation(
+            user_input=user_input,
+            assistant_summary=str(e),
+            plan={"architecture": "discussion", "status": "error"},
+            success=False,
+            error=str(e),
+        )
+        if conversation_id:
+            _update_memory_after_run(conversation_id, user_input, str(e), False)
         finish_log(False, str(e), {"exception_type": type(e).__name__})
         return False, str(e), None
 
@@ -918,6 +1134,153 @@ def do_case_library_sync(
     return True, "案例库同步已启动", _case_library_sync_state_copy()
 
 
+def do_doc_kb_status(verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    """Return current local COMSOL documentation KB state for the desktop UI."""
+
+    _ensure_logging(verbose)
+    state = _doc_kb_sync_state_copy()
+    try:
+        payload = load_doc_kb_status()
+        state.update(
+            {
+                "db_path": payload.get("db_path"),
+                "indexed_documents": int(payload.get("documents") or 0),
+                "indexed_chunks": int(payload.get("chunks") or 0),
+                "generated_at": payload.get("generated_at"),
+                "metadata": payload.get("metadata") or {},
+            }
+        )
+        if not state.get("documents"):
+            state["documents"] = state["indexed_documents"]
+        if not state.get("chunks"):
+            state["chunks"] = state["indexed_chunks"]
+    except Exception as e:
+        logger.exception("do_doc_kb_status failed")
+        state.setdefault("metadata", {})
+        state["load_error"] = str(e)
+    return True, "ok", state
+
+
+def do_doc_kb_search(
+    query: str,
+    limit: int = 5,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Search the local COMSOL documentation KB."""
+
+    _ensure_logging(verbose)
+    try:
+        hits = search_doc_kb(query, limit=max(1, int(limit or 5)))
+        return True, "ok", {
+            "items": hits,
+            "total": len(hits),
+            "query": query,
+            "limit": max(1, int(limit or 5)),
+        }
+    except Exception as e:
+        logger.exception("do_doc_kb_search failed")
+        return False, str(e), {"items": [], "total": 0, "query": query, "limit": limit}
+
+
+def do_doc_kb_import(
+    source_path: str,
+    version: str = "6.3",
+    limit: int = 0,
+    chunk_chars: int = 2400,
+    overlap_chars: int = 240,
+    verbose: bool = False,
+) -> Tuple[bool, str, Dict[str, Any]]:
+    """Start background import for a local COMSOL documentation knowledge base."""
+
+    _ensure_logging(verbose)
+    output_path = get_default_doc_kb_path()
+
+    with _DOC_KB_SYNC_LOCK:
+        if _DOC_KB_SYNC_STATE.get("running"):
+            return True, "文档知识库导入已在进行中", dict(_DOC_KB_SYNC_STATE)
+
+        _DOC_KB_SYNC_STATE.clear()
+        _DOC_KB_SYNC_STATE.update(
+            {
+                "running": True,
+                "status": "starting",
+                "message": "正在启动 COMSOL 文档知识库导入...",
+                "documents": 0,
+                "chunks": 0,
+                "indexed_documents": 0,
+                "indexed_chunks": 0,
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "db_path": str(output_path),
+                "source_path": source_path,
+                "version": version,
+                "metadata": {},
+                "last_error": None,
+            }
+        )
+
+    def progress(payload: Dict[str, Any]) -> None:
+        with _DOC_KB_SYNC_LOCK:
+            _DOC_KB_SYNC_STATE["status"] = str(payload.get("event") or "running")
+            if payload.get("message"):
+                _DOC_KB_SYNC_STATE["message"] = str(payload.get("message"))
+            if payload.get("documents") is not None:
+                _DOC_KB_SYNC_STATE["documents"] = int(payload.get("documents") or 0)
+            if payload.get("chunks") is not None:
+                _DOC_KB_SYNC_STATE["chunks"] = int(payload.get("chunks") or 0)
+            if payload.get("completed") is not None:
+                _DOC_KB_SYNC_STATE["completed"] = int(payload.get("completed") or 0)
+            if payload.get("total") is not None:
+                _DOC_KB_SYNC_STATE["total"] = int(payload.get("total") or 0)
+            if payload.get("source_path") is not None:
+                _DOC_KB_SYNC_STATE["current_source_path"] = payload.get("source_path")
+
+    def worker() -> None:
+        try:
+            result = import_comsol_docs(
+                source_path=source_path,
+                db_path=output_path,
+                version=version or "6.3",
+                limit=max(1, int(limit)) if limit else None,
+                max_chunk_chars=max(400, int(chunk_chars or 2400)),
+                overlap_chars=max(0, int(overlap_chars or 0)),
+                progress=progress,
+            )
+            payload = load_doc_kb_status(output_path)
+            reset_skill_injector()
+            with _DOC_KB_SYNC_LOCK:
+                _DOC_KB_SYNC_STATE.update(
+                    {
+                        "running": False,
+                        "status": "completed",
+                        "message": "COMSOL 文档知识库导入完成",
+                        "documents": int(result.get("documents") or 0),
+                        "chunks": int(result.get("chunks") or 0),
+                        "indexed_documents": int(payload.get("documents") or 0),
+                        "indexed_chunks": int(payload.get("chunks") or 0),
+                        "finished_at": _utc_now_iso(),
+                        "generated_at": payload.get("generated_at"),
+                        "metadata": payload.get("metadata") or {},
+                        "last_error": None,
+                    }
+                )
+        except Exception as e:
+            logger.exception("do_doc_kb_import failed")
+            with _DOC_KB_SYNC_LOCK:
+                _DOC_KB_SYNC_STATE.update(
+                    {
+                        "running": False,
+                        "status": "error",
+                        "message": f"COMSOL 文档知识库导入失败: {e}",
+                        "finished_at": _utc_now_iso(),
+                        "last_error": str(e),
+                    }
+                )
+
+    Thread(target=worker, name="doc-kb-import", daemon=True).start()
+    return True, "COMSOL 文档知识库导入已启动", _doc_kb_sync_state_copy()
+
+
 def do_skills_list_local(verbose: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
     """Return repo-local skill libraries for the desktop UI."""
 
@@ -1102,10 +1465,7 @@ def do_context_show(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
 def do_context_get_summary(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
     """仅返回当前会话的摘要原文（供设置页编辑）。"""
     cm = get_context_manager(conversation_id)
-    summary = cm.load_summary()
-    if summary:
-        return True, summary.summary
-    return True, ""
+    return True, cm.get_editable_summary_text()
 
 
 def do_context_set_summary(conversation_id: Optional[str], text: str) -> Tuple[bool, str]:

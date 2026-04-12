@@ -30,7 +30,7 @@ function ensureSelected(
 
 export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
   const { state, dispatch } = useAppState();
-  const { sendCommand, sendStreamCommand } = useBridge();
+  const { sendStreamCommand } = useBridge();
 
   const questions: ClarifyingQuestion[] = useMemo(
     () => normalizeClarifyingQuestions(state.pendingPlanQuestions ?? []),
@@ -130,7 +130,7 @@ export function PlanQuestionsDialog({ onClose }: PlanQuestionsDialogProps) {
     const apiPayload = getPayloadFromConfig(state.backend, loadApiConfig());
 
     if (state.mode === "plan") {
-      void sendCommand("plan", {
+      void sendStreamCommand("plan", {
         input,
         clarifying_answers: payloadAnswers,
         ...apiPayload,

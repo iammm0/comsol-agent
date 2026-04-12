@@ -79,38 +79,52 @@ export interface MyComsolModel {
   is_latest?: boolean;
 }
 
-/** 斜杠命令项（Prompt 下拉用） */
-export interface SlashCommandItem {
-  name: string;
-  display: string;
+/** 输入框「+」中的扩展功能项 */
+export type PromptExtensionName =
+  | "help"
+  | "discuss"
+  | "plan"
+  | "run"
+  | "case"
+  | "ops"
+  | "api"
+  | "exec"
+  | "backend"
+  | "context"
+  | "output"
+  | "demo"
+  | "doctor"
+  | "exit";
+
+export interface PromptExtensionItem {
+  name: PromptExtensionName;
+  label: string;
   description: string;
 }
 
-export const SLASH_COMMANDS: SlashCommandItem[] = [
-  { name: "help", display: "/help", description: "显示帮助" },
-  { name: "discuss", display: "/discuss", description: "切换到 Discuss（与 LLM 闲聊）" },
-  { name: "plan", display: "/plan", description: "切换到建模规划模式" },
-  { name: "run", display: "/run", description: "切换到建模执行模式" },
-  { name: "case", display: "/case", description: "读取 .mph 并生成案例摘要" },
-  { name: "ops", display: "/ops", description: "打开 COMSOL 可执行操作清单页" },
+export const PROMPT_EXTENSION_ITEMS: PromptExtensionItem[] = [
+  { name: "help", label: "帮助", description: "打开帮助面板" },
+  { name: "discuss", label: "切换到探讨", description: "切换到 Discuss，与 LLM 理清需求" },
+  { name: "plan", label: "切换到规划", description: "切换到 Plan，生成建模计划与澄清" },
+  { name: "run", label: "切换到执行", description: "切换到 Run，按需求调用 COMSOL 建模" },
+  { name: "case", label: "读取 .mph 案例", description: "选择 .mph 文件并生成结构化案例摘要" },
+  { name: "ops", label: "COMSOL 操作清单", description: "打开 COMSOL 可执行操作清单页" },
   {
     name: "api",
-    display: "/api",
+    label: "官方 API 浏览",
     description: "浏览/搜索已集成的 COMSOL 官方 API 包装",
   },
-  { name: "exec", display: "/exec", description: "根据 JSON 创建模型" },
-  { name: "backend", display: "/backend", description: "选择 LLM 后端" },
-  { name: "context", display: "/context", description: "查看或清除对话历史" },
-  { name: "output", display: "/output", description: "设置默认输出文件名" },
-  { name: "demo", display: "/demo", description: "演示示例" },
-  { name: "doctor", display: "/doctor", description: "环境诊断" },
-  { name: "exit", display: "/exit", description: "退出" },
+  { name: "exec", label: "JSON 执行", description: "根据 JSON 创建模型" },
+  { name: "backend", label: "LLM 后端", description: "选择 LLM 后端" },
+  { name: "context", label: "上下文", description: "查看或清除对话历史" },
+  { name: "output", label: "输出设置", description: "设置默认输出文件名" },
+  { name: "demo", label: "演示示例", description: "触发内置示例" },
+  { name: "doctor", label: "环境诊断", description: "执行环境检查" },
+  { name: "exit", label: "退出程序", description: "关闭桌面应用" },
 ];
 
-/** 输入框「+」菜单：与斜杠命令一致，不含三种模式（由旁侧模式条切换） */
-export const PROMPT_PLUS_MENU_COMMANDS: SlashCommandItem[] = SLASH_COMMANDS.filter(
-  (c) => c.name !== "discuss" && c.name !== "plan" && c.name !== "run"
-);
+/** 输入框「+」菜单：统一承载扩展功能入口 */
+export const PROMPT_PLUS_MENU_COMMANDS: PromptExtensionItem[] = PROMPT_EXTENSION_ITEMS;
 
 /** 工作模式切换（Discuss / Plan / Run） */
 export const PROMPT_MODE_ITEMS: Array<{
@@ -127,6 +141,7 @@ export const PROMPT_MODE_ITEMS: Array<{
 export interface QuickPromptItem {
   label: string;
   text: string;
+  extensionName?: PromptExtensionName;
 }
 
 export interface QuickPromptGroup {
@@ -181,7 +196,7 @@ export const USAGE_WORKFLOW_STEPS: UsageWorkflowStep[] = [
     step: 2,
     title: "选择工作方式（可自由组合）",
     body:
-      "推荐：/discuss 探讨需求 → /plan 生成结构化计划（可能有澄清）→ /run 执行 COMSOL 建模。也可跳过任一步，直接 /plan 或 /run；底部状态栏显示当前模式。",
+      "推荐：先切到探讨模式理清需求，再切到规划生成结构化计划，最后切到执行开始 COMSOL 建模。也可直接切到规划或执行；底部状态栏显示当前模式。",
   },
   {
     step: 3,
@@ -193,21 +208,21 @@ export const USAGE_WORKFLOW_STEPS: UsageWorkflowStep[] = [
     step: 4,
     title: "查看结果与文件",
     body:
-      "对话区会展示推理与操作步骤；成功或结束后会给出模型文件路径。可用 /output 设置默认输出名，在设置里管理「我创建的模型」与打开目录。",
+      "对话区会展示推理与操作步骤；成功或结束后会给出模型文件路径。可在 + 菜单中打开输出设置，在设置里管理「我创建的模型」与打开目录。",
   },
   {
     step: 5,
-    title: "命令与诊断",
+    title: "扩展功能",
     body:
-      "输入 / 可浏览斜杠命令：/help 帮助、/ops 打开 COMSOL 可执行操作清单页、/api 已封装 API、/backend 选择 LLM、/doctor 环境诊断。",
+      "点击输入框左侧 + 可打开扩展功能，包括帮助、COMSOL 操作清单、官方 API、后端设置、环境诊断等。",
   },
 ];
 
-/** 使用流程区可选一键发送的快捷命令（降低上手门槛） */
+/** 使用流程区可选一键打开的扩展功能（降低上手门槛） */
 export const USAGE_WORKFLOW_SHORTCUTS: QuickPromptItem[] = [
-  { label: "/help", text: "/help" },
-  { label: "/doctor", text: "/doctor" },
-  { label: "/plan", text: "/plan" },
+  { label: "帮助", text: "", extensionName: "help" },
+  { label: "环境诊断", text: "", extensionName: "doctor" },
+  { label: "切换到规划", text: "", extensionName: "plan" },
 ];
 
 /** 快捷提示：面向案例级 3D 多物理场模型的快捷构建指令 */
@@ -289,16 +304,16 @@ export const QUICK_PROMPT_GROUPS: QuickPromptGroup[] = [
     ],
   },
   {
-    title: "诊断与命令",
-    hint: "环境/帮助",
+    title: "诊断与工具",
+    hint: "环境检查与帮助面板",
     prompts: [
-      { label: "环境诊断", text: "/doctor" },
-      { label: "帮助", text: "/help" },
+      { label: "环境诊断", text: "", extensionName: "doctor" },
+      { label: "帮助", text: "", extensionName: "help" },
     ],
   },
 ];
 
-/** 动态 COMSOL 操作目录条目（/ops 弹窗） */
+/** 动态 COMSOL 操作目录条目（操作清单页/弹窗） */
 export interface OpsCatalogItem {
   category: string;
   label: string;
