@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import requests
 
 from agent.case_library import (
+    CASE_LIBRARY_TARGET_VERSION,
     DEFAULT_SOURCE_BASE_URL,
     get_default_case_library_path,
     merge_case_record,
@@ -227,10 +228,32 @@ def crawl_details(
             label = str(record.get("official_url") or record.get("id") or "")
             try:
                 merged = future.result()
-                key = str(merged.get("official_url") or merged.get("id") or label)
-                output[key] = merged
                 if on_item is not None:
                     on_item(merged, idx, total)
+                if merged.get("target_version_available") is False:
+                    if progress is not None:
+                        progress(
+                            {
+                                "event": "detail_filtered",
+                                "completed": idx,
+                                "total": total,
+                                "title": merged.get("title"),
+                                "official_url": merged.get("official_url"),
+                                "target_version": CASE_LIBRARY_TARGET_VERSION,
+                                "message": (
+                                    f"[detail] {idx}/{total} skipped {merged.get('title')} "
+                                    f"(missing {CASE_LIBRARY_TARGET_VERSION} downloads)"
+                                ),
+                            }
+                        )
+                    else:
+                        print(
+                            f"[detail] {idx}/{total} skipped {merged.get('title')} "
+                            f"(missing {CASE_LIBRARY_TARGET_VERSION} downloads)"
+                        )
+                    continue
+                key = str(merged.get("official_url") or merged.get("id") or label)
+                output[key] = merged
                 if progress is not None:
                     progress(
                         {
@@ -239,6 +262,7 @@ def crawl_details(
                             "total": total,
                             "title": merged.get("title"),
                             "official_url": merged.get("official_url"),
+                            "target_version": CASE_LIBRARY_TARGET_VERSION,
                             "message": f"[detail] {idx}/{total} ok {merged.get('title')}",
                         }
                     )
@@ -271,8 +295,8 @@ def crawl_details(
 def parse_args() -> CrawlConfig:
     parser = argparse.ArgumentParser(
         description=(
-            "Fetch the COMSOL CN model library into a local JSON index. "
-            "As of 2026-04-10, the site reports 1995 models across 200 pages."
+            "Fetch the COMSOL CN model library into a local JSON index filtered to "
+            f"{CASE_LIBRARY_TARGET_VERSION} downloads."
         )
     )
     parser.add_argument("--start-page", type=int, default=1)
@@ -306,6 +330,7 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
             "source": "COMSOL CN Model Library",
             "base_url": DEFAULT_SOURCE_BASE_URL,
             "sort": config.sort,
+            "target_version": CASE_LIBRARY_TARGET_VERSION,
             "sync_started_at": sync_started_at,
             "sync_status": "starting",
             "saved_items": 0,
@@ -327,14 +352,17 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
         str(record.get("official_url") or record.get("id") or ""): record
         for record in shallow_records
     }
+    filtered_out_keys: set[str] = set()
     save_case_library(
         list(partial_records.values()),
         metadata={
             **metadata,
+            "target_version": CASE_LIBRARY_TARGET_VERSION,
             "sync_started_at": sync_started_at,
             "sync_status": "running",
             "saved_items": len(partial_records),
             "total_shallow_records": total_shallow_records,
+            "filtered_out_items": 0,
         },
         path=config.output,
     )
@@ -344,12 +372,20 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
         stage="list_complete",
         total_shallow_records=total_shallow_records,
         saved_items=len(partial_records),
-        message=f"[list] total shallow records: {total_shallow_records}",
+        target_version=CASE_LIBRARY_TARGET_VERSION,
+        message=(
+            f"[list] total shallow records: {total_shallow_records} "
+            f"(target {CASE_LIBRARY_TARGET_VERSION})"
+        ),
     )
 
     def save_partial(item: Dict[str, Any], completed: int, total: int) -> None:
         key = str(item.get("official_url") or item.get("id") or "")
         partial_records[key] = item
+        if item.get("target_version_available") is False:
+            filtered_out_keys.add(key)
+        else:
+            filtered_out_keys.discard(key)
         ordered = sorted(
             partial_records.values(),
             key=lambda record: record_order.get(
@@ -357,17 +393,20 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
                 len(record_order) + 1,
             ),
         )
+        saved_count = sum(1 for record in ordered if record.get("target_version_available", True))
         save_case_library(
             ordered,
             metadata={
                 **metadata,
+                "target_version": CASE_LIBRARY_TARGET_VERSION,
                 "sync_started_at": sync_started_at,
                 "sync_status": "running",
-                "saved_items": len(ordered),
+                "saved_items": saved_count,
                 "total_shallow_records": total_shallow_records,
                 "detail_completed": completed,
                 "detail_total": total,
                 "last_item_title": str(item.get("title") or ""),
+                "filtered_out_items": len(filtered_out_keys),
             },
             path=config.output,
         )
@@ -377,10 +416,14 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
             completed=completed,
             total=total,
             total_shallow_records=total_shallow_records,
-            saved_items=len(ordered),
+            saved_items=saved_count,
             title=item.get("title"),
             official_url=item.get("official_url"),
-            message=f"[sync] saved {len(ordered)} items ({completed}/{total} details)",
+            target_version=CASE_LIBRARY_TARGET_VERSION,
+            message=(
+                f"[sync] saved {saved_count} {CASE_LIBRARY_TARGET_VERSION} items "
+                f"({completed}/{total} details, filtered={len(filtered_out_keys)})"
+            ),
         )
 
     detailed_records = crawl_details(
@@ -392,7 +435,7 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
         on_item=save_partial,
     )
     final_records = sorted(
-        partial_records.values(),
+        detailed_records,
         key=lambda record: record_order.get(
             str(record.get("official_url") or record.get("id") or ""),
             len(record_order) + 1,
@@ -400,17 +443,19 @@ def sync_case_library(config: CrawlConfig) -> Dict[str, Any]:
     )
     payload_meta = {
         **metadata,
+        "target_version": CASE_LIBRARY_TARGET_VERSION,
         "sync_started_at": sync_started_at,
         "crawled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "saved_items": len(final_records),
         "total_shallow_records": total_shallow_records,
         "sync_status": "completed",
         "detail_success_count": len(detailed_records),
+        "filtered_out_items": len(filtered_out_keys),
     }
     save_case_library(final_records, metadata=payload_meta, path=config.output)
     return {
         "output": str(config.output),
-        "saved_items": len(final_records),
+        "saved_items": int(payload_meta["saved_items"]),
         "total_shallow_records": total_shallow_records,
         "metadata": payload_meta,
     }
@@ -424,7 +469,8 @@ def main() -> int:
         stage="start",
         message=(
             f"[start] start_page={config.start_page} end_page={config.end_page or 'auto'} "
-            f"workers={config.workers} output={config.output}"
+            f"workers={config.workers} output={config.output} "
+            f"target_version={CASE_LIBRARY_TARGET_VERSION}"
         ),
     )
     result = sync_case_library(config)

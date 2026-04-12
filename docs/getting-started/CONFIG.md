@@ -1,5 +1,7 @@
 # 配置说明
 
+> 当前项目面向 **COMSOL Multiphysics 6.3** 开发与验证。以下路径示例、案例库与文档知识库默认版本均以 **6.3** 为准。
+
 ## 环境变量配置
 
 创建 `.env` 文件（参考 `.env.example`），配置以下变量：
@@ -20,16 +22,13 @@ COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
 ```
 
 **重要说明**：
-- 可以配置为 **plugins 目录**（推荐）：程序会自动加载目录下所有jar文件
-- 也可以配置为单个jar文件路径（如果您的COMSOL版本有单独的comsol.jar）
+- 请配置为 **COMSOL 6.3 的 plugins 目录**：程序会自动加载目录下所有 jar 文件
+- 本项目默认按 COMSOL 6.3 的目录结构与 API 行为进行开发和验证
 
 **路径示例**：
-- **Windows COMSOL 6.3+**（推荐）：`C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins`
-- **Windows COMSOL 6.1**：`C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar`
-- **Linux COMSOL 6.3+**（推荐）：`/opt/comsol63/multiphysics/plugins`
-- **Linux COMSOL 6.1**：`/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
-- **Mac COMSOL 6.3+**（推荐）：`/Applications/COMSOL63/Multiphysics/plugins`
-- **Mac COMSOL 6.1**：`/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
+- **Windows COMSOL 6.3**：`C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins`
+- **Linux COMSOL 6.3**：`/opt/comsol63/multiphysics/plugins`
+- **Mac COMSOL 6.3**：`/Applications/COMSOL63/Multiphysics/plugins`
 
 #### 3. Java 配置（可选）
 - **不配置**：使用项目内置 JDK 11（`runtime/java`，首次使用 COMSOL 时自动下载）
@@ -77,22 +76,17 @@ uv run python cli.py
 
 **解决方案**：
 1. 确认 COMSOL 已正确安装
-2. **对于 COMSOL 6.3 及以上版本**（推荐）：
+2. **对于 COMSOL Multiphysics 6.3**：
    - 配置为 `plugins` 目录：`C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins`
-   - 程序会自动加载目录下所有jar文件
-3. **对于 COMSOL 6.1 及更早版本**：
-   - 检查安装目录下的 `lib/` 文件夹
-   - 根据操作系统选择正确的子目录：
-     - Windows: `lib/win64/comsol.jar`
-     - Linux: `lib/glnxa64/comsol.jar`
-     - Mac: `lib/darwin64/comsol.jar`
+   - 程序会自动加载目录下所有 jar 文件
+3. 若本机不是 COMSOL 6.3 环境，请先确认目录结构和 Java API 行为与当前项目兼容
 
 ### 问题 2: Java 环境错误
 
 **解决方案**：
 1. **推荐**：不配置 `JAVA_HOME`，使用项目内置 JDK 11（首次使用 COMSOL 功能时会自动下载到 `runtime/java`）
 2. 或确认已安装 Java JDK（不是 JRE），设置 `JAVA_HOME` 指向 JDK 安装目录
-3. 确保 Java 版本与 COMSOL 兼容（COMSOL 6.0+: JDK 8-17）
+3. 确保 Java 版本与 COMSOL 6.3 兼容（通常 JDK 8-17）
 
 ### 问题 3: API Key 无效
 
@@ -103,7 +97,7 @@ uv run python cli.py
 
 ## 配置示例
 
-### Windows 完整配置示例（COMSOL 6.3+）
+### Windows 完整配置示例（COMSOL 6.3）
 ```bash
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
@@ -112,16 +106,7 @@ MODEL_OUTPUT_DIR=./models
 LOG_LEVEL=INFO
 ```
 
-### Windows 完整配置示例（COMSOL 6.1）
-```bash
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
-COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL61/Multiphysics/lib/win64/comsol.jar
-JAVA_HOME=C:/Program Files/Java/jdk-17
-MODEL_OUTPUT_DIR=./models
-LOG_LEVEL=INFO
-```
-
-### Linux 完整配置示例（COMSOL 6.3+）
+### Linux 完整配置示例（COMSOL 6.3）
 ```bash
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/opt/comsol63/multiphysics/plugins
@@ -130,16 +115,7 @@ MODEL_OUTPUT_DIR=./models
 LOG_LEVEL=INFO
 ```
 
-### Linux 完整配置示例（COMSOL 6.1）
-```bash
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
-COMSOL_JAR_PATH=/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar
-JAVA_HOME=/usr/lib/jvm/java-11-openjdk
-MODEL_OUTPUT_DIR=./models
-LOG_LEVEL=INFO
-```
-
-### Mac 完整配置示例（COMSOL 6.3+）
+### Mac 完整配置示例（COMSOL 6.3）
 ```bash
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
 COMSOL_JAR_PATH=/Applications/COMSOL63/Multiphysics/plugins
@@ -148,11 +124,3 @@ MODEL_OUTPUT_DIR=./models
 LOG_LEVEL=INFO
 ```
 
-### Mac 完整配置示例（COMSOL 6.1）
-```bash
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxx
-COMSOL_JAR_PATH=/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar
-JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-17.jdk/Contents/Home
-MODEL_OUTPUT_DIR=./models
-LOG_LEVEL=INFO
-```

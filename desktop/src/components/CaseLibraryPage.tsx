@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState } from "../context/AppStateContext";
 import {
+  CASE_LIBRARY_TARGET_VERSION,
   fetchCaseLibrary,
   fetchCaseLibrarySyncStatus,
   formatCaseLibraryTime,
@@ -16,9 +17,11 @@ function buildParsePrompt(item: CaseLibraryItem): string {
     "请解析这个 COMSOL 官方案例，并给出可复现的建模步骤与关键参数：",
     `案例标题：${item.title}`,
     `案例分类：${item.category}`,
+    `案例版本：${item.latestVersion || CASE_LIBRARY_TARGET_VERSION}`,
     `官方链接：${item.officialUrl}`,
     `下载链接：${item.downloadUrl}`,
     "补充要求：",
+    `0. 请按 ${CASE_LIBRARY_TARGET_VERSION} 的界面、模块命名和案例文件来复现`,
     "1. 先说明适合的物理场接口和耦合关系",
     "2. 再给出几何、材料、边界条件、研究类型",
     "3. 最后给出在当前项目里可直接执行的建模指令草案",
@@ -26,7 +29,7 @@ function buildParsePrompt(item: CaseLibraryItem): string {
 }
 
 function renderSyncSummary(syncState: CaseLibrarySyncState | null): string {
-  if (!syncState) return "本地案例库尚未同步";
+  if (!syncState) return `本地 ${CASE_LIBRARY_TARGET_VERSION} 案例库尚未同步`;
   if (syncState.running) {
     const detail =
       typeof syncState.detailCompleted === "number" && typeof syncState.detailTotal === "number"
@@ -178,7 +181,9 @@ export function CaseLibraryPage() {
   const emptyText = useMemo(() => {
     if (loading && items.length === 0) return "正在加载案例库...";
     if (syncing) return "案例库正在同步，卡片会逐步出现...";
-    if (items.length === 0) return "本地案例库还没有数据，先点击“同步案例库”抓取官方案例。";
+    if (items.length === 0) {
+      return `本地案例库还没有数据，先点击“同步案例库”抓取 ${CASE_LIBRARY_TARGET_VERSION} 官方案例。`;
+    }
     return "未找到匹配的案例";
   }, [items.length, loading, syncing]);
 
@@ -193,7 +198,9 @@ export function CaseLibraryPage() {
       <div className="library-page-header">
         <div>
           <h2 className="library-page-title">案例库</h2>
-          <p className="library-page-desc">只展示本地真实索引数据，不再使用任何前端假案例。</p>
+          <p className="library-page-desc">
+            只展示本地真实索引数据，不再使用任何前端假案例；当前案例库仅保留 {CASE_LIBRARY_TARGET_VERSION} 下载文件。
+          </p>
         </div>
         <div className="library-page-actions">
           {selectedCase ? (
@@ -242,11 +249,8 @@ export function CaseLibraryPage() {
       <div className={`case-library-status ${syncState?.status === "error" ? "case-library-status--error" : ""}`}>
         <div className="case-library-status__main">
           <span className="case-library-status__title">{renderSyncSummary(syncState)}</span>
-          {generatedAt && (
-            <span className="case-library-status__meta">
-              索引时间：{formatCaseLibraryTime(generatedAt)}
-            </span>
-          )}
+          <span className="case-library-status__meta">目标版本：{CASE_LIBRARY_TARGET_VERSION}</span>
+          {generatedAt && <span className="case-library-status__meta">索引时间：{formatCaseLibraryTime(generatedAt)}</span>}
         </div>
         {statusText && <span className="case-library-status__meta">{statusText}</span>}
       </div>
@@ -313,8 +317,8 @@ export function CaseLibraryPage() {
                   <strong>{selectedCase.slug || "未记录"}</strong>
                 </div>
                 <div>
-                  <span>推荐版本</span>
-                  <strong>{selectedCase.latestVersion || "未记录"}</strong>
+                  <span>目标版本</span>
+                  <strong>{selectedCase.latestVersion || CASE_LIBRARY_TARGET_VERSION}</strong>
                 </div>
                 <div>
                   <span>主下载</span>
@@ -346,6 +350,7 @@ export function CaseLibraryPage() {
 
             <section className="case-detail-panel">
               <h4>可下载文件</h4>
+              <p className="case-detail-empty">当前列表仅保留 {CASE_LIBRARY_TARGET_VERSION} 对应的案例文件。</p>
               {selectedCase.downloads.length > 0 ? (
                 <div className="case-detail-downloads">
                   {selectedCase.downloads.map((download) => (

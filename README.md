@@ -14,6 +14,8 @@
 
 将自然语言描述的 COMSOL 建模需求自动转换为完整 .mph 模型文件的智能 Agent，支持几何、物理场、网格、研究与求解的完整仿真流程。本项目**仅基于 COMSOL 官方开放的 Java API 进行二次开发**，仅供学习与交流使用。
 
+> 当前项目以 **COMSOL Multiphysics 6.3** 为目标版本研发、测试与维护；案例库、文档知识库、路径示例与相关提示均以 **6.3** 为准。
+
 ---
 
 ## 目录
@@ -54,7 +56,8 @@ Multiphysics Modeling Agent（mph-agent）基于 **ReAct（Reasoning & Acting）
 
 - **ReAct 闭环**：推理（理解与规划）→ 执行（几何/物理场/网格/研究）→ 观察 → 迭代，自动生成 .mph
 - **多 LLM 后端**：Dashscope (Qwen)、OpenAI、OpenAI 兼容、Ollama（本地/远程）
-- **COMSOL 集成**：直接调用 Java API 或生成代码执行，支持 6.1+（6.3+ 推荐使用 plugins 目录）
+- **COMSOL 集成**：面向 COMSOL Multiphysics 6.3 的 Java API 与 `plugins` 目录结构，直接调用 Java API 或生成代码执行
+- **文档知识库**：可从本机已安装的 COMSOL 官方 HTML/TXT 文档构建本地 SQLite/FTS 知识库，推理时自动检索相关片段
 - **桌面应用**：Tauri 2 + React，支持主题切换、推理任务、记忆管理、LLM 与 COMSOL 环境配置
 - **上下文与记忆**：对话历史、摘要式记忆、自定义别名，提升多轮解析准确性
 
@@ -91,7 +94,7 @@ Multiphysics Modeling Agent（mph-agent）基于 **ReAct（Reasoning & Acting）
 ### 环境要求
 
 - **Python 3.8+**（推荐 3.11/3.12）
-- **COMSOL Multiphysics**（已安装）
+- **COMSOL Multiphysics 6.3**（已安装）
 - **Java JDK 8+**（与 COMSOL 兼容；项目也可使用内置 JDK 11）
 
 ### 方式一：桌面版（推荐，仅 Windows）
@@ -127,9 +130,8 @@ uv run python cli.py
 
 1. **LLM**：设置 `LLM_BACKEND`（如 `deepseek`、`kimi`、`ollama`、`openai-compatible`），并配置对应 API Key / URL。
 2. **COMSOL**：设置 `COMSOL_JAR_PATH`  
-   - **COMSOL 6.3+**（推荐）：填 `plugins` 目录，例如  
-     `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins` 或 `/opt/comsol63/multiphysics/plugins`  
-   - **6.1 及更早**：填单个 jar 路径，如 `安装目录/lib/win64/comsol.jar`。
+   - **COMSOL Multiphysics 6.3**：填 `plugins` 目录，例如  
+     `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins` 或 `/opt/comsol63/multiphysics/plugins`
 
 ### 可选
 
@@ -150,6 +152,23 @@ COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
 
 更多后端示例（DeepSeek、Kimi、OpenAI 兼容等）见 [docs/getting-started/llm-backends.md](docs/getting-started/llm-backends.md)。  
 在桌面应用内输入 **`/doctor`** 可做环境诊断，详见 [docs/getting-started/CONFIG.md](docs/getting-started/CONFIG.md)。
+
+### 可选：导入本机 COMSOL 文档知识库
+
+项目不会把 COMSOL 在线文档整站直接打包进仓库或发行包；如果你本机已安装官方文档，可将其导入为本地知识库，供 Agent 在推理时自动检索：
+
+```bash
+# source 可传 COMSOL Multiphysics 根目录、plugins 目录，或 doc 目录
+uv run python scripts/import_comsol_docs.py "C:\Program Files\COMSOL\COMSOL63\Multiphysics"
+```
+
+也可在 `.env` 中设置：
+
+```dotenv
+COMSOL_DOC_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics
+```
+
+默认索引文件输出到 `data/doc_knowledge/comsol_docs.db`。导入完成后，现有 planner / ReAct 流程会自动把检索到的文档片段注入 prompt，无需额外开关。
 
 ---
 
@@ -257,7 +276,7 @@ mph-agent/
 ## 常见问题
 
 **Q: COMSOL JAR 找不到？**  
-A: 6.3+ 请配置为 `plugins` 目录；6.1 及更早配置为单个 jar 路径。
+A: 本项目默认面向 COMSOL Multiphysics 6.3，请将 `COMSOL_JAR_PATH` 配置为 6.3 安装目录下的 `plugins` 目录。
 
 **Q: Java 环境报错？**  
 A: 可依赖项目内置 JDK 11；若用系统 Java，请确保 `JAVA_HOME` 与 COMSOL 兼容。

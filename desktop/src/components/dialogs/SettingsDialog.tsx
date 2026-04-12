@@ -685,7 +685,7 @@ export function SettingsDialog({
           {activeTab === "comsol" && (
             <div className="settings-card">
               <p className="settings-hint">
-                管理 COMSOL 自动建模所需的输出目录、JAR 路径和 Java 运行环境。
+                管理面向 COMSOL Multiphysics 6.3 自动建模所需的输出目录、JAR 路径和 Java 运行环境。
               </p>
 
               <div className="settings-field">
@@ -718,7 +718,7 @@ export function SettingsDialog({
               </div>
 
               <div className="settings-field">
-                <label>COMSOL JAR 路径（COMSOL_JAR_PATH）</label>
+                <label>COMSOL 6.3 plugins 目录（COMSOL_JAR_PATH）</label>
                 <div className="settings-path-row">
                   <input
                     type="text"
@@ -732,7 +732,7 @@ export function SettingsDialog({
                     className="dialog-btn secondary"
                     onClick={() =>
                       pickDirectory(
-                        "选择 COMSOL plugins 目录",
+                        "选择 COMSOL 6.3 plugins 目录",
                         apiConfig.comsol_jar_path,
                         (path) =>
                           setApiConfig((config) => ({

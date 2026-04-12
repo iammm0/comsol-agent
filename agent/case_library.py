@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 
 DEFAULT_SOURCE_BASE_URL = "https://cn.comsol.com"
 CASE_LIBRARY_SCHEMA_VERSION = 1
+CASE_LIBRARY_TARGET_VERSION = "COMSOL 6.3"
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _CARD_RE = re.compile(
@@ -314,21 +315,65 @@ def parse_downloads_html(
     return downloads
 
 
-def latest_version(downloads: Sequence[Dict[str, str]]) -> str:
-    def parse_version(label: str) -> Tuple[int, ...]:
-        nums = re.findall(r"\d+", label or "")
-        return tuple(int(n) for n in nums) if nums else (0,)
+def _version_numbers(label: str) -> Tuple[int, ...]:
+    nums = re.findall(r"\d+", label or "")
+    return tuple(int(n) for n in nums) if nums else (0,)
 
-    labels = sorted({d.get("version", "") for d in downloads}, key=parse_version, reverse=True)
+
+def download_matches_target_version(
+    download: Dict[str, str],
+    target_version: str = CASE_LIBRARY_TARGET_VERSION,
+) -> bool:
+    """Return True when a download belongs to the supported COMSOL target version."""
+
+    target = _version_numbers(target_version)
+    version = _version_numbers(str(download.get("version") or ""))
+    return bool(target and version[: len(target)] == target)
+
+
+def filter_downloads_for_target_version(
+    downloads: Sequence[Dict[str, str]],
+    target_version: str = CASE_LIBRARY_TARGET_VERSION,
+) -> List[Dict[str, str]]:
+    """Keep only downloads matching the COMSOL version this project targets."""
+
+    return [
+        dict(download)
+        for download in downloads
+        if isinstance(download, dict)
+        and download_matches_target_version(download, target_version=target_version)
+    ]
+
+
+def latest_version(
+    downloads: Sequence[Dict[str, str]],
+    target_version: str = CASE_LIBRARY_TARGET_VERSION,
+) -> str:
+    candidates = (
+        filter_downloads_for_target_version(downloads, target_version=target_version)
+        if target_version
+        else list(downloads)
+    )
+    if target_version and not candidates:
+        return ""
+
+    labels = sorted({d.get("version", "") for d in candidates}, key=_version_numbers, reverse=True)
     return labels[0] if labels else ""
 
 
-def choose_primary_download(downloads: Sequence[Dict[str, str]]) -> str:
+def choose_primary_download(
+    downloads: Sequence[Dict[str, str]],
+    target_version: str = CASE_LIBRARY_TARGET_VERSION,
+) -> str:
     if not downloads:
         return ""
-    version = latest_version(downloads)
-    latest = [d for d in downloads if not version or d.get("version") == version]
-    candidates = latest or list(downloads)
+    candidates = (
+        filter_downloads_for_target_version(downloads, target_version=target_version)
+        if target_version
+        else list(downloads)
+    )
+    if target_version and not candidates:
+        return ""
     mph = [d for d in candidates if (d.get("file_type") or "").lower() == "mph"]
     if mph:
         preferred = [
@@ -340,9 +385,17 @@ def choose_primary_download(downloads: Sequence[Dict[str, str]]) -> str:
     return candidates[0].get("url", "")
 
 
-def choose_reference_pdf(downloads: Sequence[Dict[str, str]]) -> str:
-    version = latest_version(downloads)
-    candidates = [d for d in downloads if not version or d.get("version") == version] or list(downloads)
+def choose_reference_pdf(
+    downloads: Sequence[Dict[str, str]],
+    target_version: str = CASE_LIBRARY_TARGET_VERSION,
+) -> str:
+    candidates = (
+        filter_downloads_for_target_version(downloads, target_version=target_version)
+        if target_version
+        else list(downloads)
+    )
+    if target_version and not candidates:
+        return ""
     for item in candidates:
         if (item.get("file_type") or "").lower() == "pdf":
             return item.get("url", "")
@@ -404,7 +457,7 @@ def merge_case_record(
     """Merge list-card, detail-page, and download records into one normalized item."""
 
     detail = detail or {}
-    downloads_list = list(downloads or [])
+    downloads_list = filter_downloads_for_target_version(downloads or [])
     products = list(detail.get("products") or [])
     title = str(detail.get("title") or list_record.get("title") or "").strip()
     summary = str(detail.get("summary") or list_record.get("summary") or "").strip()
@@ -429,6 +482,8 @@ def merge_case_record(
         "download_url": choose_primary_download(downloads_list) or official_url,
         "reference_pdf_url": choose_reference_pdf(downloads_list),
         "tags": build_tags(category=category, products=products, downloads=downloads_list),
+        "target_version": CASE_LIBRARY_TARGET_VERSION,
+        "target_version_available": bool(downloads_list),
     }
     return normalize_case_item(record)
 
@@ -447,14 +502,8 @@ def normalize_case_item(raw: Dict[str, Any]) -> Dict[str, Any]:
     item["reference_pdf_url"] = str(item.get("reference_pdf_url") or "").strip()
     item["english_url"] = str(item.get("english_url") or "").strip()
     item["image_url"] = str(item.get("image_url") or "").strip()
-    item["latest_version"] = str(item.get("latest_version") or "").strip()
-    item["tags"] = [str(t).strip() for t in item.get("tags") or [] if str(t).strip()]
-    item["products"] = [
-        {"name": str(p.get("name") or "").strip(), "url": str(p.get("url") or "").strip()}
-        for p in item.get("products") or []
-        if isinstance(p, dict) and str(p.get("name") or "").strip()
-    ]
-    item["downloads"] = [
+    item["target_version"] = str(item.get("target_version") or CASE_LIBRARY_TARGET_VERSION).strip()
+    raw_downloads = [
         {
             "version": str(d.get("version") or "").strip(),
             "filename": str(d.get("filename") or "").strip(),
@@ -464,6 +513,37 @@ def normalize_case_item(raw: Dict[str, Any]) -> Dict[str, Any]:
         }
         for d in item.get("downloads") or []
         if isinstance(d, dict) and str(d.get("url") or "").strip()
+    ]
+    target_downloads = filter_downloads_for_target_version(
+        raw_downloads,
+        target_version=item["target_version"],
+    )
+    if raw_downloads:
+        item["downloads"] = target_downloads
+        item["target_version_available"] = bool(target_downloads)
+    else:
+        item["downloads"] = []
+        item["target_version_available"] = bool(item.get("target_version_available", True))
+    if item["downloads"]:
+        item["latest_version"] = (
+            latest_version(item["downloads"], target_version=item["target_version"])
+            or item["target_version"]
+        )
+        item["download_url"] = (
+            choose_primary_download(item["downloads"], target_version=item["target_version"])
+            or item["official_url"]
+        )
+        item["reference_pdf_url"] = choose_reference_pdf(
+            item["downloads"],
+            target_version=item["target_version"],
+        )
+    else:
+        item["latest_version"] = str(item.get("latest_version") or "").strip()
+    item["tags"] = [str(t).strip() for t in item.get("tags") or [] if str(t).strip()]
+    item["products"] = [
+        {"name": str(p.get("name") or "").strip(), "url": str(p.get("url") or "").strip()}
+        for p in item.get("products") or []
+        if isinstance(p, dict) and str(p.get("name") or "").strip()
     ]
     return item
 
@@ -476,7 +556,11 @@ def save_case_library(
 ) -> Path:
     output_path = Path(path or get_default_case_library_path())
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    normalized = [normalize_case_item(item) for item in items if item]
+    normalized = [
+        item
+        for item in (normalize_case_item(item) for item in items if item)
+        if item.get("target_version_available", True)
+    ]
     payload = {
         "schema_version": CASE_LIBRARY_SCHEMA_VERSION,
         "generated_at": utc_now_iso(),
@@ -525,7 +609,11 @@ def load_case_library(path: Optional[Path] = None) -> Dict[str, Any]:
         metadata = {}
         generated_at = None
 
-    normalized = [normalize_case_item(item) for item in items if isinstance(item, dict)]
+    normalized = [
+        item
+        for item in (normalize_case_item(item) for item in items if isinstance(item, dict))
+        if item.get("target_version_available", True)
+    ]
     return {
         "schema_version": CASE_LIBRARY_SCHEMA_VERSION,
         "generated_at": generated_at,
@@ -614,10 +702,11 @@ def search_case_library(
             {
                 "title": str(item.get("title") or ""),
                 "url": str(item.get("official_url") or ""),
-                "source": "COMSOL CN 本地案例库",
+                "source": f"COMSOL CN 本地案例库（{CASE_LIBRARY_TARGET_VERSION}）",
                 "summary": str(item.get("summary") or ""),
                 "download_url": str(item.get("download_url") or ""),
                 "reference_pdf_url": str(item.get("reference_pdf_url") or ""),
+                "target_version": str(item.get("target_version") or CASE_LIBRARY_TARGET_VERSION),
             }
         )
     return results
@@ -650,5 +739,11 @@ def list_case_library_items(
         "limit": safe_limit,
         "offset": safe_offset,
         "generated_at": payload.get("generated_at"),
-        "metadata": payload.get("metadata") or {},
+        "metadata": {
+            **(payload.get("metadata") or {}),
+            "target_version": (payload.get("metadata") or {}).get(
+                "target_version",
+                CASE_LIBRARY_TARGET_VERSION,
+            ),
+        },
     }

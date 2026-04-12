@@ -1,21 +1,22 @@
 # COMSOL Java API 官方文档链接
 
-本文档集中记录 COMSOL Multiphysics Java API 的官方文档地址，便于团队与 LLM/RAG 检索。版本号（如 6.2、6.3、6.4）可按实际使用的 COMSOL 版本在 URL 中替换。
+本文档集中记录 **COMSOL Multiphysics 6.3** Java API 的官方文档地址，便于团队与 LLM/RAG 检索。本项目当前面向 **6.3** 开发与验证，因此以下链接默认固定为 6.3 版本。
 
 ## 在线文档
 
 | 用途 | 地址 | 说明 |
 |------|------|------|
-| **API 索引（按类/方法）** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index-all.html | 按字母 A–Z 的 Java 类/方法索引；将 `6.3` 改为 `6.4` 等可切换版本 |
-| **建模 / Java Shell 使用** | https://doc.comsol.com/6.4/doc/com.comsol.help.comsol/comsol_ref_modeling.19.028.html | 在 Model Builder、App Builder、Model Manager 中交互使用 Java API |
-| **模型管理器 API** | https://doc.comsol.com/6.2/doc/com.comsol.help.comsol/model_manager_ref_api.59.02.html | 模型管理器相关 API 入门与参考 |
+| **API 索引（按类/方法）** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index-all.html | 按字母 A–Z 的 Java 类/方法索引 |
+| **建模 / Java Shell 使用** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_modeling.19.028.html | 在 Model Builder、App Builder、Model Manager 中交互使用 Java API |
+| **模型管理器 API 入门** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/model_manager_ref_api.61.02.html | Model Manager API 的入门说明 |
+| **模型管理器 API 访问** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/model_manager_ref_api.61.03.html | Accessing the Model Manager API |
 
 ## PDF 手册
 
 | 文档 | 地址 | 说明 |
 |------|------|------|
-| **Programming Reference Manual** | https://cdn.comsol.com/doc/6.0.0.405/COMSOL_ProgrammingReferenceManual.pdf | 离线完整 API 参考；其他版本可在 [doc.comsol.com](https://doc.comsol.com) 或 [cdn.comsol.com](https://cdn.comsol.com) 查找 |
-| **Application Programming Guide** | https://doc.comsol.com/6.0/doc/com.comsol.help.comsol/ApplicationProgrammingGuide.pdf | 应用开发与示例 |
+| **Application Programming Guide** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/ApplicationProgrammingGuide.pdf | 应用开发与示例 |
+| **Application Programming Guide：Java Shell** | https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/application_programming_guide.15.13.html | Java Shell 与 Data Viewer 窗口 |
 
 ## 学习与支持
 
@@ -25,9 +26,9 @@
 
 ## 版本说明
 
-- 在线文档根路径一般为 `https://doc.comsol.com/<版本>/doc/...`，例如 `6.2`、`6.3`、`6.4`。
-- API 索引页的版本替换示例：`index-all.html` 所在路径中的数字即为文档版本。
-- 本仓库当前主要参考 COMSOL 6.3+ 的 `plugins` 目录与 API 行为；开发时请以本机安装的 COMSOL 版本对应文档为准。
+- 在线文档根路径一般为 `https://doc.comsol.com/<版本>/doc/...`，本仓库默认采用 `6.3`。
+- API 索引页的版本号在路径中直接体现，例如 `.../6.3/doc/...`。
+- 本仓库当前主要参考 **COMSOL Multiphysics 6.3** 的 `plugins` 目录与 API 行为；开发时请优先使用本机 6.3 安装对应文档。
 
 ## 与本项目的关系
 

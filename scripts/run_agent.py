@@ -15,7 +15,7 @@ def main():
     from agent.utils.logger import setup_logging, get_logger
 
     parser = argparse.ArgumentParser(
-        description="COMSOL Multiphysics Agent - 将自然语言转换为 COMSOL 模型文件"
+        description="COMSOL Multiphysics 6.3 Agent - 将自然语言转换为 COMSOL 模型文件"
     )
     parser.add_argument(
         "input",

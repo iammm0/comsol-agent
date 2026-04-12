@@ -2,6 +2,8 @@
 
 本项目**保留桌面端与源码运行，不提供 Python 包分发**。请通过以下方式使用。
 
+> 当前项目面向 **COMSOL Multiphysics 6.3** 开发与验证。安装说明、路径示例与案例库默认版本均以 **6.3** 为准。
+
 ## 从源码运行
 
 ### 1. 安装依赖
@@ -40,21 +42,18 @@ uv run python cli.py
    export DEEPSEEK_API_KEY="your_api_key_here"
    ```
 
-2. **COMSOL_JAR_PATH** - COMSOL JAR 文件路径或plugins目录
+2. **COMSOL_JAR_PATH** - COMSOL 6.3 `plugins` 目录
    ```bash
-   # Linux/Mac (COMSOL 6.3+ 推荐使用plugins目录)
+   # Linux/Mac
    export COMSOL_JAR_PATH="/opt/comsol63/multiphysics/plugins"
    
-   # Windows (COMSOL 6.3+ 推荐使用plugins目录)
+   # Windows
    set COMSOL_JAR_PATH=C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins
-   
-   # 也可以使用单个jar文件（COMSOL 6.1及更早版本）
-   export COMSOL_JAR_PATH="/path/to/comsol.jar"
    ```
    
    **注意**：
-   - COMSOL 6.3+ 版本推荐配置为 `plugins` 目录，程序会自动加载所有jar文件
-   - COMSOL 6.1 及更早版本需要配置为单个jar文件路径
+   - 本项目默认按 COMSOL 6.3 的 `plugins` 目录结构加载 Java API
+   - 若本机不是 COMSOL 6.3 环境，请先确认路径结构与 API 行为兼容，再自行评估使用
 
 3. **JAVA_HOME** - 可选。不配置时使用**项目内置 JDK 11**（位于 `runtime/java`，首次使用 COMSOL 功能时自动下载）
    - 若需使用系统已安装的 Java，可配置：
@@ -117,15 +116,11 @@ MODEL_OUTPUT_DIR=/path/to/output
 ### 问题 2: COMSOL JAR 文件找不到
 
 **解决方案**：
-- **COMSOL 6.3+ 版本**（推荐）：
+- **COMSOL Multiphysics 6.3**：
   - Windows: `C:\Program Files\COMSOL\COMSOL63\Multiphysics\plugins`
   - Linux: `/opt/comsol63/multiphysics/plugins`
   - Mac: `/Applications/COMSOL63/Multiphysics/plugins`
   - 配置为plugins目录，程序会自动加载所有jar文件
-- **COMSOL 6.1 及更早版本**：
-  - Windows: `C:\Program Files\COMSOL\COMSOL61\Multiphysics\lib\win64\comsol.jar`
-  - Linux: `/opt/comsol61/multiphysics/lib/glnxa64/comsol.jar`
-  - Mac: `/Applications/COMSOL61/Multiphysics/lib/darwin64/comsol.jar`
 
 ### 问题 3: Java 环境错误
 

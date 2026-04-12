@@ -7,6 +7,7 @@ from threading import Lock, Thread
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from agent.case_library import (
+    CASE_LIBRARY_TARGET_VERSION,
     get_default_case_library_path,
     list_case_library_items,
     load_case_library,
@@ -1016,6 +1017,7 @@ def do_case_library_sync_status(verbose: bool = False) -> Tuple[bool, str, Dict[
         state["generated_at"] = payload.get("generated_at")
         metadata = payload.get("metadata") or {}
         if isinstance(metadata, dict):
+            metadata.setdefault("target_version", CASE_LIBRARY_TARGET_VERSION)
             state["metadata"] = metadata
             if not state.get("saved_items"):
                 state["saved_items"] = int(metadata.get("saved_items") or 0)
@@ -1053,14 +1055,14 @@ def do_case_library_sync(
             {
                 "running": True,
                 "status": "starting",
-                "message": "正在启动案例库同步...",
+                "message": f"正在启动 {CASE_LIBRARY_TARGET_VERSION} 案例库同步...",
                 "saved_items": 0,
                 "total_shallow_records": 0,
                 "indexed_items": 0,
                 "started_at": _utc_now_iso(),
                 "finished_at": None,
                 "output": str(output_path),
-                "metadata": {},
+                "metadata": {"target_version": CASE_LIBRARY_TARGET_VERSION},
                 "last_error": None,
             }
         )
@@ -1084,6 +1086,12 @@ def do_case_library_sync(
             for key in ("page", "title", "official_url", "stage"):
                 if payload.get(key) is not None:
                     _CASE_LIBRARY_SYNC_STATE[key] = payload.get(key)
+            metadata = _CASE_LIBRARY_SYNC_STATE.setdefault("metadata", {})
+            metadata["target_version"] = str(
+                payload.get("target_version")
+                or metadata.get("target_version")
+                or CASE_LIBRARY_TARGET_VERSION
+            )
 
     def worker() -> None:
         try:
@@ -1107,7 +1115,7 @@ def do_case_library_sync(
                     {
                         "running": False,
                         "status": "completed",
-                        "message": "案例库同步完成",
+                        "message": f"{CASE_LIBRARY_TARGET_VERSION} 案例库同步完成",
                         "saved_items": int(result.get("saved_items") or 0),
                         "indexed_items": int(payload.get("total") or 0),
                         "total_shallow_records": int(result.get("total_shallow_records") or 0),
@@ -1124,7 +1132,7 @@ def do_case_library_sync(
                     {
                         "running": False,
                         "status": "error",
-                        "message": f"案例库同步失败: {e}",
+                        "message": f"{CASE_LIBRARY_TARGET_VERSION} 案例库同步失败: {e}",
                         "finished_at": _utc_now_iso(),
                         "last_error": str(e),
                     }

@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export const CASE_LIBRARY_TARGET_VERSION = "COMSOL 6.3";
+
 export interface CaseLibraryItem {
   id: string;
   applicationId: string;
