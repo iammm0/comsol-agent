@@ -3254,6 +3254,127 @@ body {
     opacity: 0.9;
 }
 
+.prompt-context-meter {
+    --context-meter-color: var(--accent);
+    max-width: 980px;
+    margin: 7px auto 0;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.35;
+    text-align: left;
+}
+.prompt-context-meter.warning {
+    --context-meter-color: var(--warning);
+}
+.prompt-context-meter.danger {
+    --context-meter-color: var(--error);
+}
+.prompt-context-meter__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.prompt-context-meter__identity {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.prompt-context-meter__icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--context-meter-color) 24%, transparent);
+}
+.prompt-context-meter__icon-core {
+    width: 10px;
+    height: 10px;
+    display: block;
+    border-radius: 999px;
+    background: var(--bg-panel);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--context-meter-color) 24%, transparent);
+}
+.prompt-context-meter__copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.prompt-context-meter__title {
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+}
+.prompt-context-meter__model {
+    max-width: min(58vw, 420px);
+    color: var(--text-muted);
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.prompt-context-meter__numbers {
+    flex-shrink: 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 8px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+.prompt-context-meter__numbers span:first-child {
+    color: var(--context-meter-color);
+    font-weight: 700;
+}
+.prompt-context-meter__bar {
+    height: 4px;
+    margin-top: 5px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+.prompt-context-meter__bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--context-meter-color) 72%, var(--bg-panel)),
+        var(--context-meter-color)
+    );
+    transition: width 0.18s ease;
+}
+.prompt-context-meter__detail {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 4px;
+    color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+    font-family: var(--font-mono);
+    font-size: 10px;
+}
+
+@media (max-width: 640px) {
+    .prompt-context-meter__top {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .prompt-context-meter__numbers {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+    .prompt-context-meter__model {
+        max-width: 72vw;
+    }
+}
+
 /* Slash autocomplete */
 .slash-dropdown {
     position: absolute;

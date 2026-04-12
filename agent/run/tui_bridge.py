@@ -44,6 +44,7 @@ try:
         do_doctor,
         do_context_show,
         do_context_get_summary,
+        do_context_prompt_context,
         do_context_set_summary,
         do_context_history,
         do_context_stats,
@@ -440,6 +441,11 @@ def _handle(req: dict[str, Any]) -> None:
 
         if cmd == "context_get_summary":
             ok, msg = do_context_get_summary(conversation_id=req.get("conversation_id") or None)
+            _reply(ok, msg)
+            return
+
+        if cmd == "context_prompt_context":
+            ok, msg = do_context_prompt_context(conversation_id=req.get("conversation_id") or None)
             _reply(ok, msg)
             return
 

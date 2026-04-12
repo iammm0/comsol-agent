@@ -1468,6 +1468,12 @@ def do_context_get_summary(conversation_id: Optional[str] = None) -> Tuple[bool,
     return True, cm.get_editable_summary_text()
 
 
+def do_context_prompt_context(conversation_id: Optional[str] = None) -> Tuple[bool, str]:
+    """Return the prompt-side memory/context block for usage estimation."""
+    cm = get_context_manager(conversation_id)
+    return True, cm.get_context_for_planner()
+
+
 def do_context_set_summary(conversation_id: Optional[str], text: str) -> Tuple[bool, str]:
     """设置当前会话的摘要原文（用户编辑记忆）。"""
     if not conversation_id:

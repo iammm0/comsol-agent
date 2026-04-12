@@ -3,15 +3,25 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useMemo,
   type KeyboardEvent,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState } from "../context/AppStateContext";
 import { useBridge } from "../hooks/useBridge";
 import {
+  API_CONFIG_UPDATED_EVENT,
+  loadApiConfig,
+} from "../lib/apiConfig";
+import {
   PROMPT_PLUS_MENU_COMMANDS,
   PROMPT_MODE_ITEMS,
 } from "../lib/types";
+import {
+  estimateContextUsage,
+  formatCompactTokenCount,
+} from "../lib/contextUsage";
 import type { PromptExtensionItem, AgentMode } from "../lib/types";
 
 export function Prompt() {
@@ -20,8 +30,12 @@ export function Prompt() {
   const [value, setValue] = useState("");
   const [modeToast, setModeToast] = useState("");
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [apiConfig, setApiConfig] = useState(() => loadApiConfig());
+  const [promptContextText, setPromptContextText] = useState("");
+  const [pendingTurnInput, setPendingTurnInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const plusWrapRef = useRef<HTMLDivElement>(null);
+  const contextRequestRef = useRef(0);
 
   useEffect(() => {
     if (state.editingDraft != null) {
@@ -48,9 +62,76 @@ export function Prompt() {
     return () => window.clearTimeout(timer);
   }, [modeToast]);
 
+  const refreshApiConfig = useCallback(() => {
+    setApiConfig(loadApiConfig());
+  }, []);
+
+  useEffect(() => {
+    const handleApiConfigUpdated = () => refreshApiConfig();
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key === "mph-agent-api-config" ||
+        event.key === "comsol-agent-api-config"
+      ) {
+        refreshApiConfig();
+      }
+    };
+
+    window.addEventListener(API_CONFIG_UPDATED_EVENT, handleApiConfigUpdated);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        API_CONFIG_UPDATED_EVENT,
+        handleApiConfigUpdated
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [refreshApiConfig]);
+
+  const refreshPromptContext = useCallback(async (conversationId: string | null) => {
+    const requestId = ++contextRequestRef.current;
+    if (!conversationId) {
+      setPromptContextText("");
+      return;
+    }
+
+    try {
+      const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
+        cmd: "context_prompt_context",
+        payload: { conversation_id: conversationId },
+      });
+      if (contextRequestRef.current !== requestId) return;
+      setPromptContextText(res.ok ? res.message : "");
+    } catch {
+      if (contextRequestRef.current === requestId) {
+        setPromptContextText("");
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state.busyConversationId != null) return;
+    void refreshPromptContext(state.currentConversationId);
+    const timer = window.setTimeout(() => {
+      void refreshPromptContext(state.currentConversationId);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [
+    state.currentConversationId,
+    state.busyConversationId,
+    refreshPromptContext,
+  ]);
+
+  useEffect(() => {
+    if (state.busyConversationId == null) {
+      setPendingTurnInput("");
+    }
+  }, [state.busyConversationId]);
+
   const submit = useCallback(() => {
     const text = value.trim();
     if (!text || state.busyConversationId != null) return;
+    setPendingTurnInput(text);
     handleSubmit(text);
     setValue("");
   }, [value, state.busyConversationId, handleSubmit]);
@@ -115,6 +196,28 @@ export function Prompt() {
   }, []);
 
   const busy = state.busyConversationId != null;
+  const activeInputText = busy ? pendingTurnInput : value;
+  const contextUsage = useMemo(
+    () =>
+      estimateContextUsage({
+        config: apiConfig,
+        backend: state.backend,
+        mode: state.mode,
+        memoryContextText: promptContextText,
+        draftText: activeInputText,
+      }),
+    [
+      apiConfig,
+      state.backend,
+      state.mode,
+      promptContextText,
+      activeInputText,
+    ]
+  );
+  const contextFillPercent =
+    contextUsage.usedTokens > 0
+      ? Math.max(2, contextUsage.percent)
+      : contextUsage.percent;
 
   return (
     <div className="prompt-area">
@@ -214,6 +317,53 @@ export function Prompt() {
             停止
           </button>
         )}
+      </div>
+      <div
+        className={`prompt-context-meter ${contextUsage.status}`}
+        title={`上下文窗口估算：${contextUsage.windowSourceLabel}`}
+      >
+        <div className="prompt-context-meter__top">
+          <div className="prompt-context-meter__identity">
+            <span
+              className="prompt-context-meter__icon"
+              aria-hidden="true"
+              style={{
+                backgroundImage: `conic-gradient(var(--context-meter-color) ${Math.round(
+                  contextUsage.ratio * 360
+                )}deg, color-mix(in srgb, var(--context-meter-color) 18%, transparent) 0deg)`,
+              }}
+            >
+              <span className="prompt-context-meter__icon-core" />
+            </span>
+            <span className="prompt-context-meter__copy">
+              <span className="prompt-context-meter__title">上下文窗口估算</span>
+              <span className="prompt-context-meter__model">
+                {contextUsage.providerLabel} · {contextUsage.modelLabel}
+              </span>
+            </span>
+          </div>
+          <div className="prompt-context-meter__numbers">
+            <span>{contextUsage.percent}% 已用</span>
+            <span>
+              {formatCompactTokenCount(contextUsage.usedTokens)} /{" "}
+              {formatCompactTokenCount(contextUsage.maxTokens)} tokens
+            </span>
+          </div>
+        </div>
+        <div className="prompt-context-meter__bar" aria-hidden="true">
+          <span
+            className="prompt-context-meter__bar-fill"
+            style={{ width: `${contextFillPercent}%` }}
+          />
+        </div>
+        <div className="prompt-context-meter__detail">
+          <span>输入 {formatCompactTokenCount(contextUsage.inputTokens)}</span>
+          <span>记忆 {formatCompactTokenCount(contextUsage.memoryTokens)}</span>
+          <span>系统 {formatCompactTokenCount(contextUsage.overheadTokens)}</span>
+          <span>
+            安全剩余 {formatCompactTokenCount(contextUsage.safeRemainingTokens)}
+          </span>
+        </div>
       </div>
     </div>
   );

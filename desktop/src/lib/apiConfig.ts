@@ -1,5 +1,6 @@
 const STORAGE_KEY = "mph-agent-api-config";
 const LEGACY_STORAGE_KEY = "comsol-agent-api-config";
+export const API_CONFIG_UPDATED_EVENT = "mph-agent-api-config-updated";
 
 export type RuntimeBackendId =
   | "deepseek"
@@ -54,6 +55,14 @@ export interface ProviderCatalogEntry {
   supportsBaseUrl: boolean;
   baseUrlLabel?: string;
   group: "native" | "compatible" | "custom" | "local";
+}
+
+export interface ContextWindowInfo {
+  providerId: LLMBackendId | null;
+  providerLabel: string;
+  model: string;
+  maxTokens: number;
+  source: "model-pattern" | "provider-default" | "fallback";
 }
 
 type RawApiConfig = Partial<ApiConfig> &
@@ -289,6 +298,30 @@ const PROVIDER_ID_SET = new Set<string>(
   PROVIDER_CATALOG.map((provider) => provider.id)
 );
 
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 131072;
+
+const PROVIDER_CONTEXT_WINDOW_FALLBACKS: Record<LLMBackendId, number> = {
+  deepseek: 65536,
+  kimi: 131072,
+  openai: 1000000,
+  anthropic: 200000,
+  gemini: 1000000,
+  xai: 256000,
+  qwen: 131072,
+  zhipu: 128000,
+  openrouter: 200000,
+  groq: 131072,
+  together: 131072,
+  fireworks: 131072,
+  siliconflow: 131072,
+  perplexity: 128000,
+  mistral: 128000,
+  "volcengine-ark": 256000,
+  "azure-openai": 1000000,
+  "custom-openai": 128000,
+  ollama: 8192,
+};
+
 function makeDefaultProviderConfig(
   provider: ProviderCatalogEntry
 ): ProviderConfig {
@@ -474,6 +507,113 @@ export function getProviderConfig(
   );
 }
 
+export function resolveSelectedProviderId(
+  config: ApiConfig,
+  backend?: LLMBackendId | null
+): LLMBackendId | null {
+  if (isProviderId(backend)) return backend;
+  return config.preferred_backend && isProviderId(config.preferred_backend)
+    ? config.preferred_backend
+    : null;
+}
+
+function inferModelContextWindow(
+  model: string,
+  fallback: number
+): Pick<ContextWindowInfo, "maxTokens" | "source"> {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) {
+    return { maxTokens: fallback, source: "fallback" };
+  }
+
+  if (
+    normalized.includes("gpt-4.1") ||
+    normalized.includes("gpt-5") ||
+    normalized.includes("gemini-2.5")
+  ) {
+    return { maxTokens: 1000000, source: "model-pattern" };
+  }
+
+  if (
+    normalized.includes("claude") ||
+    normalized.includes("openai/o1") ||
+    normalized.includes("openai/o3") ||
+    normalized.includes("openai/o4")
+  ) {
+    return { maxTokens: 200000, source: "model-pattern" };
+  }
+
+  if (normalized.includes("grok")) {
+    return { maxTokens: 256000, source: "model-pattern" };
+  }
+
+  const sizeMatches: Array<[RegExp, number]> = [
+    [/(^|[^0-9])1m([^0-9]|$)/, 1000000],
+    [/(^|[^0-9])256k([^0-9]|$)/, 256000],
+    [/(^|[^0-9])200k([^0-9]|$)/, 200000],
+    [/(^|[^0-9])128k([^0-9]|$)/, 128000],
+    [/(^|[^0-9])64k([^0-9]|$)/, 65536],
+    [/(^|[^0-9])32k([^0-9]|$)/, 32768],
+    [/(^|[^0-9])16k([^0-9]|$)/, 16384],
+    [/(^|[^0-9])8k([^0-9]|$)/, 8192],
+    [/(^|[^0-9])4k([^0-9]|$)/, 4096],
+  ];
+  for (const [pattern, maxTokens] of sizeMatches) {
+    if (pattern.test(normalized)) {
+      return { maxTokens, source: "model-pattern" };
+    }
+  }
+
+  if (
+    normalized.includes("deepseek") ||
+    normalized.includes("qwen") ||
+    normalized.includes("glm") ||
+    normalized.includes("sonar") ||
+    normalized.includes("mistral") ||
+    normalized.includes("gpt-oss")
+  ) {
+    return { maxTokens: fallback, source: "provider-default" };
+  }
+
+  if (normalized.includes("llama")) {
+    return {
+      maxTokens: Math.max(8192, Math.min(fallback, 131072)),
+      source: "provider-default",
+    };
+  }
+
+  return { maxTokens: fallback, source: "provider-default" };
+}
+
+export function getContextWindowInfo(
+  config: ApiConfig,
+  backend?: LLMBackendId | null
+): ContextWindowInfo {
+  const providerId = resolveSelectedProviderId(config, backend);
+  if (!providerId) {
+    return {
+      providerId: null,
+      providerLabel: "Default",
+      model: "",
+      maxTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
+      source: "fallback",
+    };
+  }
+
+  const provider = getProviderConfig(config, providerId);
+  const fallback =
+    PROVIDER_CONTEXT_WINDOW_FALLBACKS[providerId] ?? DEFAULT_CONTEXT_WINDOW_TOKENS;
+  const inferred = inferModelContextWindow(provider.model, fallback);
+
+  return {
+    providerId,
+    providerLabel: getProviderLabel(providerId),
+    model: provider.model,
+    maxTokens: inferred.maxTokens,
+    source: inferred.source,
+  };
+}
+
 export function resolveRuntimeBackend(
   providerId: LLMBackendId
 ): RuntimeBackendId {
@@ -503,6 +643,11 @@ export function saveApiConfig(config: ApiConfig): void {
   try {
     const merged = mergeStoredConfig(config as unknown as RawApiConfig);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    window.dispatchEvent(
+      new CustomEvent(API_CONFIG_UPDATED_EVENT, {
+        detail: { preferredBackend: merged.preferred_backend ?? null },
+      })
+    );
   } catch (_) {}
 }
 
