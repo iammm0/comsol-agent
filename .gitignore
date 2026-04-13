@@ -54,6 +54,7 @@ do_one_commit.sh
 *.mph
 models/
 outputs/
+data/doc_knowledge/
 
 # 内置 Java 运行时（首次使用时自动下载，不提交）
 runtime/
@@ -61,6 +62,8 @@ runtime/
 # Logs
 *.log
 logs/
+.context-ts/
+*.tsbuildinfo
 
 # Testing
 .pytest_cache/

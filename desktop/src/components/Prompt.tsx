@@ -218,6 +218,17 @@ export function Prompt() {
     contextUsage.usedTokens > 0
       ? Math.max(2, contextUsage.percent)
       : contextUsage.percent;
+  const contextMeterTitle = [
+    `上下文窗口估算：${contextUsage.windowSourceLabel}`,
+    `当前模型：${contextUsage.providerLabel} · ${contextUsage.modelLabel}`,
+    `已用：${formatCompactTokenCount(contextUsage.usedTokens)} / ${formatCompactTokenCount(
+      contextUsage.maxTokens
+    )} tokens`,
+    `输入：${formatCompactTokenCount(contextUsage.inputTokens)}`,
+    `记忆：${formatCompactTokenCount(contextUsage.memoryTokens)}`,
+    `系统：${formatCompactTokenCount(contextUsage.overheadTokens)}`,
+    `安全剩余：${formatCompactTokenCount(contextUsage.safeRemainingTokens)}`,
+  ].join("\n");
 
   return (
     <div className="prompt-area">
@@ -320,35 +331,26 @@ export function Prompt() {
       </div>
       <div
         className={`prompt-context-meter ${contextUsage.status}`}
-        title={`上下文窗口估算：${contextUsage.windowSourceLabel}`}
+        title={contextMeterTitle}
       >
-        <div className="prompt-context-meter__top">
-          <div className="prompt-context-meter__identity">
-            <span
-              className="prompt-context-meter__icon"
-              aria-hidden="true"
-              style={{
-                backgroundImage: `conic-gradient(var(--context-meter-color) ${Math.round(
-                  contextUsage.ratio * 360
-                )}deg, color-mix(in srgb, var(--context-meter-color) 18%, transparent) 0deg)`,
-              }}
-            >
-              <span className="prompt-context-meter__icon-core" />
-            </span>
-            <span className="prompt-context-meter__copy">
-              <span className="prompt-context-meter__title">上下文窗口估算</span>
-              <span className="prompt-context-meter__model">
-                {contextUsage.providerLabel} · {contextUsage.modelLabel}
-              </span>
-            </span>
-          </div>
-          <div className="prompt-context-meter__numbers">
-            <span>{contextUsage.percent}% 已用</span>
-            <span>
-              {formatCompactTokenCount(contextUsage.usedTokens)} /{" "}
-              {formatCompactTokenCount(contextUsage.maxTokens)} tokens
-            </span>
-          </div>
+        <span
+          className="prompt-context-meter__icon"
+          aria-hidden="true"
+          style={{
+            backgroundImage: `conic-gradient(var(--context-meter-color) ${Math.round(
+              contextUsage.ratio * 360
+            )}deg, color-mix(in srgb, var(--context-meter-color) 18%, transparent) 0deg)`,
+          }}
+        >
+          <span className="prompt-context-meter__icon-core" />
+        </span>
+        <div className="prompt-context-meter__copy">
+          <span className="prompt-context-meter__title">
+            上下文 {contextUsage.percent}% 已用
+          </span>
+          <span className="prompt-context-meter__model">
+            {contextUsage.providerLabel} · {contextUsage.modelLabel}
+          </span>
         </div>
         <div className="prompt-context-meter__bar" aria-hidden="true">
           <span
@@ -356,12 +358,13 @@ export function Prompt() {
             style={{ width: `${contextFillPercent}%` }}
           />
         </div>
-        <div className="prompt-context-meter__detail">
-          <span>输入 {formatCompactTokenCount(contextUsage.inputTokens)}</span>
-          <span>记忆 {formatCompactTokenCount(contextUsage.memoryTokens)}</span>
-          <span>系统 {formatCompactTokenCount(contextUsage.overheadTokens)}</span>
+        <div className="prompt-context-meter__numbers">
           <span>
-            安全剩余 {formatCompactTokenCount(contextUsage.safeRemainingTokens)}
+            {formatCompactTokenCount(contextUsage.usedTokens)} /{" "}
+            {formatCompactTokenCount(contextUsage.maxTokens)}
+          </span>
+          <span>
+            余量 {formatCompactTokenCount(contextUsage.safeRemainingTokens)}
           </span>
         </div>
       </div>

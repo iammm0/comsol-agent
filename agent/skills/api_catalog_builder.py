@@ -1,107 +1,217 @@
-"""从 JavaAPIController._official_api_wrappers 构建官方 API 能力表文档，供向量检索与技能注入使用。"""
+"""Build runtime capability documents from native actions and COMSOL API wrappers."""
+
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Dict, Any
+import json
+from dataclasses import dataclass, field
+from typing import Any, Dict, List
 
 from agent.executor.java_api_controller import JavaAPIController
 
 
 @dataclass
 class ApiCapabilityEntry:
-    """官方 API 能力条目：用于向量库与技能系统。"""
+    """Runtime capability entry used by vector search and prompt injection."""
 
     name: str
     title: str
     description: str
-    wrapper_name: str
-    owner: str
-    method_name: str
+    invoke_mode: str
+    category: str
+    recommended_action: str
+    params_schema: Dict[str, Any] = field(default_factory=dict)
+    examples: List[Dict[str, Any]] = field(default_factory=list)
+    wrapper_name: str = ""
+    owner: str = ""
+    method_name: str = ""
+    keywords: List[str] = field(default_factory=list)
 
     @property
     def instructions(self) -> str:
-        """
-        转为 Skill-like 文本块，用于向量检索与 Prompt 注入。
-
-        结构示例：
-        [删除研究节点] api_model_study_remove
-        所属类: com.comsol.model.Study
-        方法: remove(String tag)
-
-        用途: 删除给定标签的研究节点。
-        wrapper_name: api_model_study_remove
-        owner: com.comsol.model.Study
-        method_name: remove
-        """
         lines = [
-            f"[{self.title}] {self.wrapper_name}",
-            f"所属类: {self.owner}",
-            f"方法: {self.method_name}",
+            f"[Runtime capability] {self.title}",
+            f"category: {self.category}",
+            f"invoke_mode: {self.invoke_mode}",
+            f"recommended_action: {self.recommended_action}",
         ]
-        if self.description:
+
+        if self.invoke_mode == "wrapper":
+            lines.extend(
+                [
+                    f"wrapper_name: {self.wrapper_name}",
+                    f"owner: {self.owner}",
+                    f"method_name: {self.method_name}",
+                    "",
+                    "Use this via ActionExecutor action `call_official_api` with `params.wrapper` "
+                    "or `params.wrapper_name`. Do not invent a raw Java call when this wrapper covers "
+                    "the operation.",
+                ]
+            )
+            preferred_call: Dict[str, Any] = {
+                "action": "call_official_api",
+                "params": {
+                    "wrapper": self.wrapper_name,
+                    "args": [],
+                    "target_path": "<COMSOL object path, if the method is not on model root>",
+                },
+            }
+        else:
             lines.append("")
-            lines.append(f"用途: {self.description}")
-        lines.append("")
-        lines.append(f"wrapper_name: {self.wrapper_name}")
-        lines.append(f"owner: {self.owner}")
-        lines.append(f"method_name: {self.method_name}")
+            lines.append(
+                "Use this built-in native action first. It is still backed by COMSOL Java API calls, "
+                "but it contains the repo's validation, planning, and save-path handling."
+            )
+            preferred_call = {"action": self.recommended_action}
+
+        if self.description:
+            lines.extend(["", f"description: {self.description}"])
+        if self.params_schema:
+            lines.extend(
+                [
+                    "",
+                    "params_schema:",
+                    json.dumps(self.params_schema, ensure_ascii=False, sort_keys=True),
+                ]
+            )
+        if self.examples:
+            lines.extend(
+                [
+                    "",
+                    "catalog_examples:",
+                    json.dumps(self.examples[:2], ensure_ascii=False, sort_keys=True),
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "preferred_call:",
+                json.dumps(preferred_call, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+        if self.keywords:
+            lines.extend(["", f"keywords: {', '.join(self.keywords)}"])
         return "\n".join(lines).strip()
 
 
-def _guess_title(owner: str, method_name: str) -> str:
-    """
-    根据 owner + method_name 粗略生成一个中文/英文标题，便于人类浏览与语义检索。
-    这里仅做简单拆词与映射，后续可按需替换/增强。
-    """
-    lower = method_name.lower()
-    if "remove" in lower or "delete" in lower:
-        if "study" in owner.lower():
-            return "删除研究节点"
-        if "material" in owner.lower():
-            return "删除材料节点"
-        if "physics" in owner.lower():
-            return "删除物理场节点"
-        if "selection" in owner.lower():
-            return "删除选择集"
-        return "删除节点/对象"
-    if "clear" in lower:
-        return "清除数据/节点"
-    if "create" in lower:
-        return "创建节点/对象"
-    if "export" in lower or "save" in lower:
-        return "导出结果/数据"
-    if "measure" in lower:
-        return "几何测量"
-    if "run" in lower or "solve" in lower:
-        return "运行/求解"
-    return f"{owner.split('.')[-1]}.{method_name}"
+def _wrapper_meta_from_item(item: Dict[str, Any]) -> tuple[str, str, str]:
+    wrapper_name = str(item.get("label") or "")
+    owner = ""
+    method_name = ""
+    examples = item.get("examples") or []
+    if isinstance(examples, list) and examples:
+        first = examples[0] if isinstance(examples[0], dict) else {}
+        owner = str(first.get("owner") or "")
+        method_name = str(first.get("method_name") or "")
+    return wrapper_name, owner, method_name
+
+
+def _keywords_for_entry(
+    *,
+    name: str,
+    title: str,
+    category: str,
+    recommended_action: str,
+    wrapper_name: str,
+    owner: str,
+    method_name: str,
+) -> List[str]:
+    raw = [name, title, category, recommended_action, wrapper_name, owner, method_name]
+    if "mesh" in " ".join(raw).lower() or "网格" in " ".join(raw):
+        raw.extend(["mesh", "网格", "boundary layer", "边界层"])
+    if "geom" in " ".join(raw).lower() or "几何" in " ".join(raw):
+        raw.extend(["geometry", "几何", "work plane", "工作面"])
+    if "material" in " ".join(raw).lower() or "材料" in " ".join(raw):
+        raw.extend(["material", "材料", "property", "属性"])
+    if any(k in " ".join(raw).lower() for k in ["physics", "boundary", "heattransfer"]):
+        raw.extend(["physics", "物理场", "boundary condition", "边界条件", "heat transfer", "传热"])
+    if any(k in " ".join(raw).lower() for k in ["study", "solver", "solution", "solv"]):
+        raw.extend(["study", "solver", "研究", "求解"])
+    if any(k in " ".join(raw).lower() for k in ["result", "plot", "export"]):
+        raw.extend(["result", "plot", "export", "结果", "导出"])
+
+    seen: set[str] = set()
+    keywords: List[str] = []
+    for value in raw:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        keywords.append(text)
+    return keywords
+
+
+def _entry_from_ops_item(item: Dict[str, Any]) -> ApiCapabilityEntry:
+    invoke_mode = str(item.get("invoke_mode") or "native")
+    category = str(item.get("category") or "")
+    recommended_action = str(item.get("recommended_action") or "")
+    label = str(item.get("label") or recommended_action or "runtime capability")
+    params_schema = item.get("params_schema") if isinstance(item.get("params_schema"), dict) else {}
+    examples = item.get("examples") if isinstance(item.get("examples"), list) else []
+
+    wrapper_name = ""
+    owner = ""
+    method_name = ""
+    if invoke_mode == "wrapper":
+        wrapper_name, owner, method_name = _wrapper_meta_from_item(item)
+        name = wrapper_name or label
+        title = f"{category} wrapper: {name}" if category else f"COMSOL API wrapper: {name}"
+        description = (
+            f"COMSOL Java API wrapper for {owner}.{method_name}; call it through "
+            "`call_official_api` with `params.wrapper`."
+        ).strip()
+    else:
+        name = f"native:{recommended_action or label}"
+        title = label
+        description = (
+            "Native ActionExecutor operation. It should be preferred for regular modeling steps "
+            "because it wraps COMSOL API calls with repo-specific schema handling."
+        )
+
+    return ApiCapabilityEntry(
+        name=name,
+        title=title,
+        description=description,
+        invoke_mode=invoke_mode,
+        category=category,
+        recommended_action=recommended_action,
+        params_schema=params_schema,
+        examples=examples,
+        wrapper_name=wrapper_name,
+        owner=owner,
+        method_name=method_name,
+        keywords=_keywords_for_entry(
+            name=name,
+            title=title,
+            category=category,
+            recommended_action=recommended_action,
+            wrapper_name=wrapper_name,
+            owner=owner,
+            method_name=method_name,
+        ),
+    )
 
 
 def build_api_capability_entries() -> List[ApiCapabilityEntry]:
     """
-    从 JavaAPIController 的官方 API 元数据构建能力条目列表。
-    仅依赖已加载的 comsol_official_api_wrappers 元信息，不触发网络抓取。
+    Build native-action and wrapper capability entries from JavaAPIController.
+
+    The result is intentionally runtime-facing: it tells the model which action or
+    wrapper the current repo can execute, instead of only listing raw COMSOL API
+    method names.
     """
+
     ctrl = JavaAPIController()
-    items: List[Dict[str, Any]] = ctrl.list_official_api_wrappers(limit=10_000).get("items", [])
+    result = ctrl.get_ops_catalog(limit=10_000, offset=0)
+    items = result.get("items", []) if isinstance(result, dict) else []
     entries: List[ApiCapabilityEntry] = []
+    seen: set[str] = set()
     for item in items:
-        wrapper = item.get("wrapper_name") or ""
-        owner = item.get("owner") or ""
-        method_name = item.get("method_name") or ""
-        if not wrapper or not owner or not method_name:
+        if not isinstance(item, dict):
             continue
-        title = _guess_title(owner, method_name)
-        desc = ""
-        entries.append(
-            ApiCapabilityEntry(
-                name=wrapper,
-                title=title,
-                description=desc,
-                wrapper_name=wrapper,
-                owner=owner,
-                method_name=method_name,
-            )
-        )
+        entry = _entry_from_ops_item(item)
+        if not entry.name or entry.name in seen:
+            continue
+        seen.add(entry.name)
+        entries.append(entry)
     return entries
 

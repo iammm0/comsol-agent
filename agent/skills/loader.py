@@ -42,6 +42,31 @@ def _parse_skill_md(content: str) -> tuple[Dict[str, Any], str]:
     return frontmatter, body.strip()
 
 
+def _normalize_string_list(values: Any) -> List[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        text = values.strip()
+        return [text] if text else []
+    if not isinstance(values, list):
+        return [str(values).strip()] if str(values).strip() else []
+
+    output: List[str] = []
+    seen = set()
+    for item in values:
+        if isinstance(item, dict):
+            parts = [str(k).strip() for k in item.keys()]
+            parts.extend(str(v).strip() for v in item.values() if str(v).strip())
+            text = " ".join(part for part in parts if part)
+        else:
+            text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        output.append(text)
+    return output
+
+
 class SkillLoader:
     """
     扫描若干技能根目录，解析 SKILL.md，缓存为 name -> Skill。
@@ -74,9 +99,9 @@ class SkillLoader:
                                 instructions=body,
                                 version=fm.get("version"),
                                 author=fm.get("author"),
-                                tags=fm.get("tags") or [],
-                                triggers=fm.get("triggers") or [],
-                                prerequisites=fm.get("prerequisites") or [],
+                                tags=_normalize_string_list(fm.get("tags")),
+                                triggers=_normalize_string_list(fm.get("triggers")),
+                                prerequisites=_normalize_string_list(fm.get("prerequisites")),
                                 path=sub,
                             )
                             self._by_name[name] = skill
