@@ -4,7 +4,7 @@
 
 ## 环境变量配置
 
-创建 `.env` 文件（参考 `.env.example`），配置以下变量：
+创建 `.env` 文件（参考项目根目录的 `env.example`），配置以下变量：
 
 ### 必需配置
 
@@ -33,11 +33,19 @@ COMSOL_JAR_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/plugins
 #### 3. Java 配置（可选）
 - **不配置**：使用项目内置 JDK 11（`runtime/java`，首次使用 COMSOL 时自动下载）
 - **国内加速**：在 .env 中设置 `JAVA_DOWNLOAD_MIRROR=tsinghua` 使用清华镜像
+- **跳过自动下载**：已有合适的 JDK 时设置 `JAVA_SKIP_AUTO_DOWNLOAD=1`，仅使用已存在的 `JAVA_HOME` 或 `runtime/java`
 - 若使用系统已安装的 Java，可配置：
 ```bash
 JAVA_HOME=C:/Program Files/Java/jdk-17
 ```
 - 确保 Java 版本与 COMSOL 兼容（通常 JDK 8-17）
+
+#### 4. COMSOL 本地库路径（可选）
+```bash
+COMSOL_NATIVE_PATH=C:/Program Files/COMSOL/COMSOL63/Multiphysics/bin/win64
+```
+- 手动指定含 JNI `.dll`（Windows）或 `.so`（Linux）的目录，解决 `UnsatisfiedLinkError: FlLicense.initWS0`
+- 留空时会按 `COMSOL_JAR_PATH` 自动推导（如 `bin/win64`、`bin/glnxa64`）
 
 ### 可选配置
 

@@ -69,7 +69,11 @@ uv run python cli.py
 
 4. **JAVA_DOWNLOAD_MIRROR** - 内置 JDK 下载镜像，国内加速可设为 `tsinghua`（清华 TUNA）
 
-5. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为 **mph-agent 根目录下的 `models`**，该目录为唯一且首要；项目根目录上一级的 `models` 不再使用）
+5. **JAVA_SKIP_AUTO_DOWNLOAD** - 设为 `1` 时禁止自动下载内置 JDK，仅使用已存在的 `JAVA_HOME` 或 `runtime/java`
+
+6. **COMSOL_NATIVE_PATH** - 手动指定含 JNI `.dll`/`.so` 的本地库目录（解决 `UnsatisfiedLinkError: FlLicense.initWS0`）；留空时按 `COMSOL_JAR_PATH` 自动推导 `bin/win64` 等路径
+
+7. **MODEL_OUTPUT_DIR** - 模型输出目录（默认为 **mph-agent 根目录下的 `models`**，该目录为唯一且首要；项目根目录上一级的 `models` 不再使用）
    ```bash
    # Linux/Mac
    export MODEL_OUTPUT_DIR="/path/to/output"
@@ -80,13 +84,15 @@ uv run python cli.py
 
 ### 使用 .env 文件（推荐）
 
-在项目根目录或用户主目录创建 `.env` 文件：
+在项目根目录或用户主目录创建 `.env` 文件（参考项目根目录的 `env.example`）：
 
 ```env
 LLM_BACKEND=ollama
 # 或 deepseek/kimi/openai-compatible，并配置对应 API Key
 COMSOL_JAR_PATH=/path/to/comsol/plugins
 # JAVA_HOME=  可选，不设则使用项目内置 JDK 11
+# JAVA_SKIP_AUTO_DOWNLOAD=1  # 已有 JDK 时可设为 1 跳过自动下载
+# COMSOL_NATIVE_PATH=  # 可选，解决 UnsatisfiedLinkError 时手动指定
 MODEL_OUTPUT_DIR=/path/to/output
 ```
 
@@ -158,16 +164,11 @@ MODEL_OUTPUT_DIR=/path/to/output
    ```
    并将 MSYS2 的 `mingw64\bin`（如 `C:\msys64\mingw64\bin`）加入系统 PATH。
 
-## 会话记忆与 Celery（可选）
+## 会话记忆
 
 桌面端支持**多会话**，每个会话对应一个物理模型构建上下文；后端会按会话维护**摘要式记忆**（最近对话、形状类型、偏好等），供后续推理时参考。
 
-- **默认行为**：每次 run 结束后，记忆更新在**当前进程内同步执行**，无需额外服务。
-- **可选：Celery 后台**：若希望将记忆更新放到后台进程执行，可安装可选依赖并启动 worker：
-  1. 安装：`uv sync -e memory`（或 `pip install celery redis`）
-  2. 启动 Redis（默认 `localhost:6379`）
-  3. 启动 worker：`celery -A agent.core.celery_app worker -l info`
-  此后 `do_run` 会优先将记忆更新任务投递到 Celery，由 worker 异步执行；未安装或未启动时自动回退为同步更新。
+- **默认行为**：每次 run 结束后，记忆更新通过 `asyncio` 在后台异步执行，无需额外服务（不依赖 Celery / Redis）。
 
 ## 开发模式
 

@@ -3,7 +3,6 @@
 本文档说明如何在 TUI 中测试各模块的建模能力。运行前请确保已配置 `.env`（如 `COMSOL_JAR_PATH`、LLM 后端等）；启动 TUI 后输入 `/doctor` 可做环境检查。
 
 - **启动方式**：`uv run python cli.py`
-- **已安装分发包**：直接执行 `mph-agent`
 - **模型输出目录**：所有 `.mph` 模型保存到 **mph-agent 根目录下的 `models/`**（可在 TUI 中用 `/output 文件名.mph` 设置默认输出文件名）
 
 ---
@@ -90,13 +89,69 @@ uv run python cli.py
 
 ---
 
-## 7. TUI 斜杠命令速查
+## 7. 讨论模式（discuss）
+
+在 TUI 中输入 **`/discuss`** 切换到讨论模式。Agent 会通过结构化问答逐步确认建模意图（几何、物理场、边界条件等），形成"讨论卡片"，确认后再规划并执行。适合需求模糊或需要逐步澄清的场景。
+
+输入 **`/run`** 可切回默认（run）模式。
+
+---
+
+## 8. 案例提取（case）
+
+在 TUI 中输入 **`/case`**，指定本地 `.mph` 文件路径，Agent 会通过 COMSOL Java API 解析该文件并提取结构化操作 JSON，输出到 `data/case_library/` 目录。可用于建立本地案例知识库。
+
+---
+
+## 9. 案例库同步（case_library）
+
+在 TUI 中输入 **`/case_library`** 系列命令：
+
+- **`/case_library list`**：列出本地已同步的 COMSOL 官方案例索引
+- **`/case_library sync`**：从 COMSOL 官网后台同步最新案例索引（会报告同步进度）
+- **`/case_library sync_status`**：查看最近一次同步任务的状态
+
+---
+
+## 10. 技能库管理（skills）
+
+技能以 Markdown 格式存放于 `skills/` 目录，Agent 在推理时自动检索并注入。在 TUI 中：
+
+- **`/skills list`**：列出本地所有技能
+- **`/skills create`**：交互式创建新技能（填写名称、描述、触发词、内容）
+- **`/skills import`**：从 Markdown 文件导入技能
+
+---
+
+## 11. 文档知识库（doc_kb）
+
+在 TUI 中输入 **`/doc_kb`** 系列命令（需先在 `.env` 中设置 `COMSOL_DOC_PATH` 或传入路径）：
+
+- **`/doc_kb import`**：从本机 COMSOL HTML/TXT 文档目录构建本地 SQLite/FTS 知识库
+- **`/doc_kb status`**：查看当前知识库的导入状态与条目数
+- **`/doc_kb search`**：在知识库中关键词检索文档片段
+
+---
+
+## 12. API 操作目录（ops_catalog）
+
+在 TUI 中输入 **`/ops_catalog`**，列出所有已封装的 COMSOL Java API 操作（`JavaAPIController.get_ops_catalog()`），含操作名称与参数说明，便于了解当前可用的建模能力。
+
+---
+
+## 13. TUI 斜杠命令速查
 
 | 命令 | 说明 |
 |------|------|
 | `/run` | 默认模式：自然语言 → 生成模型 |
-| `/plan` | 计划模式：自然语言 → 仅解析为 JSON |
+| `/plan` | 计划模式：自然语言 → 阶段性规划（含澄清问题循环），确认后执行 |
+| `/discuss` | 讨论模式：逐步结构化确认建模意图后规划 |
 | `/exec` | 根据 JSON 计划创建模型或生成代码 |
+| `/case` | 从本地 .mph 文件提取结构化操作 JSON |
+| `/case_library` | 案例库：list / sync / sync_status |
+| `/skills` | 技能库：list / create / import |
+| `/doc_kb` | 文档知识库：import / status / search |
+| `/ops_catalog` | 列出所有可用 COMSOL Java API 操作 |
 | `/demo` | 演示解析能力 |
 | `/doctor` | 环境诊断 |
 | `/context` | 上下文摘要、历史、统计、清除 |
@@ -107,7 +162,7 @@ uv run python cli.py
 
 ---
 
-## 8. 最小脚本（无 LLM，仅几何）
+## 14. 最小脚本（无 LLM，仅几何）
 
 不依赖 LLM，直接用内置几何计划调用 COMSOL Java API 生成 `.mph`，用于验证 COMSOL 环境：
 
@@ -119,15 +174,21 @@ uv run python scripts/py_to_mph_minimal.py
 
 ---
 
-## 9. 按能力对照
+## 15. 按能力对照
 
 | 能力 | 在 TUI 中的操作 |
 |------|------------------|
 | **几何 - 矩形/圆/椭圆** | 默认模式输入对应自然语言描述 |
 | **几何 - 多形状/复杂** | 默认模式输入组合描述（见上文 2、3 节） |
-| **仅解析** | `/plan` 后输入描述 |
+| **仅解析** | `/plan` 后输入描述（含澄清问题循环） |
+| **讨论式建模** | `/discuss` 后逐步确认意图 |
 | **从 JSON 执行** | `/exec` 选择计划文件 |
-| **ReAct 全流程** | 默认模式输入“创建传热模型…”等完整需求 |
+| **ReAct 全流程** | 默认模式输入”创建传热模型…”等完整需求 |
+| **案例提取** | `/case` 指定 .mph 文件 |
+| **案例库同步** | `/case_library sync` |
+| **技能管理** | `/skills list/create/import` |
+| **文档知识库** | `/doc_kb import/status/search` |
+| **API 操作目录** | `/ops_catalog` |
 | **环境诊断** | `/doctor` |
 | **演示解析** | `/demo` |
 | **无 LLM 几何** | 终端运行 `uv run python scripts/py_to_mph_minimal.py` |

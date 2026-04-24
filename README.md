@@ -55,11 +55,16 @@ Multiphysics Modeling Agent（mph-agent）基于 **ReAct（Reasoning & Acting）
 ## 功能特性
 
 - **ReAct 闭环**：推理（理解与规划）→ 执行（几何/物理场/网格/研究）→ 观察 → 迭代，自动生成 .mph
-- **多 LLM 后端**：Dashscope (Qwen)、OpenAI、OpenAI 兼容、Ollama（本地/远程）
+- **讨论模式**：`/discuss` 进入增量式结构化讨论，逐步确认建模意图后再规划（`DiscussionModeHandler`）
+- **阶段性规划（计划模式）**：`/plan` 触发 `PlanModeHandler`，支持澄清问题循环（`PlanNeedsClarification`），与用户确认后再执行
+- **多 LLM 后端**：DeepSeek、Kimi、OpenAI 兼容、Ollama（本地/远程）
 - **COMSOL 集成**：面向 COMSOL Multiphysics 6.3 的 Java API 与 `plugins` 目录结构，直接调用 Java API 或生成代码执行
+- **JavaAPI 操作目录**：`/ops_catalog` 列出所有可用的 COMSOL Java API 封装操作（`JavaAPIController.get_ops_catalog()`）
+- **案例库**：`/case_library` 从 COMSOL 官网同步案例索引；`/case` 从本地 .mph 文件提取结构化操作 JSON
+- **技能库**：内置 Markdown 格式技能（`skills/`），支持向量检索与注入；`/skills` 管理本地技能（创建/导入/列出）
 - **文档知识库**：可从本机已安装的 COMSOL 官方 HTML/TXT 文档构建本地 SQLite/FTS 知识库，推理时自动检索相关片段
 - **桌面应用**：Tauri 2 + React，支持主题切换、推理任务、记忆管理、LLM 与 COMSOL 环境配置
-- **上下文与记忆**：对话历史、摘要式记忆、自定义别名，提升多轮解析准确性
+- **上下文与记忆**：对话历史、摘要式记忆、自定义别名，提升多轮解析准确性；记忆更新通过 `asyncio` 异步执行，无需额外服务
 
 ---
 
@@ -137,6 +142,8 @@ uv run python cli.py
 
 - **JAVA_HOME**：不配置时优先用系统 Java，或使用项目内置 JDK 11（自动下载到 `runtime/java`）。
 - **JAVA_DOWNLOAD_MIRROR**：国内可设 `tsinghua` 使用清华镜像。
+- **JAVA_SKIP_AUTO_DOWNLOAD**：设为 `1` 时禁止自动下载内置 JDK，仅使用已存在的 `JAVA_HOME` 或 `runtime/java`。
+- **COMSOL_NATIVE_PATH**：手动指定含 JNI `.dll`/`.so` 的本地库目录（解决 `UnsatisfiedLinkError`）；留空时按 `COMSOL_JAR_PATH` 自动推导。
 - **MODEL_OUTPUT_DIR**：模型输出目录，默认项目根目录下的 `models`。
 
 ### 配置方式

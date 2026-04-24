@@ -238,14 +238,15 @@ flowchart TB
 
 | 区域 | 职责 | 主要文件/目录 |
 |------|------|----------------|
-| **路由与编排** | 路由、会话编排、依赖注入 | `agent/router.py`、`agent/session.py`、`agent/dependencies.py` |
-| **动作入口** | do_run / do_plan / do_exec / 上下文与配置 | `agent/actions.py`、`agent/tui_bridge.py` |
+| **路由与编排** | 路由、会话编排、依赖注入 | `agent/core/router.py`、`agent/core/session.py`、`agent/core/dependencies.py` |
+| **动作入口** | do_run / do_plan / do_discuss / do_case / do_skills_* / do_doc_kb_* 等 | `agent/run/actions.py`、`agent/run/tui_bridge.py` |
+| **运行模式** | 讨论模式、计划模式（含澄清问题循环） | `agent/run/discussion_mode.py`、`agent/run/plan_mode.py` |
 | **ReAct 核心** | 推理、执行、观察、迭代 | `agent/react/react_agent.py`、`reasoning_engine.py`、`action_executor.py`、`observer.py`、`iteration_controller.py` |
 | **Planner** | 自然语言 → 结构化计划；编排器串行调用四类 Agent、A2A 共享上下文 | `agent/planner/orchestrator.py`、`agent/planner/context.py`、`agent/planner/geometry_agent.py`、`physics_agent.py`、`study_agent.py`、`material_agent.py` |
-| **Executor** | 计划 → COMSOL 调用 / .mph | `agent/executor/comsol_runner.py`、`java_api_controller.py`、`java_generator.py` |
-| **Q&A / Summary** | 问答与结果摘要 | `agent/qa_agent.py`、`agent/summary_agent.py` |
-| **事件与上下文** | EventBus、会话上下文、记忆 | `agent/events.py`、`agent/utils/context_manager.py`、`agent/memory_agent.py` |
-| **技能与提示** | 技能加载、提示模板、LLM | `agent/skills/`、`agent/utils/prompt_loader.py`、`agent/utils/llm.py` |
+| **Executor** | 计划 → COMSOL 调用 / .mph | `agent/executor/comsol_runner.py`、`agent/executor/java_api_controller.py`、`agent/executor/comsol_official_api_wrappers.py`、`agent/executor/sandbox.py` |
+| **Q&A / Summary** | 问答与结果摘要 | `agent/agents/qa_agent.py`、`agent/agents/summary_agent.py` |
+| **事件与上下文** | EventBus、会话上下文、记忆 | `agent/core/events.py`、`agent/utils/context_manager.py`、`agent/memory/memory_agent.py` |
+| **技能与提示** | 技能加载、向量检索注入、提示模板、LLM | `agent/skills/`、`agent/utils/prompt_loader.py`、`agent/utils/llm.py` |
 | **数据模型** | 任务计划、几何/物理/研究 Schema | `schemas/task.py`、`schemas/geometry.py`、`schemas/physics.py`、`schemas/study.py` |
 
 ---
