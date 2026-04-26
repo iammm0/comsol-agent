@@ -14,6 +14,8 @@ from agent.utils.logger import get_logger
 from schemas.task import ExecutionStep, ReActTaskPlan
 
 logger = get_logger(__name__)
+COMSOL_API_INDEX_URL = "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index.html"
+COMSOL_API_ALL_INDEX_URL = "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index-all.html"
 
 
 class ClawCodeComsolDispatcher:
@@ -138,6 +140,14 @@ class ClawCodeComsolDispatcher:
             "必须使用当前仓库中已有的 Python 模块完成操作，例如 "
             "agent.executor.comsol_runner.COMSOLRunner 或 "
             "agent.executor.java_api_controller.JavaAPIController；不要在父进程中直接调用。\n"
+            "优先使用 JSON CLI：python -m agent.executor.comsol_ops_cli。可用命令包括：\n"
+            "- catalog --include-official：列出原生操作与从 COMSOL 6.3 官方 API 索引生成的包装调用。\n"
+            "- create-model --payload-json '{...}'：按 GeometryPlan 创建模型。\n"
+            "- call <operation> --payload-json '{...}'：调用 JavaAPIController 任意公开操作。\n"
+            "- official --payload-json '{model_path, method, args, target_path}'：兜底调用模型对象/节点的 Java API 方法。\n"
+            "- official-static --payload-json '{class_name, method, args}'：兜底调用静态 Java API。\n"
+            f"COMSOL 6.3 Java API 入口：{COMSOL_API_INDEX_URL}；完整索引：{COMSOL_API_ALL_INDEX_URL}。\n"
+            "只要 COMSOL Java API 支持的操作，都应通过 native operation、official/wrapper API 或静态 API 完成。\n"
             "允许读写项目文件和运行必要 shell 命令。完成后只输出一个 JSON 对象，不要输出 Markdown。\n"
             "JSON 格式必须为："
             "{\"status\":\"success|error\",\"message\":\"...\","

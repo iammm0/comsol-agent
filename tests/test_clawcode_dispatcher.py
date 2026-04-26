@@ -65,6 +65,8 @@ def test_dispatch_builds_subprocess_command_and_env(monkeypatch, tmp_path):
     assert str(dispatcher.agent_root) in captured["env"]["PYTHONPATH"]
     assert captured["env"]["MPH_AGENT_ROOT"] == str(tmp_path.resolve())
     assert "target_output_path" in captured["cmd"][4]
+    assert "python -m agent.executor.comsol_ops_cli" in captured["cmd"][4]
+    assert "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index.html" in captured["cmd"][4]
 
 
 def test_dispatch_returns_error_for_process_failure(monkeypatch, tmp_path):
