@@ -84,6 +84,18 @@ class Settings(BaseSettings):
     java_download_mirror: str = ""
     # 为 true 时禁用自动下载 JDK，仅使用已存在的 JAVA_HOME 或 runtime/java（环境已就绪时可用）
     java_skip_auto_download: bool = False
+
+    # claw-code COMSOL 调度配置
+    claw_code_enabled: bool = True
+    claw_code_agent_root: str = (
+        "/Users/zhuanzmima0000/PersonalProjects/agent-shelf/python-claw-code-agent"
+    )
+    claw_code_python_executable: str = "python3"
+    claw_code_max_turns: int = 12
+    claw_code_timeout_seconds: float = 120.0
+    claw_code_model: str = ""
+    claw_code_base_url: str = ""
+    claw_code_api_key: str = ""
     
     # 日志配置
     log_level: str = "INFO"

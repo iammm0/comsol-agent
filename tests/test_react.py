@@ -157,11 +157,10 @@ class TestActionExecutor:
         assert result.get("status") == "error"
         assert "未知" in result.get("message", "")
 
-    def test_execute_import_geometry_without_model_path(self):
-        """import_geometry 在无 model_path 时返回明确错误。"""
+    def test_execute_import_geometry_delegates_to_clawcode(self):
+        """import_geometry 通过 claw-code 子进程委托执行。"""
         executor = ActionExecutor()
-        plan = Mock()
-        plan.model_path = None
+        plan = ReActTaskPlan(task_id="t1", model_name="m1", user_input="u1")
         step = ExecutionStep(
             step_id="s1",
             step_type="geometry_io",
@@ -169,15 +168,23 @@ class TestActionExecutor:
             parameters={"file_path": "/x.step"},
             status="pending",
         )
-        result = executor.execute(plan, step, {"parameters": {"file_path": "/x.step"}})
-        assert result.get("status") == "error"
-        assert "模型文件不存在" in result.get("message", "")
+        dispatcher = Mock()
+        dispatcher.dispatch.return_value = {
+            "status": "success",
+            "message": "ok",
+            "model_path": "/tmp/imported.mph",
+        }
+        executor._clawcode_dispatcher = dispatcher
 
-    def test_execute_export_results_without_model_path(self):
-        """export_results 在无 model_path 时返回明确错误。"""
+        result = executor.execute(plan, step, {"parameters": {"file_path": "/x.step"}})
+        assert result.get("status") == "success"
+        assert plan.model_path == "/tmp/imported.mph"
+        dispatcher.dispatch.assert_called_once()
+
+    def test_execute_export_results_delegates_to_clawcode(self):
+        """export_results 通过 claw-code 子进程委托执行。"""
         executor = ActionExecutor()
-        plan = Mock()
-        plan.model_path = None
+        plan = ReActTaskPlan(task_id="t2", model_name="m2", user_input="u2")
         step = ExecutionStep(
             step_id="s1",
             step_type="postprocess",
@@ -185,9 +192,38 @@ class TestActionExecutor:
             parameters={"out_path": "/out.png"},
             status="pending",
         )
+        dispatcher = Mock()
+        dispatcher.dispatch.return_value = {
+            "status": "success",
+            "message": "exported",
+            "artifacts": ["/out.png"],
+        }
+        executor._clawcode_dispatcher = dispatcher
+
         result = executor.execute(plan, step, {"parameters": {"out_path": "/out.png"}})
-        assert result.get("status") == "error"
-        assert "模型文件不存在" in result.get("message", "")
+        assert result.get("status") == "success"
+        assert result.get("artifacts") == ["/out.png"]
+        dispatcher.dispatch.assert_called_once()
+
+    def test_execute_clawcode_error_is_collected(self):
+        """claw-code 委托失败时收集结构化错误。"""
+        error_collector = Mock()
+        executor = ActionExecutor(error_collector=error_collector)
+        plan = ReActTaskPlan(task_id="t3", model_name="m3", user_input="u3")
+        step = ExecutionStep(
+            step_id="s1",
+            step_type="geometry",
+            action="create_geometry",
+            status="pending",
+        )
+        dispatcher = Mock()
+        dispatcher.dispatch.return_value = {"status": "error", "message": "failed"}
+        executor._clawcode_dispatcher = dispatcher
+
+        result = executor.execute(plan, step, {"parameters": {}})
+
+        assert result["status"] == "error"
+        error_collector.submit.assert_called_once()
 
     def test_execute_define_globals_validation_failed(self):
         """define_globals 参数校验失败时返回结构化错误并要求回到规划澄清。"""

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from agent.core.events import EventType
+from agent.executor.clawcode_dispatcher import ClawCodeComsolDispatcher
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.executor.java_api_controller import (
     DEFAULT_THERMAL_K_SOLID,
@@ -22,6 +23,36 @@ from schemas.task import ExecutionStep, GlobalDefinitionPlan, ReActTaskPlan
 logger = get_logger(__name__)
 GLOBAL_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")
 
+COMSOL_DELEGATED_ACTIONS = {
+    "create_geometry",
+    "define_globals",
+    "add_material",
+    "update_material_property",
+    "add_physics",
+    "generate_mesh",
+    "configure_study",
+    "solve",
+    "import_geometry",
+    "create_selection",
+    "export_results",
+    "call_official_api",
+}
+
+ACTION_STAGE_SUFFIX = {
+    "create_geometry": "geometry",
+    "define_globals": "global",
+    "add_material": "material",
+    "update_material_property": "material",
+    "add_physics": "physics",
+    "generate_mesh": "mesh",
+    "configure_study": "study",
+    "solve": "solve",
+    "import_geometry": "geometry",
+    "create_selection": "selection",
+    "export_results": "export",
+    "call_official_api": "java_api",
+}
+
 
 class ActionExecutor:
     """行动执行器 - 执行具体的建模操作"""
@@ -35,6 +66,7 @@ class ActionExecutor:
         self.settings = get_settings()
         self._comsol_runner: Optional[COMSOLRunner] = None
         self._java_api_controller: Optional[JavaAPIController] = None
+        self._clawcode_dispatcher: Optional[ClawCodeComsolDispatcher] = None
         self._event_bus = event_bus
         self._context_manager = context_manager
         self._error_collector = error_collector
@@ -53,6 +85,11 @@ class ActionExecutor:
         if self._java_api_controller is None:
             self._java_api_controller = JavaAPIController()
         return self._java_api_controller
+
+    def _get_clawcode_dispatcher(self) -> ClawCodeComsolDispatcher:
+        if self._clawcode_dispatcher is None:
+            self._clawcode_dispatcher = ClawCodeComsolDispatcher()
+        return self._clawcode_dispatcher
 
     @staticmethod
     def _stage_base(plan: ReActTaskPlan) -> Tuple[Path, str]:
@@ -87,6 +124,12 @@ class ActionExecutor:
         """本阶段的模型路径（新文件），避免覆盖已打开文件。"""
         base_dir, base_name = self._stage_base(plan)
         return str(base_dir / f"{base_name}_{stage}.mph")
+
+    def _target_path_for_action(self, plan: ReActTaskPlan, action: str) -> Optional[str]:
+        stage = ACTION_STAGE_SUFFIX.get(action)
+        if not stage or action == "export_results":
+            return None
+        return self._stage_path(plan, stage)
 
     def _update_latest(self, plan: ReActTaskPlan) -> None:
         """将当前 model_path 复制为 base_latest.mph 并设为 plan.model_path，标识最新模型。"""
@@ -161,7 +204,10 @@ class ActionExecutor:
             return {"status": "error", "message": f"未知的行动: {step.action}"}
 
         try:
-            result = handler(plan, step, thought)
+            if self.settings.claw_code_enabled and step.action in COMSOL_DELEGATED_ACTIONS:
+                result = self._execute_via_clawcode(plan, step, thought)
+            else:
+                result = handler(plan, step, thought)
             if self._context_manager:
                 self._context_manager.append_operation(
                     "动作结束",
@@ -184,6 +230,42 @@ class ActionExecutor:
                     step.step_id, "exception", {"message": str(e), "step_type": step.step_type}
                 )
             return {"status": "error", "message": str(e)}
+
+    def _execute_via_clawcode(
+        self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Delegate actual COMSOL execution to the Python claw-code subprocess."""
+
+        self._emit_step_start(step.step_type, f"正在通过 claw-code 调度 {step.action} ...")
+        target_output_path = self._target_path_for_action(plan, step.action)
+        result = self._get_clawcode_dispatcher().dispatch(
+            plan,
+            step,
+            thought,
+            target_output_path=target_output_path,
+        )
+
+        if result.get("status") == "error":
+            if self._error_collector:
+                self._error_collector.submit(
+                    step.step_id,
+                    "clawcode_dispatch_error",
+                    {"message": result.get("message", ""), "step_type": step.step_type},
+                )
+            return result
+
+        new_model_path = result.get("model_path") or result.get("saved_path")
+        if new_model_path:
+            plan.model_path = str(new_model_path)
+            self._update_latest(plan)
+            result["model_path"] = plan.model_path
+
+        self._emit_step_end(
+            step.step_type,
+            result.get("message", f"claw-code 已完成 {step.action}"),
+            model_path=getattr(plan, "model_path", None),
+        )
+        return result
 
     # ===== Geometry =====
 
