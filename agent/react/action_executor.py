@@ -234,7 +234,7 @@ class ActionExecutor:
     def _execute_via_clawcode(
         self, plan: ReActTaskPlan, step: ExecutionStep, thought: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Delegate actual COMSOL execution to the Python claw-code subprocess."""
+        """Delegate actual COMSOL execution to the embedded Python claw-code library."""
 
         self._emit_step_start(step.step_type, f"正在通过 claw-code 调度 {step.action} ...")
         target_output_path = self._target_path_for_action(plan, step.action)

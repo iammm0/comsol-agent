@@ -1,14 +1,15 @@
-"""claw-code subprocess dispatcher for COMSOL operations."""
+"""Embedded claw-code dispatcher for COMSOL operations."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from agent.clawcode.agent_runtime import LocalCodingAgent
+from agent.clawcode.agent_types import AgentPermissions, AgentRuntimeConfig, ModelConfig
 from agent.utils.config import get_project_root, get_settings
 from agent.utils.logger import get_logger
 from schemas.task import ExecutionStep, ReActTaskPlan
@@ -19,12 +20,11 @@ COMSOL_API_ALL_INDEX_URL = "https://doc.comsol.com/6.3/doc/com.comsol.help.comso
 
 
 class ClawCodeComsolDispatcher:
-    """Delegate a single COMSOL operation to the local Python claw-code shell."""
+    """Delegate a single COMSOL operation to the embedded Python claw-code library."""
 
     def __init__(self, project_root: Optional[Path] = None):
         self.settings = get_settings()
         self.project_root = Path(project_root or get_project_root()).resolve()
-        self.agent_root = Path(self.settings.claw_code_agent_root).expanduser().resolve()
 
     def dispatch(
         self,
@@ -34,88 +34,91 @@ class ClawCodeComsolDispatcher:
         *,
         target_output_path: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run claw-code for one step and return its normalized JSON result."""
+        """Run embedded claw-code for one step and return its normalized JSON result."""
 
-        self._validate_agent_root()
         prompt = self._build_prompt(plan, step, thought, target_output_path=target_output_path)
-        cmd = self._build_command(prompt)
         env = self._build_env()
+        old_env = {key: os.environ.get(key) for key in env}
+        os.environ.update(env)
 
         try:
-            completed = subprocess.run(
-                cmd,
-                cwd=str(self.project_root),
-                env=env,
-                text=True,
-                capture_output=True,
-                timeout=float(self.settings.claw_code_timeout_seconds),
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            logger.error("claw-code COMSOL 调度超时: %s", exc)
+            run_result = self._build_agent().run(prompt)
+        except Exception as exc:
+            logger.error("claw-code COMSOL 调度失败: %s", exc)
             return {
                 "status": "error",
-                "message": f"claw-code COMSOL 调度超时: {exc}",
-                "details": {"timeout_seconds": self.settings.claw_code_timeout_seconds},
+                "message": f"claw-code COMSOL 调度失败: {exc}",
+                "details": {"exception": type(exc).__name__},
             }
+        finally:
+            for key, value in old_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
-        stdout = completed.stdout or ""
-        stderr = completed.stderr or ""
-        if completed.returncode != 0:
-            logger.error("claw-code COMSOL 调度失败: %s", stderr.strip() or stdout.strip())
+        final_output = run_result.final_output or ""
+        if run_result.stop_reason:
             return {
                 "status": "error",
-                "message": "claw-code COMSOL 调度进程失败",
+                "message": f"claw-code COMSOL 调度未正常完成: {run_result.stop_reason}",
                 "details": {
-                    "returncode": completed.returncode,
-                    "stdout": stdout[-4000:],
-                    "stderr": stderr[-4000:],
+                    "stop_reason": run_result.stop_reason,
+                    "final_output": final_output[-4000:],
+                    "turns": run_result.turns,
+                    "tool_calls": run_result.tool_calls,
                 },
             }
 
-        parsed = self._extract_json(stdout)
+        parsed = self._extract_json(final_output)
         if parsed is None:
             return {
                 "status": "error",
                 "message": "claw-code 输出中未找到有效 JSON 结果",
-                "details": {"stdout": stdout[-4000:], "stderr": stderr[-4000:]},
+                "details": {
+                    "final_output": final_output[-4000:],
+                    "turns": run_result.turns,
+                    "tool_calls": run_result.tool_calls,
+                },
             }
-        return self._normalize_result(parsed, stdout=stdout, stderr=stderr)
+        result = self._normalize_result(parsed, final_output=final_output)
+        result.setdefault(
+            "details",
+            {},
+        )
+        if isinstance(result.get("details"), dict):
+            result["details"].setdefault("turns", run_result.turns)
+            result["details"].setdefault("tool_calls", run_result.tool_calls)
+        return result
 
-    def _validate_agent_root(self) -> None:
-        main_file = self.agent_root / "src" / "main.py"
-        if not main_file.exists():
-            raise RuntimeError(f"claw-code Python 壳不存在或路径无效: {self.agent_root}")
-
-    def _build_command(self, prompt: str) -> list[str]:
-        cmd = [
-            self.settings.claw_code_python_executable or "python3",
-            "-m",
-            "src.main",
-            "agent",
-            prompt,
-            "--cwd",
-            str(self.project_root),
-            "--allow-shell",
-            "--allow-write",
-            "--max-turns",
-            str(int(self.settings.claw_code_max_turns)),
-        ]
-        if self.settings.claw_code_model:
-            cmd.extend(["--model", self.settings.claw_code_model])
-        if self.settings.claw_code_base_url:
-            cmd.extend(["--base-url", self.settings.claw_code_base_url])
-        if self.settings.claw_code_api_key:
-            cmd.extend(["--api-key", self.settings.claw_code_api_key])
-        return cmd
+    def _build_agent(self) -> LocalCodingAgent:
+        return LocalCodingAgent(
+            model_config=ModelConfig(
+                model=self.settings.claw_code_model or self.settings.openai_compatible_model,
+                base_url=self.settings.claw_code_base_url
+                or self.settings.openai_compatible_base_url
+                or "http://127.0.0.1:8000/v1",
+                api_key=self.settings.claw_code_api_key
+                or self.settings.openai_compatible_api_key
+                or "local-token",
+                timeout_seconds=float(self.settings.claw_code_timeout_seconds),
+            ),
+            runtime_config=AgentRuntimeConfig(
+                cwd=self.project_root,
+                max_turns=int(self.settings.claw_code_max_turns),
+                command_timeout_seconds=float(self.settings.claw_code_timeout_seconds),
+                permissions=AgentPermissions(
+                    allow_file_write=True,
+                    allow_shell_commands=True,
+                    allow_destructive_shell_commands=False,
+                ),
+                session_directory=self.project_root / ".port_sessions" / "agent",
+                scratchpad_root=self.project_root / ".port_sessions" / "scratchpad",
+            ),
+        )
 
     def _build_env(self) -> Dict[str, str]:
-        env = os.environ.copy()
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        paths = [str(self.agent_root)]
-        if existing_pythonpath:
-            paths.append(existing_pythonpath)
-        env["PYTHONPATH"] = os.pathsep.join(paths)
+        env = {}
         env["MPH_AGENT_ROOT"] = str(self.project_root)
         return env
 
@@ -136,10 +139,10 @@ class ClawCodeComsolDispatcher:
             "project_root": str(self.project_root),
         }
         return (
-            "你是 mph-agent 的 COMSOL 执行子进程。只负责执行下面这个单步 COMSOL 操作。\n"
+            "你是 mph-agent 内置的 claw-code COMSOL 执行库。只负责执行下面这个单步 COMSOL 操作。\n"
             "必须使用当前仓库中已有的 Python 模块完成操作，例如 "
             "agent.executor.comsol_runner.COMSOLRunner 或 "
-            "agent.executor.java_api_controller.JavaAPIController；不要在父进程中直接调用。\n"
+            "agent.executor.java_api_controller.JavaAPIController；你当前已作为 mph-agent 进程内库运行，不要再启动外部 claw-code 子进程。\n"
             "优先使用 JSON CLI：python -m agent.executor.comsol_ops_cli。可用命令包括：\n"
             "- catalog --include-official：列出原生操作与从 COMSOL 6.3 官方 API 索引生成的包装调用。\n"
             "- create-model --payload-json '{...}'：按 GeometryPlan 创建模型。\n"
@@ -190,13 +193,13 @@ class ClawCodeComsolDispatcher:
         return None
 
     @staticmethod
-    def _normalize_result(parsed: Dict[str, Any], *, stdout: str, stderr: str) -> Dict[str, Any]:
+    def _normalize_result(parsed: Dict[str, Any], *, final_output: str) -> Dict[str, Any]:
         status = parsed.get("status")
         if status not in {"success", "error"}:
             return {
                 "status": "error",
                 "message": "claw-code JSON 结果缺少有效 status",
-                "details": {"result": parsed, "stdout": stdout[-4000:], "stderr": stderr[-4000:]},
+                "details": {"result": parsed, "final_output": final_output[-4000:]},
             }
 
         result = dict(parsed)

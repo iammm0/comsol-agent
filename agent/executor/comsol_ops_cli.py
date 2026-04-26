@@ -1,4 +1,4 @@
-"""JSON CLI exposing COMSOL operations for claw-code subprocesses."""
+"""JSON CLI exposing COMSOL operations for embedded claw-code."""
 
 from __future__ import annotations
 

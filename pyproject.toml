@@ -7,7 +7,7 @@ name = "mph-agent"
 version = "0.1.0"
 description = "一个面向 COMSOL Multiphysics 6.3 的智能 Agent，将自然语言描述的 2D/3D 建模需求（几何、材料、物理场）自动转换为模型文件"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = "MIT"
 authors = [
     {name = "Your Name", email = "your.email@example.com"}
@@ -17,8 +17,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
@@ -36,6 +34,8 @@ dependencies = [
     "setuptools>=61.0",
     "questionary>=1.10.0",
     "sqlite-vec>=0.1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -53,11 +53,14 @@ vec = [
 # 不再设定 Python 包，仅保留桌面端与源码运行；使用 uv run python cli.py 启动
 
 [tool.setuptools]
-packages = ["agent", "schemas", "prompts", "prompts.planner", "prompts.react", "prompts.executor"]
 py-modules = ["cli"]
+
+[tool.setuptools.packages.find]
+include = ["agent*", "schemas", "prompts*"]
 
 [tool.setuptools.package-data]
 agent = ["*.txt", "*.md"]
+"agent.clawcode" = ["reference_data/*.json", "gui/static/*"]
 schemas = ["*.md"]
 prompts = ["**/*.txt"]
 
