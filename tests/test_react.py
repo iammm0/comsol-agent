@@ -10,6 +10,7 @@ from agent.react.iteration_controller import IterationController
 from agent.react.observer import Observer
 from agent.react.react_agent import ReActAgent
 from agent.react.reasoning_engine import ReasoningEngine
+from agent.run.actions import do_config_save
 from schemas.task import ExecutionStep, Observation, ReActTaskPlan
 
 
@@ -362,6 +363,32 @@ class TestActionExecutor:
 
                 assert result["status"] == "success"
                 assert "model_path" in result
+
+
+class TestConfigSync:
+    """测试桌面端配置与内置 claw-code 后端保持一致。"""
+
+    def test_config_save_sets_claw_code_openai_compatible_defaults(self, tmp_path, monkeypatch):
+        from agent.utils import config as config_mod
+
+        monkeypatch.setattr(config_mod, "get_project_root", lambda: tmp_path)
+        monkeypatch.setattr(config_mod, "reload_settings", lambda: None)
+
+        ok, message = do_config_save(
+            {
+                "LLM_BACKEND": "openai-compatible",
+                "OPENAI_COMPATIBLE_MODEL": "gpt-test",
+                "OPENAI_COMPATIBLE_BASE_URL": "https://example.test/v1",
+                "OPENAI_COMPATIBLE_API_KEY": "sk-test",
+            }
+        )
+
+        assert ok is True, message
+        env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+        assert "CLAW_CODE_ENABLED=1" in env_text
+        assert "CLAW_CODE_MODEL=gpt-test" in env_text
+        assert "CLAW_CODE_BASE_URL=https://example.test/v1" in env_text
+        assert "CLAW_CODE_API_KEY=sk-test" in env_text
 
 
 class TestObserver:

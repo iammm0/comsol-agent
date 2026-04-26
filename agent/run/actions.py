@@ -1448,6 +1448,12 @@ def do_doctor(verbose: bool = False) -> Tuple[bool, str]:
     status = settings.show_config_status()
     result = check_environment()
     lines = [f"各后端配置状态: {status}", ""]
+    lines.append(
+        "内置 claw-code: "
+        + ("已启用" if getattr(settings, "claw_code_enabled", True) else "已禁用")
+        + f"，模型: {settings.claw_code_model or settings.get_model_for_backend(settings.llm_backend)}"
+    )
+    lines.append("")
     if result.is_valid():
         lines.append("环境检查通过")
     else:
@@ -1568,7 +1574,14 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         "COMSOL_JAR_PATH",
         "JAVA_HOME",
         "MODEL_OUTPUT_DIR",
+        "CLAW_CODE_ENABLED",
+        "CLAW_CODE_MAX_TURNS",
+        "CLAW_CODE_TIMEOUT_SECONDS",
+        "CLAW_CODE_MODEL",
+        "CLAW_CODE_BASE_URL",
+        "CLAW_CODE_API_KEY",
     ]
+    env_updates = _with_claw_code_llm_defaults(dict(env_updates))
     # 读取已有行
     if env_path.exists():
         lines_out = env_path.read_text(encoding="utf-8").splitlines()
@@ -1601,6 +1614,38 @@ def do_config_save(env_updates: Optional[dict] = None) -> Tuple[bool, str]:
         return True, "配置已保存并已加载，将应用于后续 mph-agent 调用"
     except Exception as e:
         return False, f"写入 .env 失败: {e}"
+
+
+def _with_claw_code_llm_defaults(env_updates: dict) -> dict:
+    """Keep embedded claw-code model config aligned with the selected desktop backend."""
+
+    backend = str(env_updates.get("LLM_BACKEND") or "").strip()
+    if not backend:
+        return env_updates
+
+    if "CLAW_CODE_ENABLED" not in env_updates:
+        env_updates["CLAW_CODE_ENABLED"] = "1"
+
+    if backend == "deepseek":
+        env_updates.setdefault("CLAW_CODE_MODEL", env_updates.get("DEEPSEEK_MODEL", ""))
+        env_updates.setdefault("CLAW_CODE_BASE_URL", "https://api.deepseek.com/v1")
+        env_updates.setdefault("CLAW_CODE_API_KEY", env_updates.get("DEEPSEEK_API_KEY", ""))
+    elif backend == "kimi":
+        env_updates.setdefault("CLAW_CODE_MODEL", env_updates.get("KIMI_MODEL", ""))
+        env_updates.setdefault("CLAW_CODE_BASE_URL", "https://api.moonshot.cn/v1")
+        env_updates.setdefault("CLAW_CODE_API_KEY", env_updates.get("KIMI_API_KEY", ""))
+    elif backend == "openai-compatible":
+        env_updates.setdefault("CLAW_CODE_MODEL", env_updates.get("OPENAI_COMPATIBLE_MODEL", ""))
+        env_updates.setdefault(
+            "CLAW_CODE_BASE_URL", env_updates.get("OPENAI_COMPATIBLE_BASE_URL", "")
+        )
+        env_updates.setdefault("CLAW_CODE_API_KEY", env_updates.get("OPENAI_COMPATIBLE_API_KEY", ""))
+    elif backend == "ollama":
+        ollama_url = str(env_updates.get("OLLAMA_URL") or "http://localhost:11434").rstrip("/")
+        env_updates.setdefault("CLAW_CODE_MODEL", env_updates.get("OLLAMA_MODEL", ""))
+        env_updates.setdefault("CLAW_CODE_BASE_URL", f"{ollama_url}/v1")
+        env_updates.setdefault("CLAW_CODE_API_KEY", "local-token")
+    return env_updates
 
 
 def do_conversation_title_suggest(
