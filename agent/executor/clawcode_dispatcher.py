@@ -92,17 +92,9 @@ class ClawCodeComsolDispatcher:
         return result
 
     def _build_agent(self) -> LocalCodingAgent:
+        model_config = self._resolve_model_config()
         return LocalCodingAgent(
-            model_config=ModelConfig(
-                model=self.settings.claw_code_model or self.settings.openai_compatible_model,
-                base_url=self.settings.claw_code_base_url
-                or self.settings.openai_compatible_base_url
-                or "http://127.0.0.1:8000/v1",
-                api_key=self.settings.claw_code_api_key
-                or self.settings.openai_compatible_api_key
-                or "local-token",
-                timeout_seconds=float(self.settings.claw_code_timeout_seconds),
-            ),
+            model_config=model_config,
             runtime_config=AgentRuntimeConfig(
                 cwd=self.project_root,
                 max_turns=int(self.settings.claw_code_max_turns),
@@ -115,6 +107,46 @@ class ClawCodeComsolDispatcher:
                 session_directory=self.project_root / ".port_sessions" / "agent",
                 scratchpad_root=self.project_root / ".port_sessions" / "scratchpad",
             ),
+        )
+
+    def _resolve_model_config(self) -> ModelConfig:
+        """Resolve embedded claw-code's OpenAI-compatible model endpoint.
+
+        CLAW_CODE_* remains the explicit override. Without it, the embedded
+        executor follows the desktop-selected LLM backend so users do not need
+        to configure a second, local OpenAI-compatible server.
+        """
+
+        if self.settings.claw_code_model or self.settings.claw_code_base_url:
+            return ModelConfig(
+                model=self.settings.claw_code_model
+                or self.settings.get_model_for_backend(self.settings.llm_backend),
+                base_url=self.settings.claw_code_base_url or "http://127.0.0.1:8000/v1",
+                api_key=self.settings.claw_code_api_key or "local-token",
+                timeout_seconds=float(self.settings.claw_code_timeout_seconds),
+            )
+
+        backend = (self.settings.llm_backend or "").strip().lower()
+        model = self.settings.get_model_for_backend(backend)
+        api_key = self.settings.get_api_key_for_backend(backend) or "local-token"
+
+        if backend == "deepseek":
+            base_url = "https://api.deepseek.com"
+        elif backend == "kimi":
+            base_url = "https://api.moonshot.ai/v1"
+        elif backend == "openai-compatible":
+            base_url = self.settings.openai_compatible_base_url or "http://127.0.0.1:8000/v1"
+        elif backend == "ollama":
+            base_url = (self.settings.ollama_url or "http://localhost:11434").rstrip("/") + "/v1"
+        else:
+            base_url = "http://127.0.0.1:8000/v1"
+            model = model or self.settings.openai_compatible_model
+
+        return ModelConfig(
+            model=model or "gpt-3.5-turbo",
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=float(self.settings.claw_code_timeout_seconds),
         )
 
     def _build_env(self) -> Dict[str, str]:

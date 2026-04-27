@@ -53,6 +53,33 @@ BUILTIN_MATERIAL_KEYWORDS = {
     "titanium": "Titanium beta-21S",
 }
 
+MATERIAL_PROPERTY_PRESETS = {
+    "Copper": [
+        MaterialProperty(name="density", value=8960, unit="kg/m^3"),
+        MaterialProperty(name="thermalconductivity", value=400, unit="W/(m*K)"),
+        MaterialProperty(name="specificheat", value=385, unit="J/(kg*K)"),
+    ],
+    "Steel AISI 4340": [
+        MaterialProperty(name="density", value=7850, unit="kg/m^3"),
+        MaterialProperty(name="thermalconductivity", value=44.5, unit="W/(m*K)"),
+        MaterialProperty(name="specificheat", value=475, unit="J/(kg*K)"),
+        MaterialProperty(name="youngsmodulus", value=200e9, unit="Pa"),
+        MaterialProperty(name="poissonsratio", value=0.3),
+    ],
+    "Aluminum": [
+        MaterialProperty(name="density", value=2700, unit="kg/m^3"),
+        MaterialProperty(name="thermalconductivity", value=237, unit="W/(m*K)"),
+        MaterialProperty(name="specificheat", value=900, unit="J/(kg*K)"),
+        MaterialProperty(name="youngsmodulus", value=70e9, unit="Pa"),
+        MaterialProperty(name="poissonsratio", value=0.33),
+    ],
+    "Water": [
+        MaterialProperty(name="density", value=1000, unit="kg/m^3"),
+        MaterialProperty(name="thermalconductivity", value=0.6, unit="W/(m*K)"),
+        MaterialProperty(name="specificheat", value=4180, unit="J/(kg*K)"),
+    ],
+}
+
 
 class MaterialAgent:
     """材料建模 Planner Agent：解析自然语言为 MaterialPlan。"""
@@ -110,7 +137,7 @@ class MaterialAgent:
                         MaterialDefinition(
                             name="mat1",
                             label=builtin_name,
-                            builtin_name=builtin_name,
+                            properties=MATERIAL_PROPERTY_PRESETS.get(builtin_name, []),
                         )
                     ],
                     assignments=[MaterialAssignment(material_name="mat1", assign_all=True)],

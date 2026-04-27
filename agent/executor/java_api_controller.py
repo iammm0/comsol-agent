@@ -66,6 +66,11 @@ COUPLING_TYPE_TO_COMSOL_TAG = {
 
 # COMSOL 线弹性/固体力学材料属性名：我们 schema 用 poissonsratio/youngsmodulus，API 用 nu/E
 MATERIAL_PROPERTY_COMSOL_ALIAS = {
+    "thermalconductivity": "k",
+    "thermal conductivity": "k",
+    "density": "rho",
+    "specificheat": "Cp",
+    "specific heat": "Cp",
     "poissonsratio": "nu",
     "youngsmodulus": "E",
 }
@@ -84,6 +89,66 @@ THERMAL_K_BY_NAME = {
 }
 # 无法从名称推断时，固体域默认导热系数（W/(m·K)）
 DEFAULT_THERMAL_K_SOLID = 50.0
+DEFAULT_DENSITY_SOLID = 2700.0
+DEFAULT_CP_SOLID = 900.0
+
+DENSITY_BY_NAME = {
+    "steel": 7850.0,
+    "copper": 8960.0,
+    "aluminum": 2700.0,
+    "water": 1000.0,
+}
+
+CP_BY_NAME = {
+    "steel": 475.0,
+    "copper": 385.0,
+    "aluminum": 900.0,
+    "water": 4180.0,
+}
+
+
+def _comsol_value(value: Any, unit: Optional[str] = None) -> str:
+    """Format scalar values for COMSOL Java API set() overloads."""
+    if isinstance(value, str):
+        return value
+    text = f"{value:g}" if isinstance(value, (int, float)) else str(value)
+    if unit:
+        return f"{text}[{unit}]"
+    return text
+
+
+def _physics_parameter_value(condition_type: str, key: str, value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if condition_type == "Temperature" and key in {"T0", "T", "Tamb"}:
+        return _comsol_value(value, "K")
+    return _comsol_value(value)
+
+
+def _heat_boundary_feature_type(condition_type: str) -> str:
+    return {
+        "Temperature": "TemperatureBoundary",
+        "temperature": "TemperatureBoundary",
+        "HeatFlux": "HeatFluxBoundary",
+        "heat_flux": "HeatFluxBoundary",
+        "ThermalInsulation": "ThermalInsulation",
+        "thermal_insulation": "ThermalInsulation",
+    }.get(condition_type, condition_type)
+
+
+def _material_property_group(feat, preferred: str = "def"):
+    tag = (preferred or "def").strip()
+    if tag == "Def":
+        tag = "def"
+    try:
+        return feat.propertyGroup(tag)
+    except Exception:
+        pass
+    try:
+        feat.propertyGroup().create(tag, "Basic")
+        return feat.propertyGroup(tag)
+    except Exception:
+        return feat.propertyGroup("def")
 
 
 def _ensure_material_thermal_k(feat, mat_def: MaterialDefinition) -> None:
@@ -99,9 +164,60 @@ def _ensure_material_thermal_k(feat, mat_def: MaterialDefinition) -> None:
             k_val = val
             break
     try:
-        feat.propertyGroup("Def").set("k", k_val)
+        _material_property_group(feat).set("thermalconductivity", _comsol_value(k_val, "W/(m*K)"))
     except Exception:
         pass
+
+
+def _material_lookup_value(
+    mat_def: MaterialDefinition,
+    table: Dict[str, float],
+    default: float,
+) -> float:
+    key = ""
+    for part in (mat_def.builtin_name, mat_def.label, mat_def.name):
+        if part:
+            key = (part or "").strip().lower()
+            break
+    for name, val in table.items():
+        if name in key or key in name:
+            return val
+    return default
+
+
+def _ensure_material_heat_properties(feat, mat_def: MaterialDefinition) -> None:
+    """Write baseline heat-transfer material properties explicitly."""
+
+    group = None
+    for group_name in ("def", "Def", "Basic", "basic"):
+        try:
+            group = feat.propertyGroup(group_name)
+            break
+        except Exception:
+            continue
+    if group is None:
+        logger.warning("鏉愭枡灞炴€х粍涓嶅彲鐢紝璺宠繃鐑睘鎬цˉ鍏?")
+        return
+
+    values = {
+        "k": _comsol_value(
+            _material_lookup_value(mat_def, THERMAL_K_BY_NAME, DEFAULT_THERMAL_K_SOLID),
+            "W/(m*K)",
+        ),
+        "rho": _comsol_value(
+            _material_lookup_value(mat_def, DENSITY_BY_NAME, DEFAULT_DENSITY_SOLID),
+            "kg/m^3",
+        ),
+        "Cp": _comsol_value(
+            _material_lookup_value(mat_def, CP_BY_NAME, DEFAULT_CP_SOLID),
+            "J/(kg*K)",
+        ),
+    }
+    for name, value in values.items():
+        try:
+            group.set(name, value)
+        except Exception as exc:
+            logger.warning("璁剧疆鏉愭枡鐑睘鎬?%s 澶辫触: %s", name, exc)
 
 
 def _save_model_avoid_lock(model, dest_path: Path, allow_fallback: bool = True):
@@ -1346,6 +1462,40 @@ class JavaAPIController:
             logger.warning("table_export 失败: %s", e)
             return {"status": "error", "message": str(e)}
 
+    def _materials_api(self, model):
+        """Return the material sequence, preferring the component scope."""
+        try:
+            if self._node_list_has(model.component(), "comp1") and hasattr(
+                model.component("comp1"), "material"
+            ):
+                return model.component("comp1").material()
+        except Exception:
+            pass
+        try:
+            if hasattr(model, "materials"):
+                return model.materials()
+            if hasattr(model, "material"):
+                return model.material()
+        except Exception as e:
+            raise RuntimeError(f"COMSOL material API unavailable: {e}") from e
+        raise RuntimeError("Current COMSOL model object has no material API")
+
+    def _material_feature(self, model, name: str):
+        """Return a material feature, preferring the component scope."""
+        try:
+            if self._node_list_has(model.component(), "comp1"):
+                return model.component("comp1").material(name)
+        except Exception:
+            pass
+        try:
+            if hasattr(model, "materials"):
+                return model.materials(name)
+            if hasattr(model, "material"):
+                return model.material(name)
+        except Exception as e:
+            raise RuntimeError(f"Failed to get material feature {name!r}: {e}") from e
+        raise RuntimeError("Current COMSOL model object has no material feature API")
+
     def _find_unused_material_name(self, model, base: str) -> str:
         """在模型中找一个未使用的材料名称，如 mat1 -> mat2, mat3 ..."""
         mat_seq = self._materials_api(model)
@@ -1382,6 +1532,28 @@ class JavaAPIController:
         """在模型中找一个未使用的研究名称，如 std1 -> std2 ..."""
         st = model.study()
         existing = set(self._tags_or_names(st))
+        if base not in existing:
+            return base
+        m = re.match(r"^(.+?)(\d+)$", base)
+        if m:
+            prefix, num = m.group(1), int(m.group(2))
+            for i in range(num + 1, num + 100):
+                candidate = f"{prefix}{i}"
+                if candidate not in existing:
+                    return candidate
+        for i in range(1, 100):
+            candidate = f"{base}_{i}"
+            if candidate not in existing:
+                return candidate
+        return f"{base}_new"
+
+    def _find_unused_solver_name(self, model, base: str = "sol1") -> str:
+        """在模型中找一个未使用的求解器序列名称，如 sol1 -> sol2。"""
+        try:
+            sol = model.sol()
+            existing = set(self._tags_or_names(sol))
+        except Exception:
+            existing = set()
         if base not in existing:
             return base
         m = re.match(r"^(.+?)(\d+)$", base)
@@ -1465,8 +1637,10 @@ class JavaAPIController:
                 except Exception:
                     logger.warning("内置材料加载失败: %s，将使用自定义属性", mat_def.builtin_name)
                     _ensure_material_thermal_k(feat, mat_def)
+                _ensure_material_heat_properties(feat, mat_def)
             else:
-                group = mat_def.property_group or "Def"
+                group = mat_def.property_group or "def"
+                prop_group = _material_property_group(feat, group)
                 prop_names_lower = [p.name.strip().lower() for p in mat_def.properties]
                 has_k = any(
                     n in ("k", "thermalconductivity", "thermal conductivity")
@@ -1474,17 +1648,19 @@ class JavaAPIController:
                 )
                 for prop in mat_def.properties:
                     name_to_set = MATERIAL_PROPERTY_COMSOL_ALIAS.get(prop.name, prop.name)
+                    value_to_set = _comsol_value(prop.value, prop.unit or None)
                     try:
-                        feat.propertyGroup(group).set(name_to_set, prop.value)
+                        prop_group.set(name_to_set, value_to_set)
                     except Exception:
                         try:
-                            feat.propertyGroup(group).set(prop.name, prop.value)
+                            prop_group.set(prop.name, value_to_set)
                         except Exception as e2:
                             logger.warning(
-                                "设置材料属性 %s（或 %s）失败: %s", prop.name, name_to_set, e2
+                                f"设置材料属性 {prop.name}（或 {name_to_set}）失败: {e2}"
                             )
                 if not has_k:
                     _ensure_material_thermal_k(feat, mat_def)
+                _ensure_material_heat_properties(feat, mat_def)
             added.append(
                 {"material": actual_name, "label": mat_def.label, "requested_name": mat_def.name}
             )
@@ -1564,14 +1740,47 @@ class JavaAPIController:
                     continue
 
             ph_feat = self._physics_feature(model, name)
+            if field.type == "heat":
+                try:
+                    model.param().set("k", "237[W/(m*K)]")
+                    model.param().set("rho", "2700[kg/m^3]")
+                    model.param().set("Cp", "900[J/(kg*K)]")
+                except Exception as e:
+                    logger.warning("璁剧疆榛樿鐑潗鏂欏弬鏁板け璐? %s", e)
+                try:
+                    solid = ph_feat.feature("solid1")
+                    for key, value in {
+                        "k_mat": "userdef",
+                        "k": "237[W/(m*K)]",
+                        "rho_mat": "userdef",
+                        "rho": "2700[kg/m^3]",
+                        "Cp_mat": "userdef",
+                        "Cp": "900[J/(kg*K)]",
+                    }.items():
+                        try:
+                            solid.set(key, value)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.warning("璁剧疆 HeatTransfer solid1 榛樿鐑睘鎬уけ璐? %s", e)
             # Boundary conditions
             for bc in field.boundary_conditions:
                 try:
-                    ph_feat.create(bc.name, bc.condition_type)
+                    feature_type = (
+                        _heat_boundary_feature_type(bc.condition_type)
+                        if field.type == "heat"
+                        else bc.condition_type
+                    )
+                    try:
+                        ph_feat.create(bc.name, feature_type, 1)
+                    except Exception:
+                        ph_feat.create(bc.name, feature_type)
                     if isinstance(bc.selection, list) and bc.selection:
                         ph_feat.feature(bc.name).selection().set(bc.selection)
                     for k, v in bc.parameters.items():
-                        ph_feat.feature(bc.name).set(k, v)
+                        ph_feat.feature(bc.name).set(
+                            k, _physics_parameter_value(bc.condition_type, k, v)
+                        )
                 except Exception as e:
                     failures.append(
                         {
@@ -1581,7 +1790,7 @@ class JavaAPIController:
                             "error": str(e),
                         }
                     )
-                    logger.warning("设置边界条件 %s 失败: %s", bc.name, e)
+                    logger.warning(f"设置边界条件 {bc.name} 失败: {e}")
 
             # Domain conditions
             for dc in field.domain_conditions:
@@ -1590,7 +1799,9 @@ class JavaAPIController:
                     if isinstance(dc.selection, list) and dc.selection:
                         ph_feat.feature(dc.name).selection().set(dc.selection)
                     for k, v in dc.parameters.items():
-                        ph_feat.feature(dc.name).set(k, v)
+                        ph_feat.feature(dc.name).set(
+                            k, _physics_parameter_value(dc.condition_type, k, v)
+                        )
                 except Exception as e:
                     failures.append(
                         {
@@ -1600,7 +1811,7 @@ class JavaAPIController:
                             "error": str(e),
                         }
                     )
-                    logger.warning("设置域条件 %s 失败: %s", dc.name, e)
+                    logger.warning(f"设置域条件 {dc.name} 失败: {e}")
 
             # Initial conditions
             for ic in field.initial_conditions:
@@ -1781,6 +1992,10 @@ class JavaAPIController:
             name = self._find_unused_study_name(model, base_name)
             model.study().create(name)
             model.study(name).create("std", step_type)
+            try:
+                model.study(name).feature("std").set("rtol", "0.05")
+            except Exception:
+                pass
 
             if st.parametric_sweep:
                 ps = st.parametric_sweep
@@ -1832,9 +2047,56 @@ class JavaAPIController:
         tags = model.study().tags()
         if not tags:
             raise RuntimeError("模型中没有研究，请先配置研究")
-        study_name = tags[0]
-        model.study(study_name).run()
+        study_name = tags[-1]
+        try:
+            model.study(study_name).run()
+        except Exception as first_error:
+            logger.warning("默认 study.run() 求解失败，尝试直接求解器 fallback: %s", first_error)
+            self._run_stationary_direct_solver(model, study_name)
         return study_name
+
+    def _run_stationary_direct_solver(self, model, study_name: str) -> str:
+        """Create a conservative stationary solver sequence with PARDISO."""
+        sol_name = self._find_unused_solver_name(model, "sol1")
+        model.sol().create(sol_name)
+        sol = model.sol(sol_name)
+        try:
+            sol.study(study_name)
+        except Exception:
+            pass
+        try:
+            sol.attach(study_name)
+        except Exception:
+            pass
+
+        sol.create("st1", "StudyStep")
+        try:
+            sol.feature("st1").set("study", study_name)
+            sol.feature("st1").set("studystep", "std")
+        except Exception:
+            pass
+
+        sol.create("v1", "Variables")
+        sol.create("s1", "Stationary")
+        try:
+            sol.feature("s1").feature().remove("fcDef")
+        except Exception:
+            pass
+        try:
+            sol.feature("s1").create("fc1", "FullyCoupled")
+        except Exception:
+            pass
+        try:
+            sol.feature("s1").create("d1", "Direct")
+            sol.feature("s1").feature("d1").set("linsolver", "pardiso")
+        except Exception:
+            pass
+        try:
+            sol.feature("s1").set("stol", "0.05")
+        except Exception:
+            pass
+        sol.runAll()
+        return sol_name
 
     # ===== Direct operations =====
 

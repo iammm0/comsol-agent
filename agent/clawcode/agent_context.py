@@ -421,12 +421,14 @@ def _is_git_repo(cwd: Path) -> bool:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=2.0,
             check=False,
         )
     except OSError:
         return False
-    return completed.returncode == 0 and completed.stdout.strip() == 'true'
+    return completed.returncode == 0 and (completed.stdout or '').strip() == 'true'
 
 
 def _is_git_worktree(cwd: Path) -> bool:
@@ -444,6 +446,8 @@ def _run_command(command: list[str], cwd: Path) -> str | None:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=2.0,
             check=False,
         )
@@ -451,7 +455,7 @@ def _run_command(command: list[str], cwd: Path) -> str | None:
         return None
     if completed.returncode != 0:
         return None
-    output = completed.stdout.strip()
+    output = (completed.stdout or '').strip()
     return output or None
 
 

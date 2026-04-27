@@ -24,14 +24,9 @@ logger = get_logger(__name__)
 GLOBAL_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")
 
 COMSOL_DELEGATED_ACTIONS = {
-    "create_geometry",
-    "define_globals",
-    "add_material",
-    "update_material_property",
-    "add_physics",
-    "generate_mesh",
-    "configure_study",
-    "solve",
+    # Standard workflow actions have deterministic local implementations below.
+    # Keep claw-code only for open-ended extension operations where the caller
+    # explicitly needs a flexible Java API workflow.
     "import_geometry",
     "create_selection",
     "export_results",
