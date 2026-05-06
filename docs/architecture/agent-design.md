@@ -72,7 +72,6 @@
 
 - **COMSOLRunner**：启动/复用 JVM、加载 COMSOL JAR、根据 GeometryPlan 等创建模型、构建几何、保存 .mph；对外主要接口如 `create_model_from_plan`、保存/更新模型文件。
 - **JavaAPIController**：封装 COMSOL Java API 的细粒度调用（材料、物理场、网格、研究、求解等），供 ActionExecutor 使用。
-- **JavaGenerator**：根据 GeometryPlan 生成 Java 代码（可选路径，当前主流程以 COMSOLRunner/JavaAPIController 直接调用为主）。
 
 ---
 

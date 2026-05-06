@@ -20,7 +20,7 @@
 |----------|----------|------|
 | **test_planner.py** | `agent/planner/` | GeometryAgent 解析、JSON 提取、矩形/圆/椭圆 plan |
 | **test_react.py** | `agent/react/` | ReasoningEngine、ActionExecutor、Observer、IterationController、ReActAgent |
-| **test_executor.py** | `agent/executor/` | JavaGenerator 代码生成、形状代码片段（不启动 JVM） |
+| **test_executor.py** | `agent/executor/` | COMSOLRunner、JavaAPIController、claw-code 调度与操作 CLI |
 | **test_skills.py** | `agent/skills/` | SkillLoader 解析 SKILL.md、SkillInjector 注入、可选向量检索 |
 | **test_schemas.py** | `schemas/` | GeometryPlan/Shape、PhysicsPlan、StudyPlan、TaskPlan/ReActTaskPlan 等序列化与校验 |
 | **test_integration.py** | 跨模块 | 集成用例：Plan 序列化、端到端数据流（可扩展） |

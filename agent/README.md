@@ -49,9 +49,9 @@ agent/
 │
 ├── executor/           # 执行层：计划 → COMSOL 调用 / Java 代码
 │   ├── comsol_runner.py    # 启动 JVM、调用 COMSOL Java API、保存 .mph
-│   ├── java_generator.py   # 根据 GeometryPlan 生成 Java 代码
 │   ├── java_api_controller.py  # Java API 封装与调用
-│   └── sandbox.py          # 沙箱/安全相关（可选）
+│   ├── clawcode_dispatcher.py  # 内嵌 claw-code 单步调度
+│   └── comsol_ops_cli.py       # COMSOL 操作 CLI 与调试入口
 │
 ├── skills/             # 技能/隐性知识：加载与注入
 │   ├── loader.py           # 扫描 skills/ 目录，解析 SKILL.md
