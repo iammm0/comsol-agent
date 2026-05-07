@@ -3,7 +3,7 @@
   <p>AI 驱动的 COMSOL 自动化建模智能体（自然语言 → .mph）</p>
   <p>
     <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="python 3.8+"></a>
-    <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="version 0.1.0">
+    <img src="https://img.shields.io/badge/version-1.1.2-green.svg" alt="version 1.1.2">
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="license MIT"></a>
     <img src="https://img.shields.io/badge/platform-Windows%20Desktop-orange.svg" alt="platform Windows Desktop">
     <img src="https://img.shields.io/badge/Tauri-2-555555.svg" alt="Tauri 2">
