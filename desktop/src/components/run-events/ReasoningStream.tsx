@@ -10,6 +10,28 @@ const PHASE_LABELS: Record<string, string> = {
   qa: "问答",
 };
 
+type TokenBudgetPayload = {
+  phase?: string;
+  model?: string;
+  prompt_tokens?: unknown;
+  soft_input_limit_tokens?: unknown;
+  hard_input_limit_tokens?: unknown;
+  exceeds_soft_limit?: unknown;
+  exceeds_hard_limit?: unknown;
+  tokenizer_backend?: unknown;
+  tokenizer_accurate?: unknown;
+  report?: unknown;
+};
+
+type PlanRuntimeSyncPayload = {
+  phase?: string;
+  after_count?: unknown;
+  synced_tasks?: unknown;
+  store_path?: unknown;
+  sha256?: unknown;
+  error?: unknown;
+};
+
 /** 合并连续的 llm_stream_chunk 为单条 */
 function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
   const out: RunEvent[] = [];
@@ -29,6 +51,77 @@ function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
   }
   if (buf) out.push({ _event: true, type: "llm_stream_chunk", data: { phase, chunk: buf, text: buf } });
   return out;
+}
+
+function lastEventOfType(events: RunEvent[], type: string): RunEvent | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i]?.type === type) return events[i];
+  }
+  return null;
+}
+
+function formatNumber(value: unknown): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return "";
+  return n.toLocaleString();
+}
+
+function BudgetBadge({ event }: { event: RunEvent }) {
+  const d = (event.data ?? {}) as TokenBudgetPayload;
+  const exceedsHard = Boolean(d.exceeds_hard_limit);
+  const exceedsSoft = Boolean(d.exceeds_soft_limit);
+  const severity = exceedsHard ? "hard" : exceedsSoft ? "soft" : "ok";
+  const promptTokens = formatNumber(d.prompt_tokens);
+  const soft = formatNumber(d.soft_input_limit_tokens);
+  const model = String(d.model ?? "").trim();
+  const report = String(d.report ?? "").trim();
+
+  return (
+    <details className={`reasoning-badge reasoning-badge--budget reasoning-badge--${severity}`}>
+      <summary className="reasoning-badge__summary" title="Token 预算（点击展开）">
+        <span className="reasoning-badge__label">tokens</span>
+        <span className="reasoning-badge__value">
+          {promptTokens || "-"}
+          {soft ? ` / ${soft}` : ""}
+        </span>
+        {model ? <span className="reasoning-badge__meta">{model}</span> : null}
+      </summary>
+      {report ? <pre className="reasoning-badge__detail">{report}</pre> : null}
+    </details>
+  );
+}
+
+function PlanSyncBadge({ event }: { event: RunEvent }) {
+  const d = (event.data ?? {}) as PlanRuntimeSyncPayload;
+  const error = String(d.error ?? "").trim();
+  const severity = error ? "fail" : "ok";
+  const steps = formatNumber(d.after_count);
+  const tasks = formatNumber(d.synced_tasks);
+  const storePath = String(d.store_path ?? "").trim();
+  const sha = String(d.sha256 ?? "").trim();
+
+  return (
+    <details className={`reasoning-badge reasoning-badge--plan reasoning-badge--${severity}`}>
+      <summary className="reasoning-badge__summary" title="计划镜像状态（点击展开）">
+        <span className="reasoning-badge__label">plan</span>
+        <span className="reasoning-badge__value">
+          {steps ? `steps=${steps}` : "steps=-"}
+          {tasks ? ` · tasks=${tasks}` : ""}
+        </span>
+      </summary>
+      <pre className="reasoning-badge__detail">
+        {JSON.stringify(
+          {
+            store_path: storePath || undefined,
+            sha256: sha || undefined,
+            error: error || undefined,
+          },
+          null,
+          2
+        )}
+      </pre>
+    </details>
+  );
 }
 
 export interface PhaseBlock {
@@ -101,11 +194,23 @@ export function ReasoningStream({ events }: { events: RunEvent[] }) {
         >
           <div className="reasoning-stream__phase-header">
             <span className="reasoning-stream__phase-label">{block.label}</span>
+            <div className="reasoning-stream__phase-badges">
+              {(() => {
+                const budget = lastEventOfType(block.events, "token_budget");
+                return budget ? <BudgetBadge event={budget} /> : null;
+              })()}
+              {(() => {
+                const sync = lastEventOfType(block.events, "plan_runtime_sync");
+                return sync ? <PlanSyncBadge event={sync} /> : null;
+              })()}
+            </div>
           </div>
           <div className="reasoning-stream__phase-events">
-            {block.events.map((evt, j) => (
-              <RunEventBlock key={j} event={evt} />
-            ))}
+            {block.events
+              .filter((evt) => evt.type !== "token_budget" && evt.type !== "plan_runtime_sync")
+              .map((evt, j) => (
+                <RunEventBlock key={j} event={evt} />
+              ))}
           </div>
         </section>
       ))}

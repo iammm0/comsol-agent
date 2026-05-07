@@ -1262,6 +1262,77 @@ body {
 }
 .reasoning-stream__phase-header {
     margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+}
+.reasoning-stream__phase-badges {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.reasoning-badge {
+    display: inline-flex;
+}
+.reasoning-badge__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+.reasoning-badge__summary::-webkit-details-marker {
+    display: none;
+}
+.reasoning-badge__label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.reasoning-badge__value {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+.reasoning-badge__meta {
+    color: var(--text-muted);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.reasoning-badge__detail {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.reasoning-badge--hard .reasoning-badge__summary {
+    border-color: color-mix(in srgb, var(--error) 60%, var(--border));
+    color: var(--error);
+}
+.reasoning-badge--soft .reasoning-badge__summary {
+    border-color: color-mix(in srgb, var(--warn) 60%, var(--border));
+    color: var(--warn);
+}
+.reasoning-badge--fail .reasoning-badge__summary {
+    border-color: color-mix(in srgb, var(--error) 60%, var(--border));
+    color: var(--error);
 }
 .reasoning-stream__phase-label {
     font-size: 11px;
@@ -1705,6 +1776,49 @@ body {
     border-radius: 10px;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* Token budget / Plan runtime sync */
+.run-event-card__row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+}
+.run-event-card__toggle {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.run-event-card__toggle:hover {
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--border) 72%, var(--text-muted));
+}
+.run-event-card__pre {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text);
+    background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.run-event-card--budget-hard {
+    border-color: color-mix(in srgb, var(--error) 55%, var(--border));
+}
+.run-event-card--budget-soft {
+    border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+}
+.run-event-card--plan-sync-fail {
+    border-color: color-mix(in srgb, var(--error) 55%, var(--border));
 }
 
 /* 未知类型回退 */

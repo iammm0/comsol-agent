@@ -9,6 +9,8 @@ import { FeatureBadge } from "./FeatureBadge";
 import { ObservationCallout } from "./ObservationCallout";
 import { ErrorAlert } from "./ErrorAlert";
 import { ContentBlock } from "./ContentBlock";
+import { TokenBudgetCard } from "./TokenBudgetCard";
+import { PlanRuntimeSyncCard } from "./PlanRuntimeSyncCard";
 
 /** 按事件类型选择对应展示组件，突出不同类型信息的重点 */
 export function RunEventBlock({ event }: { event: RunEvent }) {
@@ -37,6 +39,10 @@ export function RunEventBlock({ event }: { event: RunEvent }) {
     case "geometry_3d":
     case "coupling_added":
       return <FeatureBadge event={event} />;
+    case "token_budget":
+      return <TokenBudgetCard event={event} />;
+    case "plan_runtime_sync":
+      return <PlanRuntimeSyncCard event={event} />;
     case "observation":
       return <ObservationCallout event={event} />;
     case "error":
