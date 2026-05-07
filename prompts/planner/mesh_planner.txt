@@ -7,8 +7,12 @@
 ## 用户输入
 {user_input}
 
+## 输出契约（强约束）
+- 必须仅输出**唯一一段合法 JSON**；不要使用 ```json 代码块包裹，不要任何解释、前后缀或注释。
+- element_size 为 JSON 数字（米）或 null；quality 仅取 coarse / normal / fine / finer 之一；sequence 仅取 free / sweep / auto 之一。
+- refinement_regions 中 selection 仅允许 "all" 或整数 ID 列表。
+
 ## 输出格式
-请仅输出一段 JSON，不要包含其他文字。结构如下：
 
 {{
     "element_size": 数值或 null（null 表示使用默认）,

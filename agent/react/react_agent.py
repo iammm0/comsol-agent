@@ -11,7 +11,7 @@ from agent.react.exceptions import PlanNeedsClarification, ReActNeedsReorchestra
 from agent.react.iteration_controller import IterationController, REORCHESTRATE_PREFIX
 from agent.react.observer import Observer
 from agent.react.reasoning_engine import ReasoningEngine
-from agent.utils.config import get_settings
+from agent.utils.config import get_project_root, get_settings
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from schemas.task import ClarifyingAnswer, ExecutionStep, Observation, ReActTaskPlan
@@ -80,6 +80,36 @@ class ReActAgent:
 
         self.max_iterations = max_iterations
 
+        # PlanRuntime / TaskRuntime 同步：把 ReActTaskPlan 的状态镜像到
+        # .port_sessions/{plan_runtime,task_runtime}.json，便于审计与桌面端展示。
+        self._plan_sync = None
+        try:
+            from agent.clawcode_bridge.plan_sync import PlanSync
+
+            self._plan_sync = PlanSync(project_root=get_project_root())
+        except Exception as exc:  # pragma: no cover - 容错
+            logger.debug("PlanSync 初始化失败：%s", exc)
+            self._plan_sync = None
+
+    def _sync_plan_runtime(self, plan: ReActTaskPlan, *, phase: str) -> None:
+        """把 plan 同步到 PlanRuntime/TaskRuntime，并广播 PLAN_RUNTIME_SYNC。"""
+        if self._plan_sync is None:
+            return
+        try:
+            mutation = self._plan_sync.sync(plan, explanation=f"phase={phase}")
+        except Exception as exc:  # pragma: no cover
+            logger.debug("plan_sync.sync 失败：%s", exc)
+            return
+        if self._event_bus is None:
+            return
+        try:
+            payload = {"phase": phase, **{k: v for k, v in mutation.items() if k != "error"}}
+            if "error" in mutation:
+                payload["error"] = mutation["error"]
+            self._event_bus.emit_type(EventType.PLAN_RUNTIME_SYNC, payload)
+        except Exception:
+            pass
+
     def run(
         self,
         user_input: str,
@@ -140,6 +170,9 @@ class ReActAgent:
             )
             if getattr(plan, "plan_confirmed", False):
                 self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "plan_confirmed"})
+
+        # 把刚生成的计划同步到 PlanRuntime/TaskRuntime
+        self._sync_plan_runtime(plan, phase="initial_plan")
 
         # Plan-only 模式：若存在澄清问题且本次未带 clarifying_answers，则仅返回计划，等待前端提问
         if plan.clarifying_questions and not clarifying_answers:
@@ -208,6 +241,9 @@ class ReActAgent:
                         {"observation": observation.message, "status": observation.status},
                     )
 
+                # 把每一轮 act/observe 后的状态同步给 PlanRuntime
+                self._sync_plan_runtime(plan, phase=f"iter_{iteration + 1}")
+
                 # 判断是否完成
                 if observation.status == "success" and self._is_all_steps_complete(plan):
                     plan.status = "completed"
@@ -223,6 +259,7 @@ class ReActAgent:
                     if self._event_bus:
                         self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "iterating"})
                     plan = self.iterate(plan, observation)
+                    self._sync_plan_runtime(plan, phase="iterate_error")
                     if plan.status == "failed":
                         logger.error("控制器判定为不可恢复，已中断: %s", plan.error)
                         break
@@ -237,6 +274,7 @@ class ReActAgent:
                         if self._event_bus:
                             self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "iterating"})
                         plan = self.iterate(plan, observation)
+                        self._sync_plan_runtime(plan, phase="iterate_warning")
                         logger.info("[调整] 计划已更新，当前步骤: %s", plan.current_step_index)
 
             except Exception as e:
@@ -256,6 +294,9 @@ class ReActAgent:
                         {"model_path": final_path, "success": False, "message": str(e)},
                     )
                 raise RuntimeError(f"ReAct 流程失败: {e}") from e
+
+        # 同步最终状态到 PlanRuntime，方便审计/桌面端读
+        self._sync_plan_runtime(plan, phase="run_end")
 
         # 无论成功/失败/中止：只保留一个最终模型路径，并发出 RUN_END 供前端统一提供打开/预览
         final_path = getattr(plan, "model_path", None)

@@ -39,8 +39,13 @@
 ## 用户需求
 {user_input}
 
+## 输出契约（强约束）
+- 必须仅输出**唯一一段合法 JSON**；不要使用 ```json 代码块包裹，不要任何解释、前后缀或注释。
+- agent_type 仅取 geometry / material / physics / mesh / study 之一，且**禁止重复同一类型**。
+- step_index 从 1 起连续编号，与 steps 数组顺序严格一致。
+- 若不需要澄清，clarifying_questions 字段直接省略；若给出，必须遵循下文「补充选项」格式。
+
 ## 输出格式
-请仅输出一段 JSON，不要其他文字。结构如下：
 
 {{
   "steps": [

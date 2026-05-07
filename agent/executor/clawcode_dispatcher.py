@@ -170,7 +170,7 @@ class ClawCodeComsolDispatcher:
             "target_output_path": target_output_path,
             "project_root": str(self.project_root),
         }
-        return (
+        prompt = (
             "你是 mph-agent 内置的 claw-code COMSOL 执行库。只负责执行下面这个单步 COMSOL 操作。\n"
             "必须使用当前仓库中已有的 Python 模块完成操作，例如 "
             "agent.executor.comsol_runner.COMSOLRunner 或 "
@@ -192,6 +192,24 @@ class ClawCodeComsolDispatcher:
             "单步任务载荷如下：\n"
             f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
         )
+        runtime_block = self._render_runtime_state_block()
+        if runtime_block:
+            prompt = prompt + "\n\n" + runtime_block
+        return prompt
+
+    def _render_runtime_state_block(self) -> str:
+        """把 MCP / Plugin / Workflow / Worktree 状态摘要拼到 prompt 末尾。
+
+        这样 LocalCodingAgent 在执行 COMSOL 单步操作时，至少能感知到外部接入面，
+        例如有没有可用的 MCP server、当前是否在 worktree 里。
+        """
+
+        try:
+            from agent.clawcode_bridge.mcp_plugin import render_dispatcher_context_block
+
+            return render_dispatcher_context_block(self.project_root)
+        except Exception:
+            return ""
 
     @staticmethod
     def _dump_model(value: Any) -> Any:

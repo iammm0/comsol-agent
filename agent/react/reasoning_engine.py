@@ -273,6 +273,31 @@ class ReasoningEngine:
             "ollama_url": ollama_url,
             "model": model,
         }
+        self._budget_model = (
+            model or getattr(llm, "model", None) or ""
+        )
+
+    def _emit_token_budget(self, prompt: str, *, phase: str) -> None:
+        """估算一次 LLM 调用的 token 预算并广播到 EventBus（失败时静默）。"""
+        if not self._event_bus or not (prompt or "").strip():
+            return
+        try:
+            from agent.clawcode_bridge.budget import estimate_prompt_budget
+        except Exception:
+            return
+        try:
+            snapshot = estimate_prompt_budget(prompt, model=self._budget_model or "")
+        except Exception:
+            return
+        if snapshot is None:
+            return
+        try:
+            self._event_bus.emit_type(
+                EventType.TOKEN_BUDGET,
+                snapshot.to_event_payload(phase=phase),
+            )
+        except Exception:
+            pass
 
     def understand_and_plan(
         self,
@@ -444,6 +469,7 @@ class ReasoningEngine:
 - parameters: 关键参数
 """
         prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
+        self._emit_token_budget(prompt, phase="planning")
         if self._event_bus:
 
             def on_chunk(chunk: str) -> None:
@@ -788,6 +814,7 @@ class ReasoningEngine:
 - modified_steps: 需要修改的步骤（如果有）
 """
             prompt = get_skill_injector().inject_into_prompt(feedback, prompt)
+            self._emit_token_budget(prompt, phase="validation")
             response = self.llm.call(prompt, temperature=0.2)
             suggestions = self._extract_json(response)
 

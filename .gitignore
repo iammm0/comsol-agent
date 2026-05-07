@@ -65,6 +65,9 @@ logs/
 .context-ts/
 *.tsbuildinfo
 
+# clawcode 接入：运行期落盘的状态（每次 run 都会重写）
+.port_sessions/
+
 # Testing
 .pytest_cache/
 .coverage

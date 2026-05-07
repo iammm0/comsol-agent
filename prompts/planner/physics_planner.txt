@@ -34,8 +34,13 @@
 ## 用户输入
 {user_input}
 
+## 输出契约（强约束）
+- 必须仅输出**唯一一段合法 JSON**；不要使用 ```json 代码块包裹，不要任何解释、前后缀或注释。
+- type 必须是上面「支持的物理场类型」列出的英文名之一；condition_type 使用 COMSOL 官方 tag（首字母大写驼峰，如 Temperature、HeatFlux、FixedConstraint、InletVelocity）。
+- selection 仅允许 "all" 字符串或整数 ID 列表（如 [1, 2, 3]）；不要给字符串 ID。
+- parameters 内的物理量为 JSON 数字（SI 单位），不要写成「293.15 K」这类带单位字符串。
+
 ## 输出格式
-请仅输出一段 JSON，不要包含其他文字。结构如下：
 
 {{
     "fields": [

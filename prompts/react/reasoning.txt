@@ -14,6 +14,11 @@
 4. **网格**：生成何种网格（自由四面体/三角形、最大单元尺寸等）。
 5. **研究**：配置何种研究（稳态/瞬态/特征值等）及求解思路。
 
+## 输出契约（强约束）
+- 必须仅输出**唯一一段合法 JSON**；不要使用 ```json 代码块包裹，不要任何解释、前后缀或注释。
+- task_type / required_steps / stop_after_step 字段值必须严格使用下文「步骤标识」白名单中的英文标识。
+- parameters 内仅写本计划真正会用到的字段；不需要的字段不要输出空值。
+
 ## 输出格式
 请仅以 JSON 格式返回，不要其他文字。必须包含以下字段：
 
@@ -44,8 +49,15 @@
   "case_library_suggestions": []
 }}
 
-## 步骤标识
-- create_geometry / add_material / add_physics / generate_mesh / configure_study / solve
+## 步骤标识（required_steps / stop_after_step 白名单）
+- create_geometry：创建几何
+- define_globals：在 model.param() 写入全局参数（仅当用户明确给出参数表/常量定义时使用）
+- add_material：添加材料并分配
+- update_material_property：仅修补已有材料属性（如固体传热缺 k 时单独补 k，不重建材料）
+- add_physics：添加物理场与边界条件
+- generate_mesh：生成网格
+- configure_study：配置研究
+- solve：执行求解
 - import_geometry：导入几何文件（需 file_path；可选 geom_tag）
 - create_selection：创建选择集（需 tag；可选 entities、all、geom_tag）
 - export_results：导出结果图或数据（需 out_path；可选 plot_group_tag、export_type 为 image/data）

@@ -30,6 +30,12 @@ class EventType(str, Enum):
     STEP_END = "step_end"
     # 一次构建任务结束（成功/失败/中止），携带最终模型路径，便于前端始终提供打开/预览
     RUN_END = "run_end"
+    # clawcode 集成事件：token 预算、计划 runtime 同步、worktree 进入/退出、ask-user 队列消费等
+    TOKEN_BUDGET = "token_budget"
+    PLAN_RUNTIME_SYNC = "plan_runtime_sync"
+    ASK_USER_RESOLVED = "ask_user_resolved"
+    WORKTREE_ENTERED = "worktree_entered"
+    WORKTREE_EXITED = "worktree_exited"
 
 
 @dataclass
