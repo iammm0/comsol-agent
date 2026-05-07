@@ -2,7 +2,7 @@
   <h1>Multiphysics Modeling Agent</h1>
   <p>面向 COMSOL 的开源建模智能体，已接入 claw-code 执行链</p>
   <p>
-    <img src="https://img.shields.io/badge/mph--agent-0.1.0-green.svg" alt="mph-agent 0.1.0">
+    <img src="https://img.shields.io/badge/mph--agent-1.1.2-green.svg" alt="mph-agent 1.1.2">
     <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-%3E%3D3.10-blue.svg" alt="python >=3.10"></a>
     <img src="https://img.shields.io/badge/COMSOL-6.3-orange.svg" alt="COMSOL 6.3">
     <img src="https://img.shields.io/badge/Tauri-2.10.2-555555.svg" alt="Tauri 2.10.2">
@@ -50,8 +50,6 @@ Multiphysics Modeling Agent（mph-agent）是一个面向 COMSOL Multiphysics �
 - [环境配置](#环境配置)
 - [使用方法](#使用方法)
 - [文档](#文档)
-- [项目结构](#项目结构)
-- [架构详图](#架构详图)
 - [开发与调试](#开发与调试)
 - [常见问题](#常见问题)
 - [许可证](#许可证)
