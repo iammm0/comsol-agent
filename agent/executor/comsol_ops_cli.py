@@ -13,11 +13,11 @@ from agent.executor.java_api_controller import (
     OFFICIAL_COMSOL_API_INDEX_URL,
     JavaAPIController,
 )
-from schemas.geometry import GeometryPlan
-from schemas.material import MaterialPlan
-from schemas.physics import PhysicsPlan
-from schemas.study import StudyPlan
-from schemas.task import GlobalDefinitionPlan
+from agent.schemas.geometry import GeometryPlan
+from agent.schemas.material import MaterialPlan
+from agent.schemas.physics import PhysicsPlan
+from agent.schemas.study import StudyPlan
+from agent.schemas.task import GlobalDefinitionPlan
 
 
 KNOWN_CONTROLLER_PAYLOADS = {

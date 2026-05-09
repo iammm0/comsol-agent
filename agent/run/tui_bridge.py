@@ -383,7 +383,12 @@ def _handle(req: dict[str, Any]) -> None:
         if cmd == "ops_catalog":
             query = (req.get("query") or "").strip() or None
             try:
-                limit = int(req.get("limit") or 200)
+                raw_limit = req.get("limit")
+                # 显式传 0 表示「不分页、返回全部」（避免 ``0 or 200`` 误当成 200）
+                if raw_limit is None:
+                    limit = 200
+                else:
+                    limit = int(raw_limit)
             except Exception:
                 limit = 200
             try:
@@ -394,6 +399,7 @@ def _handle(req: dict[str, Any]) -> None:
                 query=query,
                 limit=limit,
                 offset=offset,
+                wrappers_only=bool(req.get("wrappers_only")),
                 verbose=req.get("verbose", False),
             )
             _reply(

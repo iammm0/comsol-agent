@@ -1,4 +1,4 @@
-﻿"""ReAct Agent 核心类"""
+"""ReAct Agent 核心类"""
 
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, cast
@@ -14,7 +14,7 @@ from agent.react.reasoning_engine import ReasoningEngine
 from agent.utils.config import get_project_root, get_settings
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
-from schemas.task import ClarifyingAnswer, ExecutionStep, Observation, ReActTaskPlan
+from agent.schemas.task import ClarifyingAnswer, ExecutionStep, Observation, ReActTaskPlan
 
 logger = get_logger(__name__)
 
@@ -109,6 +109,29 @@ class ReActAgent:
             self._event_bus.emit_type(EventType.PLAN_RUNTIME_SYNC, payload)
         except Exception:
             pass
+
+    def _run_end_success_and_message(self, plan: ReActTaskPlan) -> tuple[bool, str]:
+        """计算 RUN_END 的 success 与 message。
+
+        启用 claw-code 时，外层 ReAct 轮次用尽但末轮观察已为 success 的情况较常见：
+        以末次观察文案为准，不再误报「达到最大调整次数」。
+        """
+        settings = get_settings()
+        if plan.status == "completed":
+            tail = (plan.error or "").strip()
+            return True, tail or "已完成"
+        if plan.status == "failed":
+            return False, (plan.error or "任务失败").strip()
+        if settings.claw_code_enabled and plan.observations:
+            last = plan.observations[-1]
+            text = (last.message or "").strip()
+            if last.status == "success" and text:
+                return True, text
+            if text:
+                return (last.status != "error"), text
+        if plan.error:
+            return False, plan.error.strip()
+        return False, f"任务未完成（已达到最大调整次数: {self.max_iterations}）"
 
     def run(
         self,
@@ -307,27 +330,26 @@ class ReActAgent:
                     final_path = str(p.resolve())
             except Exception:
                 final_path = None
+
+        end_success, end_message = self._run_end_success_and_message(plan)
         if self._event_bus:
             self._event_bus.emit_type(
                 EventType.RUN_END,
                 {
                     "model_path": final_path,
-                    "success": plan.status == "completed",
-                    "message": plan.error or (
-                        "任务未完成（已达到最大调整次数）"
-                        if plan.status != "failed"
-                        else "任务失败"
-                    ),
+                    "success": end_success,
+                    "message": end_message,
                 },
             )
 
         if plan.status != "completed":
-            base_msg = plan.error or (
-                f"任务未完成（已达到最大调整次数: {self.max_iterations}）"
-                if plan.status != "failed"
-                else "任务失败"
-            )
-            msg = base_msg or "任务失败"
+            if end_success:
+                if final_path and Path(final_path).exists():
+                    logger.info("以外层末次观察为准结束（claw-code 已启用）")
+                    return Path(final_path)
+                raise RuntimeError(end_message or "模型文件未生成")
+            base_msg = end_message or "任务失败"
+            msg = base_msg
             if final_path:
                 msg = f"{msg}；模型已部分生成: {final_path}"
             if plan.status == "failed" and (plan.error or "").startswith(REORCHESTRATE_PREFIX):
@@ -497,12 +519,12 @@ class ReActAgent:
         if given_plan:
             # Plan 模式：从已确定的 plan 字典构建 ReActTaskPlan，跳过编排器
             from agent.react.reasoning_engine import _task_plan_to_execution_path
-            from schemas.geometry import GeometryPlan
-            from schemas.material import MaterialPlan
-            from schemas.mesh import MeshPlan
-            from schemas.physics import PhysicsPlan
-            from schemas.study import StudyPlan
-            from schemas.task import GlobalDefinitionPlan, TaskPlan
+            from agent.schemas.geometry import GeometryPlan
+            from agent.schemas.material import MaterialPlan
+            from agent.schemas.mesh import MeshPlan
+            from agent.schemas.physics import PhysicsPlan
+            from agent.schemas.study import StudyPlan
+            from agent.schemas.task import GlobalDefinitionPlan, TaskPlan
 
             g = given_plan.get("geometry")
             m = given_plan.get("material")

@@ -1,6 +1,7 @@
 """ReAct 架构测试"""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
@@ -11,7 +12,7 @@ from agent.react.observer import Observer
 from agent.react.react_agent import ReActAgent
 from agent.react.reasoning_engine import ReasoningEngine
 from agent.run.actions import do_config_save
-from schemas.task import ExecutionStep, Observation, ReActTaskPlan
+from agent.schemas.task import ExecutionStep, Observation, ReActTaskPlan
 
 
 class TestReasoningEngine:
@@ -668,6 +669,57 @@ class TestReActAgent:
             execution_path=[],
         )
         assert agent._is_all_steps_complete(plan) is False
+
+    def test_run_end_success_and_message_clawcode_trusts_last_observation(self, monkeypatch):
+        """启用 claw-code 时，以外层末次成功观察为准，不再套用「达到最大调整次数」。"""
+        agent = ReActAgent(llm=Mock())
+        monkeypatch.setattr(
+            "agent.react.react_agent.get_settings",
+            lambda: SimpleNamespace(claw_code_enabled=True),
+        )
+        plan = ReActTaskPlan(
+            task_id="t_cc",
+            model_name="m_cc",
+            user_input="u_cc",
+            status="executing",
+            observations=[
+                Observation(
+                    observation_id="o_cc",
+                    step_id="s_cc",
+                    status="success",
+                    message="研究配置成功",
+                ),
+            ],
+        )
+        ok, msg = agent._run_end_success_and_message(plan)
+        assert ok is True
+        assert msg == "研究配置成功"
+
+    def test_run_end_success_and_message_without_clawcode_generic_incomplete(self, monkeypatch):
+        """未启用 claw-code 时，非 completed 仍回落到轮次用尽提示。"""
+        agent = ReActAgent(llm=Mock())
+        agent.max_iterations = 10
+        monkeypatch.setattr(
+            "agent.react.react_agent.get_settings",
+            lambda: SimpleNamespace(claw_code_enabled=False),
+        )
+        plan = ReActTaskPlan(
+            task_id="t_nc",
+            model_name="m_nc",
+            user_input="u_nc",
+            status="executing",
+            observations=[
+                Observation(
+                    observation_id="o_nc",
+                    step_id="s_nc",
+                    status="success",
+                    message="研究配置成功",
+                ),
+            ],
+        )
+        ok, msg = agent._run_end_success_and_message(plan)
+        assert ok is False
+        assert "最大调整次数" in msg
 
     def test_warning_iteration_threshold_behavior(self):
         """回归：warning 未达阈值不迭代，达到阈值才迭代。"""

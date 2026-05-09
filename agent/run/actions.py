@@ -41,8 +41,8 @@ from agent.run.discussion_mode import (
 from agent.utils.env_check import check_environment
 from agent.utils.logger import setup_logging, get_logger
 from agent.utils.llm import LLMClient
-from schemas.geometry import GeometryPlan
-from schemas.task import ClarifyingAnswer
+from agent.schemas.geometry import GeometryPlan
+from agent.schemas.task import ClarifyingAnswer
 from agent.react.exceptions import PlanNeedsClarification, ReActNeedsReorchestrate
 from agent.skills import reset_skill_injector
 from agent.skills.manager import (
@@ -1505,13 +1505,17 @@ def do_ops_catalog(
     query: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
+    *,
+    wrappers_only: bool = False,
     verbose: bool = False,
 ) -> Tuple[bool, str, Dict[str, Any]]:
-    """返回 COMSOL 操作能力目录（native + wrapper）。"""
+    """返回 COMSOL 操作能力目录（默认可含 native + wrapper；wrappers_only 时仅官方 API 包装条目）。"""
     _ensure_logging(verbose)
     try:
         ctrl = JavaAPIController()
-        result = ctrl.get_ops_catalog(query=query, limit=limit, offset=offset)
+        result = ctrl.get_ops_catalog(
+            query=query, limit=limit, offset=offset, wrappers_only=wrappers_only
+        )
         ok = result.get("status") == "success"
         message = result.get("message", "ok" if ok else "error")
         return ok, str(message), result

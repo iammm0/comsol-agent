@@ -2,10 +2,10 @@
 import pytest
 from pydantic import ValidationError
 
-from schemas.geometry import GeometryPlan, GeometryShape
-from schemas.physics import PhysicsPlan, PhysicsField
-from schemas.study import StudyPlan, StudyType
-from schemas.task import (
+from agent.schemas.geometry import GeometryPlan, GeometryShape
+from agent.schemas.physics import PhysicsPlan, PhysicsField
+from agent.schemas.study import StudyPlan, StudyType
+from agent.schemas.task import (
     ExecutionStep,
     Observation,
     ReActTaskPlan,

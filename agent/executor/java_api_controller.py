@@ -16,10 +16,10 @@ from uuid import uuid4
 from agent.executor.comsol_runner import COMSOLRunner
 from agent.utils.config import get_settings
 from agent.utils.logger import get_logger
-from schemas.material import MaterialDefinition, MaterialPlan
-from schemas.physics import PhysicsPlan
-from schemas.study import StudyPlan
-from schemas.task import GlobalDefinitionPlan, ModelOperationCase
+from agent.schemas.material import MaterialDefinition, MaterialPlan
+from agent.schemas.physics import PhysicsPlan
+from agent.schemas.study import StudyPlan
+from agent.schemas.task import GlobalDefinitionPlan, ModelOperationCase
 
 logger = get_logger(__name__)
 OFFICIAL_COMSOL_API_INDEX_URL = (
@@ -2723,18 +2723,91 @@ class JavaAPIController:
 
     @staticmethod
     def _infer_category(owner: str, method_name: str, label: str = "") -> str:
-        text = f"{owner} {method_name} {label}".lower()
-        if any(k in text for k in ["param", "variable", "expression", "unit"]):
+        """按 Java owner 类名粗分建模域；避免用子串 ``param`` 误判（如 ``SaveItemParam``）。"""
+        o = (owner or "").lower()
+        m = (method_name or "").lower()
+        lab = (label or "").lower()
+        text = f"{o} {m} {lab}"
+
+        # 版本管理 / 数据库 API，与模型「参数定义」无关
+        if "com.comsol.api." in o:
+            return "开发工具"
+
+        if any(
+            x in o
+            for x in (
+                "geomsequence",
+                "geometryfeature",
+                "geomfeature",
+                "geomobject",
+                "geometryanalysis",
+                "hidegeom",
+                "sketch",
+                "workplane",
+                "cadimport",
+                "partinstance",
+            )
+        ):
+            return "几何"
+        if any(x in o for x in ("meshsequence", "meshfeature", "meshmapping", "meshtool")):
+            return "网格"
+        if "material" in o:
+            return "材料"
+        if any(
+            x in o
+            for x in (
+                "physics",
+                "multiphysics",
+                "heattransfer",
+                "structuralmechanics",
+                "acoustic",
+                "chemical",
+                "electromagnetic",
+                "fluid",
+            )
+        ):
+            return "物理场"
+        if any(x in o for x in ("studyfeature", "solversequence", "solverfeature")):
+            return "研究"
+        if any(x in o for x in ("numericalfeature", "tablefeature", "dataset", "exporttag", "renderer")):
+            return "结果"
+        if "plot" in o or "plotgroup" in o:
+            return "结果"
+
+        # 几何域上的选择、嵌入选择等（须在泛化的 ``param`` 匹配之前）
+        if any(
+            x in o
+            for x in (
+                "embeddedselection",
+                "geomobjectselection",
+                "geomobjectgroupselection",
+                "com.comsol.model.selection",
+            )
+        ):
+            return "几何"
+        if o.endswith(".selection") or ".selection." in o:
+            return "几何"
+
+        # 全局参数 / 参数组 / 单位制等
+        if any(x in o for x in ("parametercontainer", "parameterentity", "parambase")):
             return "定义"
-        if any(k in text for k in ["geom", "selection", "workplane", "cad", "sketch"]):
+        if "unitsystem" in o or o.endswith(".unit") or ".units." in o:
+            return "定义"
+        if "functionfeature" in o or o.endswith(".function") or ".functions." in o:
+            return "定义"
+
+        # 回退：旧版基于全文关键词（不再用裸 ``param``，避免 ItemParam 等误判）
+        if any(k in text for k in ["variable", "expression"]) and "itemparam" not in text:
+            return "定义"
+        if any(k in text for k in ["geom", "workplane", "cad", "sketch"]):
             return "几何"
         if "material" in text:
             return "材料"
-        if any(k in text for k in ["physics", "multiphysics", "boundary", "electromagnetic", "heattransfer"]):
+        if any(k in text for k in ["physics", "multiphysics", "heattransfer", "electromagnetic"]):
             return "物理场"
         if "mesh" in text:
             return "网格"
-        if any(k in text for k in ["study", "solver", "solution", "solv", "time", "stationary"]):
+        if any(k in text for k in ["study", "solver", "solution", "stationary"]):
             return "研究"
         if any(k in text for k in ["result", "plot", "table", "dataset", "export"]):
             return "结果"
@@ -2849,9 +2922,11 @@ class JavaAPIController:
         query: Optional[str] = None,
         limit: int = 200,
         offset: int = 0,
+        *,
+        wrappers_only: bool = False,
     ) -> Dict[str, Any]:
         try:
-            native_items = self._native_ops_catalog_items()
+            native_items: List[Dict[str, Any]] = [] if wrappers_only else self._native_ops_catalog_items()
 
             wrapper_items: List[Dict[str, Any]] = []
             for wrapper_name, meta in (self._official_api_wrappers or {}).items():
@@ -2879,7 +2954,7 @@ class JavaAPIController:
                     }
                 )
 
-            items = native_items + wrapper_items
+            items = wrapper_items if wrappers_only else (native_items + wrapper_items)
             if query:
                 q = query.lower()
 

@@ -27,7 +27,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的几何规划子 Agent，负责将中文自然语言 COMSOL 几何描述映射到 "
-            "schemas.geometry.GeometryPlan。严格遵循 prompts/planner/geometry_planner.txt 中的 "
+            "agent.schemas.geometry.GeometryPlan。严格遵循 agent/prompts/planner/geometry_planner.txt 中的 "
             "字段约束，输出 JSON。不写任何 Java 代码，也不直接调用 COMSOL，只做计划。"
         ),
     },
@@ -38,7 +38,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的材料规划子 Agent。优先使用快识别表（钢、铝、铜、空气、水等）；"
-            "未识别时按上下文推断并显式列出必需属性，遵循 prompts/planner/material_planner.txt。"
+            "未识别时按上下文推断并显式列出必需属性，遵循 agent/prompts/planner/material_planner.txt。"
         ),
     },
     {
@@ -48,7 +48,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的物理场规划子 Agent。基于几何与材料生成 PhysicsPlan，包括接口选择、"
-            "边界条件、源项、耦合关系。遵循 prompts/planner/physics_planner.txt，输出严格 JSON。"
+            "边界条件、源项、耦合关系。遵循 agent/prompts/planner/physics_planner.txt，输出严格 JSON。"
         ),
     },
     {
@@ -58,7 +58,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的网格规划子 Agent，输出适合当前几何/物理场的 MeshPlan。"
-            "遵循 prompts/planner/mesh_planner.txt 提供的策略表与默认值。"
+            "遵循 agent/prompts/planner/mesh_planner.txt 提供的策略表与默认值。"
         ),
     },
     {
@@ -68,7 +68,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的研究规划子 Agent。根据物理场与目标输出选择研究类型，"
-            "并把扫描参数写成 StudyPlan，遵循 prompts/planner/study_planner.txt。"
+            "并把扫描参数写成 StudyPlan，遵循 agent/prompts/planner/study_planner.txt。"
         ),
     },
     {
@@ -78,7 +78,7 @@ _SUB_AGENT_TEMPLATES: List[Dict[str, Any]] = [
         "model": "inherit",
         "system_prompt": (
             "你是 mph-agent 的编排子 Agent，负责调度上面五个子 planner，"
-            "遵循 prompts/planner/orchestrator_decompose.txt，并在最后返回 ReActTaskPlan-ready 计划。"
+            "遵循 agent/prompts/planner/orchestrator_decompose.txt，并在最后返回 ReActTaskPlan-ready 计划。"
         ),
     },
 ]

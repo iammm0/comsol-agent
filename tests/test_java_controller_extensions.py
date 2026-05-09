@@ -34,6 +34,34 @@ def test_define_global_parameters_validation_fails_before_comsol_call(controller
     assert isinstance(res.get("details"), list)
 
 
+def test_infer_category_saveitemparam_is_not_definition():
+    """含子串 param 的数据库类名不得误判为「定义」。"""
+    cat = JavaAPIController._infer_category(
+        "com.comsol.api.database.param.SaveItemParam",
+        "assignedTagKeys",
+        "api_saveitemparam_assignedtagkeys",
+    )
+    assert cat == "开发工具"
+
+
+def test_infer_category_geomsequence_is_geometry():
+    cat = JavaAPIController._infer_category(
+        "com.comsol.model.GeomSequence",
+        "run",
+        "api_geomsequence_run",
+    )
+    assert cat == "几何"
+
+
+def test_infer_category_parameter_container_is_definition():
+    cat = JavaAPIController._infer_category(
+        "com.comsol.model.ParameterContainer",
+        "param",
+        "api_parametercontainer_param",
+    )
+    assert cat == "定义"
+
+
 def test_ops_catalog_contains_categories_and_wrapper_entries(controller):
     controller._official_api_wrappers = {
         "api_geomsequence_run": {
@@ -42,12 +70,27 @@ def test_ops_catalog_contains_categories_and_wrapper_entries(controller):
         }
     }
 
-    res = controller.get_ops_catalog(limit=200, offset=0)
+    res = controller.get_ops_catalog(limit=200, offset=0, wrappers_only=False)
     assert res["status"] == "success"
     assert "categories" in res
     assert len(res["categories"]) == 8
     assert any(item.get("invoke_mode") == "native" for item in res.get("items", []))
     assert any(item.get("invoke_mode") == "wrapper" for item in res.get("items", []))
+
+
+def test_ops_catalog_wrappers_only_excludes_native(controller):
+    controller._official_api_wrappers = {
+        "api_geomsequence_run": {
+            "owner": "com.comsol.model.GeomSequence",
+            "method": "run",
+        }
+    }
+    res = controller.get_ops_catalog(limit=500, offset=0, wrappers_only=True)
+    assert res["status"] == "success"
+    items = res.get("items") or []
+    assert items
+    assert all(item.get("invoke_mode") == "wrapper" for item in items)
+    assert any(item.get("label") == "api_geomsequence_run" for item in items)
 
 
 def test_extract_model_operation_case_rejects_missing_file(controller, tmp_path):
