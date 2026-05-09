@@ -28,11 +28,11 @@
 - **依赖**：
   - 必选：`sqlite-vec`（已列入项目依赖）。
   - 可选：`pip install .[vec]` 安装 `sentence-transformers` 后，将自动对技能做嵌入并启用向量检索；未安装时仅使用 **triggers/tags** 关键词匹配，行为与之前一致。
-- **首次使用**：若安装 `[vec]` 且 `data/skills.db` 中尚无数据，会在首次检索前自动对当前 `skills/` 下的技能做一次索引。
+- **首次使用**：若安装 `[vec]` 且 `data/skills.db` 中尚无数据，会在首次检索前自动对当前 `agent/skills/library/` 下的技能做一次索引。
 
 ## 加载与注入流程
 
-1. **SkillLoader**（`agent/skills/loader.py`）：启动时扫描 `skills/` 下各子目录的 `SKILL.md`，解析 frontmatter 与正文，缓存为 `Skill` 对象。
+1. **SkillLoader**（`agent/skills/loader.py`）：启动时扫描本目录（`agent/skills/library/`）下各子目录的 `SKILL.md`，解析 frontmatter 与正文，缓存为 `Skill` 对象。
 2. **SkillVectorStore**（`agent/skills/vector_store.py`）：使用 SQLite + sqlite-vec 持久化技能并做向量检索；可选嵌入模型由 `get_default_embedder()` 提供（需安装 `[vec]`）。
 3. **SkillInjector**（`agent/skills/injector.py`）：在每次调用 LLM 前，**优先**用向量检索按 query 取 Top-K 条知识；若无向量库或未命中则**回退**到 `triggers`/`tags` 匹配，将选中的 `instructions` 通过 `inject_into_prompt(query, prompt)` 拼接到 prompt 前部。
 4. 使用注入的调用点：推理引擎（理解需求、改进计划）、几何/物理/研究 Planner、迭代控制器（改进计划）。

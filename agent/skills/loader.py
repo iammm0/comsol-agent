@@ -75,7 +75,7 @@ class SkillLoader:
 
     def __init__(self, roots: Optional[List[Path]] = None):
         if roots is None:
-            roots = [Path(__file__).parent.parent.parent / "skills"]
+            roots = [Path(__file__).resolve().parent / "library"]
         self._roots = [Path(r) for r in roots]
         self._by_name: Dict[str, Skill] = {}
         self._load_all()

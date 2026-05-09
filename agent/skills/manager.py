@@ -19,8 +19,8 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "3D geometry setup, dimension strategy, and model decomposition patterns.",
         "tags": ["comsol", "3d", "geometry"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-3d",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-3d",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-3d",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-3d",
     },
     {
         "id": "comsol-basics",
@@ -28,8 +28,8 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "Units, naming, primitive geometry, and base modeling conventions.",
         "tags": ["comsol", "basics", "units"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-basics",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-basics",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-basics",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-basics",
     },
     {
         "id": "comsol-exceptions",
@@ -37,8 +37,8 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "Troubleshooting patterns for common COMSOL runtime and workflow failures.",
         "tags": ["comsol", "diagnostics", "exceptions"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-exceptions",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-exceptions",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-exceptions",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-exceptions",
     },
     {
         "id": "comsol-materials",
@@ -46,8 +46,8 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "Material selection, parameterization, and property completeness guidance.",
         "tags": ["comsol", "materials", "properties"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-materials",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-materials",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-materials",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-materials",
     },
     {
         "id": "comsol-physics",
@@ -55,8 +55,8 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "Physics interface choice, coupling strategy, and boundary-condition guidance.",
         "tags": ["comsol", "physics", "multiphysics"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-physics",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-physics",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-physics",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-physics",
     },
     {
         "id": "comsol-workflow",
@@ -64,16 +64,16 @@ ONLINE_SKILL_CATALOG: List[Dict[str, Any]] = [
         "description": "End-to-end modeling workflow patterns from planning to solve and export.",
         "tags": ["comsol", "workflow", "study"],
         "provider": "GitHub",
-        "source_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-workflow",
-        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/skills/comsol-workflow",
+        "source_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-workflow",
+        "homepage_url": "https://github.com/iammm0/mph-agent/tree/main/agent/skills/library/comsol-workflow",
     },
 ]
 
 
 def get_skills_root() -> Path:
-    """Return the repo-local skill library root."""
+    """Return the repo-local skill library root (Markdown 技能库目录)."""
 
-    return get_project_root() / "skills"
+    return Path(__file__).resolve().parent / "library"
 
 
 def _utc_now_iso() -> str:
@@ -300,7 +300,7 @@ def import_skill_library(source_path: str, *, root: Optional[Path] = None) -> Di
     skills_root.mkdir(parents=True, exist_ok=True)
 
     if _is_relative_to(source, skills_root):
-        raise ValueError("该技能库已经位于本地 skills 目录中")
+        raise ValueError("该技能库已经位于本地 agent/skills/library 目录中")
 
     if source.is_dir():
         skill_file = source / "SKILL.md"

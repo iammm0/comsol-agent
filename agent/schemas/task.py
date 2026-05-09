@@ -8,11 +8,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator  # type: ignore[import-not-found]
 
-from schemas.geometry import GeometryPlan
-from schemas.material import MaterialPlan
-from schemas.mesh import MeshPlan
-from schemas.physics import PhysicsPlan
-from schemas.study import StudyPlan
+from agent.schemas.geometry import GeometryPlan
+from agent.schemas.material import MaterialPlan
+from agent.schemas.mesh import MeshPlan
+from agent.schemas.physics import PhysicsPlan
+from agent.schemas.study import StudyPlan
 
 
 class GlobalDefinitionPlan(BaseModel):

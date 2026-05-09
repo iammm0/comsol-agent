@@ -12,8 +12,8 @@ class PromptLoader:
     """
 
     def __init__(self, prompts_dir: str = "prompts"):
-        # 相对路径转为绝对路径（项目根下的 prompts）
-        root = Path(__file__).parent.parent.parent
+        # 相对路径：默认 agent/prompts
+        root = Path(__file__).parent.parent
         self._mgr = get_prompt_manager(root / prompts_dir)
 
     @property

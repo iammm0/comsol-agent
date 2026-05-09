@@ -61,7 +61,7 @@ class PromptManager:
 
     def __init__(self, prompts_dir: Optional[Path] = None):
         if prompts_dir is None:
-            prompts_dir = Path(__file__).parent.parent.parent / "prompts"
+            prompts_dir = Path(__file__).parent.parent / "prompts"
         self.prompts_dir = Path(prompts_dir)
         self._cache: Dict[str, str] = {}
         self._chains: Dict[str, List[str]] = {}  # chain_name -> list of template names
@@ -130,7 +130,7 @@ class PromptManager:
         return sorted(keys)
 
 
-# 单例，与 prompt_loader 对齐：由 prompts_dir 相对于项目根解析
+# 单例，与 prompt_loader 对齐：默认 prompts_dir 为 agent/prompts
 _prompt_manager: Optional[PromptManager] = None
 
 
