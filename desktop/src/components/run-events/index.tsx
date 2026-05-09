@@ -11,9 +11,19 @@ import { ErrorAlert } from "./ErrorAlert";
 import { ContentBlock } from "./ContentBlock";
 import { TokenBudgetCard } from "./TokenBudgetCard";
 import { PlanRuntimeSyncCard } from "./PlanRuntimeSyncCard";
+import { CapabilityScanCard } from "./CapabilityScanCard";
 
 /** 按事件类型选择对应展示组件，突出不同类型信息的重点 */
-export function RunEventBlock({ event }: { event: RunEvent }) {
+export function RunEventBlock({
+  event,
+  isLiveStreamTail = false,
+  isLive = false,
+}: {
+  event: RunEvent;
+  isLiveStreamTail?: boolean;
+  /** 当前阶段是否仍在执行（透传给可折叠组件，控制自动收起时机） */
+  isLive?: boolean;
+}) {
   const type = event.type ?? "";
 
   switch (type) {
@@ -25,7 +35,9 @@ export function RunEventBlock({ event }: { event: RunEvent }) {
       return <PhasePill event={event} />;
     case "think_chunk":
     case "llm_stream_chunk":
-      return <ThinkBubble event={event} />;
+      return (
+        <ThinkBubble event={event} isLiveStreamTail={isLiveStreamTail} />
+      );
     case "action_start":
     case "action_end":
     case "exec_result":
@@ -43,6 +55,10 @@ export function RunEventBlock({ event }: { event: RunEvent }) {
       return <TokenBudgetCard event={event} />;
     case "plan_runtime_sync":
       return <PlanRuntimeSyncCard event={event} />;
+    case "capability_scan": {
+      const inner = (event.data?.events as RunEvent[] | undefined) ?? [];
+      return <CapabilityScanCard events={inner} isLive={isLive} />;
+    }
     case "observation":
       return <ObservationCallout event={event} />;
     case "error":

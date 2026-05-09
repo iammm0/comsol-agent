@@ -1,9 +1,11 @@
 """Prompt injection for local skills and the optional COMSOL documentation KB."""
 
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import re
 
+from agent.core.events import EventBus, EventType
 from agent.doc_knowledge import format_doc_hits_for_prompt, search_doc_kb
 from agent.skills.api_catalog_builder import ApiCapabilityEntry, build_api_capability_entries
 from agent.skills.loader import Skill, SkillLoader
@@ -11,6 +13,11 @@ from agent.skills.vector_store import SkillVectorStore
 from agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 扫描事件分批节流：每扫描多少条 wrapper 推送一次进度事件
+_CAPABILITY_SCAN_BATCH = 256
+# 进度事件中"正在查看"列表保留的最大长度，前端做扫描动效
+_CAPABILITY_SCAN_PREVIEW = 5
 
 MARKER = "=== RELEVANT SKILLS (请采纳以下隐性知识) ==="
 RUNTIME_MARKER = "=== RELEVANT RUNTIME CAPABILITIES (prefer these actions/wrappers) ==="
@@ -29,6 +36,7 @@ class SkillInjector:
         top_k: int = 5,
         doc_kb_path: Optional[Path] = None,
         doc_top_k: int = 3,
+        event_bus: Optional[EventBus] = None,
     ):
         self.loader = loader or SkillLoader()
         self.vector_store = vector_store
@@ -38,8 +46,26 @@ class SkillInjector:
         self._last_used: List[str] = []
         self._last_used_capabilities: List[str] = []
         self._last_used_docs: List[str] = []
+        # 可选事件总线；为 None 时所有 emit 走 noop，保持向后兼容
+        self._event_bus: Optional[EventBus] = event_bus
         # Lazy-load API capability entries only when vector indexing is enabled.
         self._api_entries: Optional[List[ApiCapabilityEntry]] = None
+
+    def set_event_bus(self, event_bus: Optional[EventBus]) -> None:
+        """Inject (or clear) the event bus used for streaming capability scan events."""
+
+        self._event_bus = event_bus
+
+    def _emit(self, event_type: EventType, data: Dict[str, Any]) -> None:
+        """Safely emit an event when an event_bus is configured."""
+
+        bus = self._event_bus
+        if bus is None:
+            return
+        try:
+            bus.emit_type(event_type, data)
+        except Exception:
+            pass
 
     def _get_api_entries(self) -> List[ApiCapabilityEntry]:
         """Build API capability entries from JavaAPIController wrappers."""
@@ -102,8 +128,28 @@ class SkillInjector:
         if not terms:
             self._last_used_capabilities = []
             return []
-        scored = []
-        for entry in self._get_api_entries():
+
+        all_entries = self._get_api_entries()
+        total = len(all_entries)
+        phase = "scanning_capabilities"
+        started_at = time.monotonic()
+        # 事件总线缺失时 self._emit 直接 noop，下面的封装不会拖慢扫描
+        self._emit(
+            EventType.CAPABILITY_SCAN_START,
+            {
+                "phase": phase,
+                "query": query,
+                "total": total,
+                "top_k": max(1, int(limit)),
+                "mode": "keyword",
+            },
+        )
+
+        scored: List[tuple[int, List[str], ApiCapabilityEntry]] = []
+        scanned = 0
+        preview: List[str] = []
+
+        for entry in all_entries:
             haystack = " ".join(
                 [
                     entry.name,
@@ -118,22 +164,82 @@ class SkillInjector:
                 ]
             ).lower()
             score = 0
+            matched_terms: List[str] = []
             for term in terms:
                 if term in haystack:
                     score += 4
+                    matched_terms.append(term)
             if score > 0 and entry.invoke_mode == "native":
                 score += 1
             if score > 0:
-                scored.append((score, entry))
+                scored.append((score, matched_terms, entry))
+                # 命中即时推送，便于前端时间线滚动展示
+                self._emit(
+                    EventType.CAPABILITY_SCAN_HIT,
+                    {
+                        "phase": phase,
+                        "name": entry.name,
+                        "title": entry.title,
+                        "score": score,
+                        "matched_terms": list(matched_terms),
+                        "category": entry.category,
+                        "invoke_mode": entry.invoke_mode,
+                    },
+                )
+
+            scanned += 1
+            preview.append(entry.name)
+            if len(preview) > _CAPABILITY_SCAN_PREVIEW:
+                preview = preview[-_CAPABILITY_SCAN_PREVIEW:]
+            if scanned % _CAPABILITY_SCAN_BATCH == 0 or scanned == total:
+                self._emit(
+                    EventType.CAPABILITY_SCAN_PROGRESS,
+                    {
+                        "phase": phase,
+                        "scanned": scanned,
+                        "total": total,
+                        "current_names": list(preview),
+                    },
+                )
+
         scored.sort(
             key=lambda item: (
                 -item[0],
-                0 if item[1].invoke_mode == "native" else 1,
-                item[1].title,
+                0 if item[2].invoke_mode == "native" else 1,
+                item[2].title,
             )
         )
-        results = [entry for _score, entry in scored[: max(1, int(limit))]]
+        results = [entry for _score, _terms, entry in scored[: max(1, int(limit))]]
         self._last_used_capabilities = [entry.name for entry in results]
+
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        # end 事件只携带最终入选的 top-k 命中摘要，避免 payload 过大
+        result_index = {entry.name: idx for idx, entry in enumerate(results)}
+        end_hits = []
+        for score, matched_terms, entry in scored:
+            if entry.name in result_index:
+                end_hits.append(
+                    {
+                        "name": entry.name,
+                        "title": entry.title,
+                        "score": score,
+                        "matched_terms": list(matched_terms),
+                        "category": entry.category,
+                        "invoke_mode": entry.invoke_mode,
+                    }
+                )
+        end_hits.sort(key=lambda hit: result_index.get(hit["name"], 0))
+        self._emit(
+            EventType.CAPABILITY_SCAN_END,
+            {
+                "phase": phase,
+                "total_scanned": scanned,
+                "total": total,
+                "hits": end_hits,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+
         return results
 
     def _get_skills_block(self, query: str) -> tuple[str, List[str]]:

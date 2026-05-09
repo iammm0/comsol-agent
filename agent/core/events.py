@@ -36,6 +36,15 @@ class EventType(str, Enum):
     ASK_USER_RESOLVED = "ask_user_resolved"
     WORKTREE_ENTERED = "worktree_entered"
     WORKTREE_EXITED = "worktree_exited"
+    # Capability scan：把 SkillInjector 对 3000+ COMSOL wrapper 的真实筛选过程暴露给前端
+    CAPABILITY_SCAN_START = "capability_scan_start"
+    """开始扫描可用能力。data: { phase, query, total, top_k, mode }"""
+    CAPABILITY_SCAN_PROGRESS = "capability_scan_progress"
+    """扫描进度（按批次推送）。data: { phase, scanned, total, current_names: string[<=5] }"""
+    CAPABILITY_SCAN_HIT = "capability_scan_hit"
+    """单条候选命中。data: { phase, name, title, score, matched_terms, category, invoke_mode }"""
+    CAPABILITY_SCAN_END = "capability_scan_end"
+    """扫描结束。data: { phase, total_scanned, hits: [...], elapsed_ms }"""
 
 
 @dataclass

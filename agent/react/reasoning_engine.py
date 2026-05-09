@@ -11,7 +11,7 @@ from agent.skills import get_skill_injector
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
-from schemas.task import (
+from agent.schemas.task import (
     ClarifyingAnswer,
     ClarifyingQuestion,
     ExecutionStep,
@@ -21,7 +21,7 @@ from schemas.task import (
 )
 
 if TYPE_CHECKING:
-    from schemas.task import TaskPlan
+    from agent.schemas.task import TaskPlan
 
 logger = get_logger(__name__)
 
@@ -468,9 +468,16 @@ class ReasoningEngine:
 - required_steps: 需要的步骤列表
 - parameters: 关键参数
 """
-        prompt = get_skill_injector().inject_into_prompt(user_input, prompt)
+        if self._event_bus:
+            self._event_bus.emit_type(
+                EventType.TASK_PHASE, {"phase": "scanning_capabilities"}
+            )
+        injector = get_skill_injector()
+        injector.set_event_bus(self._event_bus)
+        prompt = injector.inject_into_prompt(user_input, prompt)
         self._emit_token_budget(prompt, phase="planning")
         if self._event_bus:
+            self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "thinking"})
 
             def on_chunk(chunk: str) -> None:
                 if chunk and self._event_bus is not None:
@@ -487,7 +494,9 @@ class ReasoningEngine:
         else:
             response = self.llm.call(prompt, temperature=0.1)
 
-        # 提取 JSON
+        if self._event_bus:
+            self._event_bus.emit_type(EventType.TASK_PHASE, {"phase": "planning_steps"})
+
         understanding = self._extract_json(response)
 
         return understanding
@@ -613,6 +622,7 @@ class ReasoningEngine:
             },
         }
 
+        total_steps = len(required_steps)
         for i, step_action in enumerate(required_steps):
             step_type = step_type_map.get(step_action, "geometry")
             step_params = step_parameters_map.get(step_action, {})
@@ -623,14 +633,38 @@ class ReasoningEngine:
                     if k
                     in ("geometry_input", "material_input", "physics_input", "mesh", "study_input")
                 }
+            step_id = f"step_{i + 1}"
+            if self._event_bus:
+                self._event_bus.emit_type(
+                    EventType.STEP_START,
+                    {
+                        "step_id": step_id,
+                        "step_type": step_type,
+                        "action": step_action,
+                        "index": i + 1,
+                        "total": total_steps,
+                    },
+                )
             step = ExecutionStep(
-                step_id=f"step_{i + 1}",
+                step_id=step_id,
                 step_type=step_type,
                 action=step_action,
                 parameters=step_params if step_params else params,
                 status="pending",
             )
             steps.append(step)
+            if self._event_bus:
+                self._event_bus.emit_type(
+                    EventType.STEP_END,
+                    {
+                        "step_id": step_id,
+                        "step_type": step_type,
+                        "action": step_action,
+                        "index": i + 1,
+                        "total": total_steps,
+                        "status": "planned",
+                    },
+                )
 
         return steps
 
@@ -813,7 +847,9 @@ class ReasoningEngine:
 - new_steps: 需要添加的新步骤（如果有）
 - modified_steps: 需要修改的步骤（如果有）
 """
-            prompt = get_skill_injector().inject_into_prompt(feedback, prompt)
+            injector = get_skill_injector()
+            injector.set_event_bus(self._event_bus)
+            prompt = injector.inject_into_prompt(feedback, prompt)
             self._emit_token_budget(prompt, phase="validation")
             response = self.llm.call(prompt, temperature=0.2)
             suggestions = self._extract_json(response)

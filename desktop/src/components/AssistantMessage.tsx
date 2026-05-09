@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { ChatMessage } from "../lib/types";
 import { ReasoningStream } from "./run-events/ReasoningStream";
 import { invoke } from "@tauri-apps/api/core";
@@ -6,6 +7,13 @@ import type { RunEvent } from "../lib/types";
 import { MarkdownContent } from "./MarkdownContent";
 import { sanitizeLLMDisplayText } from "../lib/textSanitizer";
 import { CaseAnalysisCard } from "./CaseAnalysisCard";
+import { parseStructuredAssistantText } from "../lib/structuredAssistantMessage";
+import {
+  isEnvironmentDiagnosisMessage,
+  parseDoctorReportText,
+} from "../lib/parseDoctorReport";
+import { DoctorDiagnosisCard } from "./DoctorDiagnosisCard";
+import { ReasoningLivePlaceholder } from "./ReasoningLivePlaceholder";
 
 /** 合并连续的 llm_stream_chunk 为单条，便于展示完整思维过程 */
 function mergeStreamChunks(events: RunEvent[]): RunEvent[] {
@@ -36,10 +44,15 @@ function getPhaseLabel(events: RunEvent[] | undefined): string {
     if (ev?.type === "task_phase" && ev?.data?.phase) {
       const map: Record<string, string> = {
         planning: "规划中",
+        scanning_capabilities: "扫描能力中",
         thinking: "思考中",
+        planning_steps: "排布步骤中",
         executing: "执行中",
         observing: "观察中",
         iterating: "根据结果调整中",
+        discussion: "探讨中",
+        plan_confirmed: "计划已确认",
+        qa: "问答中",
       };
       return map[ev.data.phase as string] ?? "处理中";
     }
@@ -118,32 +131,82 @@ export function AssistantMessage({ message }: { message: ChatMessage }) {
   const caseData = message.caseData ?? null;
   const streamedText = extractStreamedAssistantText(message.events);
   const isDiscussionReply = hasDiscussionStream(message.events);
-  const renderText = sanitizeLLMDisplayText(message.text || "") || (isCurrentBusy ? streamedText : "");
+  const structured = useMemo(
+    () => parseStructuredAssistantText(message.text || ""),
+    [message.text]
+  );
+  const doctorReport = useMemo(
+    () => parseDoctorReportText(message.text || ""),
+    [message.text]
+  );
+  const showDoctorUi = isEnvironmentDiagnosisMessage(
+    message.text || "",
+    message.assistantPresentation
+  );
+  const bubbleSourceText = structured?.text ?? message.text ?? "";
+  const renderText =
+    sanitizeLLMDisplayText(bubbleSourceText) || (isCurrentBusy ? streamedText : "");
   const showText =
+    !showDoctorUi &&
     !isError &&
     !isDiscussionReply &&
     !caseData &&
     (Boolean(renderText) || !hasEvents);
   const isStreamingText = Boolean(isCurrentBusy && !message.text && streamedText);
   const modelPath =
-    message.modelPath ?? extractModelPath(message.text || "");
+    message.modelPath ??
+    structured?.modelPath ??
+    extractModelPath(message.text || "");
   const phaseLabel = getPhaseLabel(message.events);
   const placeholderText = renderText || (isCurrentBusy ? phaseLabel : "") || "—";
+  const showReasoningPanel =
+    hasEvents || (isCurrentBusy && !showDoctorUi && !isError);
 
   return (
-    <div className="assistant-msg">
-      {hasEvents && (
-        <div className="assistant-msg-reasoning">
-          <p className="assistant-msg-reasoning-title">推理与构建流程</p>
-          <div className="assistant-msg-events">
-            <ReasoningStream events={mergeStreamChunks(message.events!)} />
-          </div>
+    <div className={`assistant-msg${isCurrentBusy ? " assistant-msg--busy" : ""}`}>
+      {isCurrentBusy && (
+        <div className="assistant-msg-live-ribbon" aria-hidden>
+          <div className="assistant-msg-live-ribbon__bar" />
         </div>
       )}
-      {isError && (
+      {showReasoningPanel && (
+        <div className="assistant-msg-reasoning">
+          <p className="assistant-msg-reasoning-title">
+            推理与构建流程
+            {isCurrentBusy && (
+              <span className="assistant-msg-reasoning-live" title="正在进行">
+                <span className="assistant-msg-reasoning-live__dot" aria-hidden />
+                进行中
+              </span>
+            )}
+          </p>
+          {isCurrentBusy && !hasEvents && (
+            <ReasoningLivePlaceholder phaseHint={phaseLabel} />
+          )}
+          {hasEvents && (
+            <div className="assistant-msg-events">
+              <ReasoningStream
+                events={mergeStreamChunks(message.events!)}
+                isLive={isCurrentBusy}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {showDoctorUi && (
+        <DoctorDiagnosisCard
+          report={doctorReport}
+          rawText={message.text || ""}
+          bridgeOk={message.success !== false}
+          time={message.time}
+        />
+      )}
+      {isError && !showDoctorUi && (
         <div className="assistant-msg-body error">
           <div className="assistant-msg-text">
-            <MarkdownContent content={sanitizeLLMDisplayText(message.text)} />
+            <MarkdownContent
+              content={sanitizeLLMDisplayText(bubbleSourceText || message.text || "")}
+            />
           </div>
           {modelPath && (
             <div className="assistant-msg-meta">
