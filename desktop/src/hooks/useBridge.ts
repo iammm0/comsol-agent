@@ -79,6 +79,8 @@ export function useBridge() {
           success: res.ok,
           caseData: res.case_generated ?? null,
           caseSavedPath: res.saved_path ?? null,
+          assistantPresentation:
+            cmd === "doctor" ? "environment_diagnosis" : undefined,
         });
         return res;
       } catch (e) {

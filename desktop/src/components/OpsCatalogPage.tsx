@@ -2,20 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OpsCatalogItem } from "../lib/types";
 import { fetchOpsCatalog } from "../lib/opsCatalog";
 
-type ModeFilter = "all" | OpsCatalogItem["invoke_mode"];
-
 function getOpKey(item: OpsCatalogItem): string {
   return `${item.invoke_mode}:${item.category}:${item.label}:${item.recommended_action}`;
 }
 
-function getModeLabel(mode: OpsCatalogItem["invoke_mode"]): string {
-  return mode === "native" ? "原生 Action" : "Wrapper 包装";
+/** 清单页仅展示官方 API 包装，统一用此文案替代「原生 / Wrapper」二分。 */
+function comsolOpKindLabel(): string {
+  return "官方 API";
 }
 
-function getModeHint(mode: OpsCatalogItem["invoke_mode"]): string {
-  return mode === "native"
-    ? "由 Agent 直接调度的高层原生建模动作。"
-    : "通过官方 API 包装层暴露出的底层调用入口。";
+function comsolOpKindHint(): string {
+  return "经 Java API 包装层暴露的 COMSOL 可调用方法；通过 call_official_api 或对应包装名调度。";
 }
 
 function countSchemaFields(schema: OpsCatalogItem["params_schema"]): number {
@@ -52,14 +49,13 @@ export function OpsCatalogPage() {
   const [searchInput, setSearchInput] = useState("");
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("全部");
-  const [mode, setMode] = useState<ModeFilter>("all");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const result = await fetchOpsCatalog({ limit: 0, offset: 0 });
+    const result = await fetchOpsCatalog({ limit: 0, offset: 0, wrappersOnly: true });
     if (!result.ok) {
       setItems([]);
       setCategories([]);
@@ -81,11 +77,10 @@ export function OpsCatalogPage() {
     const normalizedQuery = query.trim().toLowerCase();
     return items.filter((item) => {
       if (category !== "全部" && item.category !== category) return false;
-      if (mode !== "all" && item.invoke_mode !== mode) return false;
       if (!normalizedQuery) return true;
       return buildSearchText(item).includes(normalizedQuery);
     });
-  }, [items, query, category, mode]);
+  }, [items, query, category]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, OpsCatalogItem[]>();
@@ -128,11 +123,6 @@ export function OpsCatalogPage() {
     [filtered, selectedKey]
   );
 
-  const nativeCount = useMemo(
-    () => items.filter((item) => item.invoke_mode === "native").length,
-    [items]
-  );
-  const wrapperCount = items.length - nativeCount;
   const categoryCount = useMemo(() => new Set(items.map((item) => item.category)).size, [items]);
 
   return (
@@ -141,8 +131,8 @@ export function OpsCatalogPage() {
         <div>
           <h2 className="library-page-title">COMSOL 可执行操作清单</h2>
           <p className="library-page-desc">
-            这里只统计当前 Agent 可以直接对 COMSOL 执行的操作，不包含聊天、设置或导航命令。
-            清单覆盖高层 native action 和官方 API wrapper，两类都会逐条展示。
+            这里列出当前已加载的 COMSOL 6.3 Java API 包装方法（逐条对应可调用入口），不包含聊天、设置或导航命令。
+            高层建模动作（如 create_geometry）由规划与执行管线调度，不在此清单重复罗列。
           </p>
         </div>
         <div className="library-page-actions">
@@ -156,7 +146,6 @@ export function OpsCatalogPage() {
               setSearchInput("");
               setQuery("");
               setCategory("全部");
-              setMode("all");
             }}
           >
             清空筛选
@@ -169,19 +158,9 @@ export function OpsCatalogPage() {
 
       <div className="ops-summary-grid">
         <div className="ops-summary-card">
-          <span className="ops-summary-card__label">全部 COMSOL 操作</span>
+          <span className="ops-summary-card__label">COMSOL API 条目</span>
           <strong>{items.length}</strong>
-          <span className="ops-summary-card__hint">可直接作用于 COMSOL 的全量目录</span>
-        </div>
-        <div className="ops-summary-card">
-          <span className="ops-summary-card__label">原生建模 Action</span>
-          <strong>{nativeCount}</strong>
-          <span className="ops-summary-card__hint">由 Agent 直接编排的高层 COMSOL 动作</span>
-        </div>
-        <div className="ops-summary-card">
-          <span className="ops-summary-card__label">官方 API Wrapper</span>
-          <strong>{wrapperCount}</strong>
-          <span className="ops-summary-card__hint">通过官方 API 包装层暴露的调用能力</span>
+          <span className="ops-summary-card__hint">当前已加载的包装方法总数</span>
         </div>
         <div className="ops-summary-card">
           <span className="ops-summary-card__label">分类数量</span>
@@ -210,15 +189,6 @@ export function OpsCatalogPage() {
               {item}
             </option>
           ))}
-        </select>
-        <select
-          className="case-library-category"
-          value={mode}
-          onChange={(event) => setMode(event.target.value as ModeFilter)}
-        >
-          <option value="all">全部模式</option>
-          <option value="native">原生 Action</option>
-          <option value="wrapper">Wrapper 包装</option>
         </select>
       </div>
 
@@ -267,7 +237,7 @@ export function OpsCatalogPage() {
                               <span className="ops-item-card__action">{item.recommended_action}</span>
                             </div>
                             <span className={`ops-mode-chip ops-mode-chip--${item.invoke_mode}`}>
-                              {getModeLabel(item.invoke_mode)}
+                              {comsolOpKindLabel()}
                             </span>
                           </div>
                           <div className="ops-item-card__meta">
@@ -292,11 +262,11 @@ export function OpsCatalogPage() {
                     <span className="skills-page-kicker">操作详情</span>
                     <h3 className="skills-page-title">{selectedItem.label}</h3>
                     <p className="skills-page-desc">
-                      {selectedItem.category} · {getModeHint(selectedItem.invoke_mode)}
+                      {selectedItem.category} · {comsolOpKindHint()}
                     </p>
                   </div>
                   <span className={`ops-mode-chip ops-mode-chip--${selectedItem.invoke_mode}`}>
-                    {getModeLabel(selectedItem.invoke_mode)}
+                    {comsolOpKindLabel()}
                   </span>
                 </div>
 

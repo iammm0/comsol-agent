@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { ContextMemorySidebar } from "../ContextMemorySidebar";
 import { useTheme, ACCENT_PRESETS } from "../../context/ThemeContext";
 import { useAppState } from "../../context/AppStateContext";
 import {
   apiConfigToEnv,
   getProviderCatalog,
   getProviderConfig,
+  getProviderLabel,
   getProviderMeta,
   loadApiConfig,
   resolveRuntimeBackend,
@@ -34,25 +36,26 @@ const TABS: { id: SettingsTab; label: string }[] = [
 ];
 
 const PROVIDER_GROUP_LABELS: Record<ProviderCatalogEntry["group"], string> = {
-  native: "官方直连",
-  compatible: "OpenAI 兼容",
-  custom: "自定义 / 企业网关",
+  "china-direct": "国内直连",
+  "overseas-relay": "海外中转兼容",
+  "custom-gateway": "自定义 / 企业网关",
   local: "本地部署",
 };
 
 const PROVIDER_GROUP_ORDER: ProviderCatalogEntry["group"][] = [
-  "native",
-  "compatible",
-  "custom",
+  "china-direct",
+  "overseas-relay",
+  "custom-gateway",
   "local",
 ];
 
-const RUNTIME_LABELS: Record<string, string> = {
-  deepseek: "DeepSeek runtime",
-  kimi: "Kimi runtime",
-  "openai-compatible": "OpenAI-compatible runtime",
-  ollama: "Ollama runtime",
-};
+/** 卡片角标：短中文，避免英文 runtime 标签 */
+function providerConnectionHint(providerId: LLMBackendId): string {
+  const rt = resolveRuntimeBackend(providerId);
+  if (rt === "ollama") return "本机";
+  if (rt === "deepseek" || rt === "kimi") return "直连";
+  return "兼容";
+}
 
 function buildComsolEnv(
   config: ApiConfig,
@@ -130,8 +133,13 @@ export function SettingsDialog({
     apiConfig.preferred_backend ?? providerCatalog[0]?.id ?? "deepseek";
   const selectedProviderMeta = getProviderMeta(selectedProviderId);
   const selectedProviderConfig = getProviderConfig(apiConfig, selectedProviderId);
-  const selectedRuntimeLabel =
-    RUNTIME_LABELS[resolveRuntimeBackend(selectedProviderId)];
+  const selectedRuntimeHint = (() => {
+    const rt = resolveRuntimeBackend(selectedProviderId);
+    if (rt === "ollama") return "通过本地或局域网 Ollama 调用，无需 API Key。";
+    if (rt === "deepseek") return "请求发往 DeepSeek 官方接口（Python 内置映射）。";
+    if (rt === "kimi") return "请求发往 Moonshot 官方接口（Python 内置映射）。";
+    return "按 OpenAI 兼容协议请求你填写的 Base URL，由 Python 映射为 openai-compatible 运行时。";
+  })();
   const serializedMemoryText = useMemo(
     () => serializeMemoryItems(memoryItems),
     [memoryItems]
@@ -142,9 +150,9 @@ export function SettingsDialog({
       ProviderCatalogEntry["group"],
       ProviderCatalogEntry[]
     > = {
-      native: [],
-      compatible: [],
-      custom: [],
+      "china-direct": [],
+      "overseas-relay": [],
+      "custom-gateway": [],
       local: [],
     };
     for (const provider of providerCatalog) {
@@ -182,7 +190,8 @@ export function SettingsDialog({
   const saveAndSync = useCallback(
     async (config: ApiConfig, section: "llm" | "comsol") => {
       saveApiConfig(config);
-      setApiConfig(loadApiConfig());
+      const reloaded = loadApiConfig();
+      setApiConfig(reloaded);
 
       const setStatus = section === "llm" ? setLlmStatus : setComsolStatus;
       setStatus("正在同步到后端...");
@@ -190,18 +199,26 @@ export function SettingsDialog({
       try {
         const env =
           section === "llm"
-            ? apiConfigToEnv(config)
-            : buildComsolEnv(config, state.workspaceDir);
+            ? apiConfigToEnv(reloaded)
+            : buildComsolEnv(reloaded, state.workspaceDir);
         const res = await invoke<{ ok: boolean; message: string }>("bridge_send", {
           cmd: "config_save",
           payload: { config: env },
         });
-        setStatus(res.ok ? `已保存：${res.message}` : res.message);
+        if (res.ok && section === "llm" && reloaded.preferred_backend) {
+          const p = getProviderConfig(reloaded, reloaded.preferred_backend);
+          const label = getProviderLabel(reloaded.preferred_backend);
+          setStatus(
+            `已写入本页并同步后端。当前默认：${label}，模型「${p.model || "（未填）"}」。API Key 仍以密文框显示。`
+          );
+        } else {
+          setStatus(res.ok ? `已保存：${res.message}` : res.message);
+        }
       } catch (error) {
         setStatus(`同步失败：${String(error)}`);
       }
 
-      window.setTimeout(() => setStatus(""), 4000);
+      window.setTimeout(() => setStatus(""), 6500);
     },
     [state.workspaceDir]
   );
@@ -520,8 +537,8 @@ export function SettingsDialog({
           {activeTab === "llm" && (
             <div className="settings-card">
               <p className="settings-hint">
-                现在前端会维护更完整的提供商目录，但真正发给 Python 运行时的仍然只会映射到
-                4 类底层协议：DeepSeek、Kimi、Ollama、OpenAI-compatible。
+                下方按使用场景分组；保存后表单会重新载入本地配置。后端实际仍映射为四类协议：DeepSeek、Kimi、Ollama、OpenAI
+                兼容。
               </p>
 
               <div className="settings-provider-groups">
@@ -551,7 +568,7 @@ export function SettingsDialog({
                                   {provider.label}
                                 </span>
                                 <span className="settings-provider-card-runtime">
-                                  {RUNTIME_LABELS[provider.runtimeBackend]}
+                                  {providerConnectionHint(provider.id)}
                                 </span>
                               </span>
                               <span className="settings-provider-card-desc">
@@ -572,9 +589,7 @@ export function SettingsDialog({
                     <h3 className="settings-pane-title">{selectedProviderMeta.label}</h3>
                     <p className="settings-hint">{selectedProviderMeta.description}</p>
                   </div>
-                  <span className="settings-provider-detail-runtime">
-                    {selectedRuntimeLabel}
-                  </span>
+                  <p className="settings-provider-detail-runtime">{selectedRuntimeHint}</p>
                 </div>
 
                 {renderRow(
@@ -589,7 +604,7 @@ export function SettingsDialog({
 
                 {selectedProviderMeta.supportsBaseUrl &&
                   renderRow(
-                    selectedProviderMeta.baseUrlLabel ?? "Base URL",
+                    selectedProviderMeta.baseUrlLabel ?? "接口地址",
                     <input
                       type="url"
                       className="dialog-input settings-api-input"
@@ -609,20 +624,25 @@ export function SettingsDialog({
 
                 {selectedProviderMeta.requiresApiKey &&
                   renderRow(
-                    "API Key",
-                    <input
-                      type="password"
-                      className="dialog-input settings-api-input"
-                      placeholder={`${selectedProviderMeta.label} API Key`}
-                      value={selectedProviderConfig.api_key}
-                      onChange={(event) =>
-                        updateProviderField(
-                          selectedProviderId,
-                          "api_key",
-                          event.target.value
-                        )
-                      }
-                    />
+                    "API 密钥",
+                    <div className="settings-pane-stack">
+                      <input
+                        type="password"
+                        className="dialog-input settings-api-input"
+                        placeholder={`填写 ${selectedProviderMeta.label} 的密钥`}
+                        value={selectedProviderConfig.api_key}
+                        onChange={(event) =>
+                          updateProviderField(
+                            selectedProviderId,
+                            "api_key",
+                            event.target.value
+                          )
+                        }
+                      />
+                      <p className="settings-field-note">
+                        保存后仍显示为圆点属正常；是否生效以保存后下方提示里的模型名为准。
+                      </p>
+                    </div>
                   )}
 
                 {renderRow(
@@ -817,7 +837,16 @@ export function SettingsDialog({
           )}
 
           {activeTab === "memory" && (
-            <div className="settings-card">
+            <>
+              <div className="settings-card">
+                <h3 className="settings-pane-title">记忆预览（Bridge）</h3>
+                <p className="settings-hint">
+                  展示当前会话在 Bridge 侧已整理的摘要，以及下一轮将注入提示词的上下文。需已选择会话且 Bridge 就绪；打开本页或切换到此标签时会自动尝试刷新。
+                </p>
+                <ContextMemorySidebar embedded />
+              </div>
+
+              <div className="settings-card">
               <p className="settings-hint">
                 当前会话的摘要记忆会参与后续推理。这里改为分条整理，每条记忆单独维护，保存时会自动整理成项目符号列表。
               </p>
@@ -880,6 +909,7 @@ export function SettingsDialog({
 
               {memoryStatus && <div className="settings-status">{memoryStatus}</div>}
             </div>
+            </>
           )}
 
           {activeTab === "models" && (

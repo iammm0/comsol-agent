@@ -155,16 +155,17 @@ export function Sidebar() {
       >
         {collapsed ? "▶" : "◀"}
       </button>
+      <button
+        type="button"
+        className="sidebar-new"
+        onClick={() => dispatch({ type: "NEW_CONVERSATION" })}
+        title="新建对话"
+        aria-label="新建对话"
+      >
+        {collapsed ? "+" : "+ 新建对话"}
+      </button>
       {!collapsed && (
         <>
-          <button
-            type="button"
-            className="sidebar-new"
-            onClick={() => dispatch({ type: "NEW_CONVERSATION" })}
-            title="新建对话"
-          >
-            + 新建对话
-          </button>
           <div className="sidebar-groups-config">
             <div className="sidebar-section-title">对话集合</div>
             <div className="sidebar-group-create">

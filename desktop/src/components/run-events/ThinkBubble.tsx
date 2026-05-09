@@ -2,19 +2,33 @@ import type { RunEvent } from "../../lib/types";
 import { sanitizeLLMDisplayText } from "../../lib/textSanitizer";
 
 /** 思维流（LLM 流式 / think_chunk）：气泡样式 */
-export function ThinkBubble({ event }: { event: RunEvent }) {
+export function ThinkBubble({
+  event,
+  isLiveStreamTail = false,
+}: {
+  event: RunEvent;
+  /** 当前会话进行中且本块为最后一个流式片段时显示打字光标 */
+  isLiveStreamTail?: boolean;
+}) {
   const d = event.data ?? {};
   const type = event.type;
 
   if (type === "llm_stream_chunk") {
     const chunk = sanitizeLLMDisplayText(String(d.chunk ?? d.text ?? ""));
     const phase = (d.phase as string) ?? "";
-    if (!chunk) return null;
+    if (!chunk && !isLiveStreamTail) return null;
     return (
       <div className="run-event-bubble run-event-bubble--think">
         {phase && <span className="run-event-bubble__phase">{phase}</span>}
-        <div className="run-event-bubble__content run-event-bubble__content--stream">
+        <div
+          className={`run-event-bubble__content run-event-bubble__content--stream${
+            isLiveStreamTail ? " run-event-bubble__content--stream-live" : ""
+          }`}
+        >
           {chunk}
+          {isLiveStreamTail && (
+            <span className="run-event-bubble__stream-caret" aria-hidden />
+          )}
         </div>
       </div>
     );

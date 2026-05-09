@@ -21,12 +21,12 @@ export function getSystemTheme(): ResolvedTheme {
 }
 
 export const ACCENT_PRESETS: { name: string; value: string }[] = [
-  { name: "蓝", value: "#2563eb" },
-  { name: "紫", value: "#7c3aed" },
-  { name: "青", value: "#0891b2" },
-  { name: "绿", value: "#059669" },
-  { name: "橙", value: "#ea580c" },
-  { name: "红", value: "#dc2626" },
+  { name: "暖金", value: "#dcc88a" },
+  { name: "古铜", value: "#c89a4a" },
+  { name: "苔绿", value: "#9ec48c" },
+  { name: "晨曦", value: "#e8d49a" },
+  { name: "复古红", value: "#c97a5e" },
+  { name: "深绿", value: "#5a8c6a" },
 ];
 
 export interface ThemeState {
@@ -40,9 +40,20 @@ interface ThemeContextValue extends ThemeState {
 }
 
 const defaultState: ThemeState = {
-  themeMode: "system",
+  themeMode: "light",
   accentColor: ACCENT_PRESETS[0].value,
 };
+
+const LEGACY_TOKYO_NIGHT_ACCENTS = new Set(
+  [
+    "#2563eb",
+    "#7c3aed",
+    "#0891b2",
+    "#059669",
+    "#ea580c",
+    "#dc2626",
+  ].map((s) => s.toLowerCase())
+);
 
 function loadTheme(): ThemeState {
   try {
@@ -57,14 +68,18 @@ function loadTheme(): ThemeState {
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<ThemeState>;
       const mode = parsed.themeMode;
+      const rawAccent =
+        typeof parsed.accentColor === "string" &&
+        /^#[0-9A-Fa-f]{6}$/.test(parsed.accentColor)
+          ? parsed.accentColor
+          : defaultState.accentColor;
+      const accent = LEGACY_TOKYO_NIGHT_ACCENTS.has(rawAccent.toLowerCase())
+        ? defaultState.accentColor
+        : rawAccent;
       return {
         themeMode:
           mode === "dark" || mode === "system" ? mode : "light",
-        accentColor:
-          typeof parsed.accentColor === "string" &&
-          /^#[0-9A-Fa-f]{6}$/.test(parsed.accentColor)
-            ? parsed.accentColor
-            : defaultState.accentColor,
+        accentColor: accent,
       };
     }
   } catch {

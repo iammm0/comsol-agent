@@ -267,7 +267,10 @@ export function Prompt() {
           ))}
         </div>
       </div>
-      <div className="prompt-wrapper" style={{ position: "relative" }}>
+      <div
+        className={`prompt-wrapper${busy ? " prompt-wrapper--busy" : ""}`}
+        style={{ position: "relative" }}
+      >
         <div className="prompt-plus-wrap" ref={plusWrapRef}>
           <button
             type="button"

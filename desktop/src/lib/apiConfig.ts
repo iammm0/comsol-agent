@@ -54,7 +54,8 @@ export interface ProviderCatalogEntry {
   requiresApiKey: boolean;
   supportsBaseUrl: boolean;
   baseUrlLabel?: string;
-  group: "native" | "compatible" | "custom" | "local";
+  /** 设置页分区：国内直连 / 海外兼容 / 企业或自定义网关 / 本地 */
+  group: "china-direct" | "overseas-relay" | "custom-gateway" | "local";
 }
 
 export interface ContextWindowInfo {
@@ -80,7 +81,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "deepseek-reasoner",
     requiresApiKey: true,
     supportsBaseUrl: false,
-    group: "native",
+    group: "china-direct",
   },
   {
     id: "kimi",
@@ -92,7 +93,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "moonshot-v1-8k",
     requiresApiKey: true,
     supportsBaseUrl: false,
-    group: "native",
+    group: "china-direct",
   },
   {
     id: "openai",
@@ -103,7 +104,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "gpt-4.1-mini",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "anthropic",
@@ -115,7 +116,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "claude-sonnet-4-5-20250929",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "gemini",
@@ -127,7 +128,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "gemini-2.5-flash",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "xai",
@@ -139,7 +140,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "grok-4-latest",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "qwen",
@@ -151,7 +152,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "qwen-plus",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "china-direct",
   },
   {
     id: "zhipu",
@@ -163,7 +164,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "glm-4-plus",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "china-direct",
   },
   {
     id: "openrouter",
@@ -174,7 +175,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "openai/gpt-4.1-mini",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "groq",
@@ -185,7 +186,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "openai/gpt-oss-20b",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "together",
@@ -196,7 +197,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "openai/gpt-oss-20b",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "fireworks",
@@ -207,7 +208,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "accounts/fireworks/models/llama-v3p1-8b-instruct",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "siliconflow",
@@ -218,7 +219,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "Qwen/Qwen3-32B",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "china-direct",
   },
   {
     id: "perplexity",
@@ -229,7 +230,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "sonar",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "mistral",
@@ -240,7 +241,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "mistral-small-latest",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "overseas-relay",
   },
   {
     id: "volcengine-ark",
@@ -252,7 +253,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "doubao-seed-1-6-251015",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "compatible",
+    group: "china-direct",
   },
   {
     id: "azure-openai",
@@ -266,7 +267,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     requiresApiKey: true,
     supportsBaseUrl: true,
     baseUrlLabel: "Azure Base URL",
-    group: "custom",
+    group: "custom-gateway",
   },
   {
     id: "custom-openai",
@@ -278,7 +279,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "gpt-4o-mini",
     requiresApiKey: true,
     supportsBaseUrl: true,
-    group: "custom",
+    group: "custom-gateway",
   },
   {
     id: "ollama",
@@ -376,6 +377,17 @@ function inferCompatibleProvider(baseUrl: string): LLMBackendId {
   return match?.id ?? "custom-openai";
 }
 
+/** 避免 { ...a, ...{ k: undefined } } 覆盖掉已有字符串配置 */
+function definedProviderPartial(
+  partial: Partial<ProviderConfig>
+): Partial<ProviderConfig> {
+  const out: Partial<ProviderConfig> = {};
+  if (typeof partial.api_key === "string") out.api_key = partial.api_key;
+  if (typeof partial.base_url === "string") out.base_url = partial.base_url;
+  if (typeof partial.model === "string") out.model = partial.model;
+  return out;
+}
+
 function mergeStoredConfig(raw: RawApiConfig): ApiConfig {
   const config = makeDefaultConfig();
   const preferredBackend: string | null =
@@ -459,10 +471,12 @@ function mergeStoredConfig(raw: RawApiConfig): ApiConfig {
   ];
 
   for (const [providerId, partial] of legacyProviderMap) {
+    const cleaned = definedProviderPartial(partial);
+    if (Object.keys(cleaned).length === 0) continue;
     const provider = getProviderMeta(providerId);
     config.providers[providerId] = mergeProviderConfig(provider, {
       ...config.providers[providerId],
-      ...partial,
+      ...cleaned,
     });
   }
 

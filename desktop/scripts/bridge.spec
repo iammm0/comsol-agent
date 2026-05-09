@@ -12,7 +12,8 @@ a = Analysis(
     pathex=[str(ROOT)],
     binaries=[],
     datas=[
-        (str(ROOT / "prompts"), "prompts"),
+        (str(ROOT / "agent" / "prompts"), "agent/prompts"),
+        (str(ROOT / "agent" / "skills" / "library"), "agent/skills/library"),
         (str(ROOT / "agent" / "clawcode" / "reference_data"), "agent/clawcode/reference_data"),
         (str(ROOT / "agent" / "clawcode" / "gui" / "static"), "agent/clawcode/gui/static"),
     ],
@@ -39,7 +40,7 @@ a = Analysis(
         "agent.utils.config",
         "agent.utils.java_runtime",
         "scripts.sync_comsol_case_library",
-        "schemas",
+        "agent.schemas",
         "dotenv",
         "pydantic",
         "pydantic_settings",

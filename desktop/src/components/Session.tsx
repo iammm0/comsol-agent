@@ -1,5 +1,4 @@
 import { MessageList } from "./MessageList";
-import { ContextMemorySidebar } from "./ContextMemorySidebar";
 import { Prompt } from "./Prompt";
 
 export function Session() {
@@ -9,7 +8,6 @@ export function Session() {
         <MessageList />
         <Prompt />
       </div>
-      <ContextMemorySidebar />
     </div>
   );
 }

@@ -1,0 +1,823 @@
+/* =============================================================================
+ * Hermes 视觉覆盖层
+ * ----------------------------------------------------------------------------
+ * 思路:
+ *   1. App.css 顶部已把 :root/[data-theme] 调色板与字体 token 改为 Hermes 双色版,
+ *      绝大多数组件无需改动即可获得新的色调与字体。
+ *   2. 本文件只处理"无法仅靠 token 表达"的视觉特征:
+ *        - 米色 1px 描边的"画框"包裹整个应用
+ *        - 衬线 display 风的品牌标题(HERMES 风)
+ *        - 全大写 + 字距的小标签风(章节、徽章)
+ *        - 直角 + ghost 风的按钮、对话框、卡片
+ *        - 终端古籍风的 Prompt 输入框
+ *        - 消息气泡换成"细线引用条"的古典样式
+ *   3. 所有覆盖只针对外观,不动布局尺寸/交互,确保现有页面行为不变。
+ * ========================================================================= */
+
+/* -------- 1. 全局基调 ----------------------------------------------------- */
+
+body {
+    font-family: var(--font-serif);
+    font-feature-settings:
+        "liga" 1,
+        "calt" 1,
+        "kern" 1,
+        "ss01" 1;
+    letter-spacing: 0.005em;
+}
+
+::selection {
+    background: rgba(var(--primary-rgb), 0.45);
+    color: var(--text);
+}
+
+/* 背景上的微妙星点装饰(致敬 Hermes 主页背景的散点) */
+.app {
+    position: relative;
+    background:
+        radial-gradient(
+            circle at 18% 22%,
+            rgba(var(--primary-rgb), 0.06) 0,
+            transparent 1px
+        ),
+        radial-gradient(
+            circle at 78% 64%,
+            rgba(var(--primary-rgb), 0.05) 0,
+            transparent 1px
+        ),
+        radial-gradient(
+            circle at 42% 88%,
+            rgba(var(--text-rgb), 0.04) 0,
+            transparent 1px
+        ),
+        var(--bg);
+    background-size:
+        420px 420px,
+        540px 540px,
+        320px 320px;
+}
+
+/* "画框":在主体外围添加细米色描边,模拟 Hermes 的复古版面 */
+.app-body {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+/* -------- 2. 滚动条 ------------------------------------------------------- */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(var(--text-rgb), 0.18);
+    border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--text-rgb), 0.32);
+}
+
+/* -------- 3. TitleBar:HERMES 风品牌 -------------------------------------- */
+
+.titlebar {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+}
+
+/* 让左侧品牌区始终单行,中文不被字距强制换行 */
+.titlebar-left {
+    flex-wrap: nowrap !important;
+    white-space: nowrap;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.titlebar-icon {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 14px;
+    letter-spacing: 0.06em;
+    color: var(--primary);
+    margin-right: 10px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* 注:中文加大字距会因每字独立换行,这里用细微字距即可 */
+.titlebar-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+/* 英文环境下可恢复 hermes 大字距,通过 :lang 区分 */
+.titlebar-title:lang(en) {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+}
+
+.titlebar-session {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    text-transform: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+/* 顶栏徽章:Hermes 风全大写 mono 小标签 */
+.titlebar-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 3px 10px;
+    color: var(--text-muted);
+}
+.titlebar-badge.mode {
+    border-color: rgba(var(--primary-rgb), 0.45);
+    color: var(--primary);
+}
+.titlebar-badge.backend {
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+/* 顶栏导航按钮:全大写 + ghost,激活态用米色细线下边框 */
+.titlebar-entry-btn {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 0 !important;
+    padding: 6px 12px !important;
+    font-family: var(--font-mono) !important;
+    font-size: 11px !important;
+    letter-spacing: var(--tracking-wide) !important;
+    text-transform: uppercase !important;
+    color: var(--text-muted) !important;
+    transition:
+        color 0.15s ease,
+        border-color 0.15s ease;
+}
+.titlebar-entry-btn:hover {
+    color: var(--text) !important;
+    border-color: var(--border) !important;
+}
+.titlebar-entry-btn.active {
+    color: var(--primary) !important;
+    border-color: rgba(var(--primary-rgb), 0.55) !important;
+    background: rgba(var(--primary-rgb), 0.06) !important;
+}
+
+/* 窗口控制按钮:细线 ghost 风 */
+.titlebar-win-control {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0;
+    color: var(--text-muted);
+    width: 30px;
+    height: 24px;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.titlebar-win-control:hover {
+    background: rgba(var(--text-rgb), 0.08);
+    color: var(--text);
+}
+.titlebar-close:hover {
+    background: var(--error);
+    color: var(--bg);
+}
+
+/* -------- 4. Sidebar:细线分区 + 大写小标签 ------------------------------- */
+
+.sidebar {
+    border-right: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.sidebar-section-title,
+.sidebar-group-heading {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-new {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    padding: 10px 12px;
+    transition:
+        background 0.15s,
+        border-color 0.15s,
+        color 0.15s;
+}
+.sidebar-new:hover {
+    background: rgba(var(--primary-rgb), 0.08);
+    border-color: rgba(var(--primary-rgb), 0.6);
+    color: var(--primary);
+}
+
+.sidebar-group-input {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 6px 10px;
+}
+.sidebar-group-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.sidebar-group-add {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    padding: 6px 10px;
+    transition: all 0.15s;
+}
+.sidebar-group-add:hover {
+    color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.6);
+}
+
+.sidebar-group-box {
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+}
+
+.sidebar-item {
+    border-radius: 0;
+    border-left: 2px solid transparent;
+    transition: background 0.15s;
+}
+.sidebar-item:hover {
+    background: rgba(var(--text-rgb), 0.05);
+}
+.sidebar-item.active {
+    background: rgba(var(--primary-rgb), 0.1);
+    border-left-color: var(--primary);
+}
+
+.sidebar-item-title {
+    font-family: var(--font-serif);
+    font-size: 13px;
+    color: var(--text);
+}
+
+.sidebar-item-time {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.sidebar-item-menu {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+}
+.sidebar-item-menu-item {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text);
+    border-radius: 0;
+}
+.sidebar-item-menu-item:hover {
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary);
+}
+.sidebar-item-menu-item.danger:hover {
+    background: rgba(var(--error-rgb), 0.15);
+    color: var(--error);
+}
+
+.sidebar-toggle {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text-muted);
+}
+.sidebar-toggle:hover {
+    color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.6);
+}
+
+/* -------- 5. 通用按钮:直角 ghost 风 -------------------------------------- */
+
+.dialog-btn,
+.titlebar-action-btn {
+    border-radius: 0 !important;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 16px;
+    transition: all 0.15s;
+}
+.dialog-btn:hover,
+.titlebar-action-btn:hover {
+    background: rgba(var(--text-rgb), 0.06);
+    border-color: var(--border-strong);
+}
+.dialog-btn.primary,
+.dialog-btn.confirm {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--bg);
+}
+.dialog-btn.primary:hover,
+.dialog-btn.confirm:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.dialog-btn.secondary {
+    background: transparent;
+    color: var(--text);
+}
+.dialog-btn.danger {
+    background: transparent;
+    border-color: rgba(var(--error-rgb), 0.6);
+    color: var(--error);
+}
+.dialog-btn.danger:hover {
+    background: rgba(var(--error-rgb), 0.12);
+    border-color: var(--error);
+}
+
+/* -------- 6. 对话框:直角描边卡片 ----------------------------------------- */
+
+.dialog-overlay {
+    background: rgba(8, 18, 13, 0.65);
+    backdrop-filter: blur(2px);
+}
+
+.dialog-box {
+    border-radius: 0 !important;
+    border: 1px solid var(--border-strong) !important;
+    background: var(--bg-panel) !important;
+    box-shadow:
+        0 0 0 1px rgba(var(--text-rgb), 0.05),
+        0 24px 60px rgba(0, 0, 0, 0.4) !important;
+}
+
+.dialog-header {
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.dialog-section-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+}
+
+.dialog-input,
+.dialog-row input,
+.dialog-row textarea,
+.dialog-row select {
+    border-radius: 0 !important;
+    border: 1px solid var(--border) !important;
+    background: var(--bg) !important;
+    color: var(--text) !important;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+}
+.dialog-input:focus,
+.dialog-row input:focus,
+.dialog-row textarea:focus,
+.dialog-row select:focus {
+    outline: none !important;
+    border-color: var(--primary) !important;
+}
+
+/* -------- 7. 消息气泡:古典衬线正文 + 引用条 ------------------------------ */
+
+.user-msg {
+    background: transparent;
+    border-left: 2px solid var(--primary);
+    border-radius: 0;
+    padding-left: 16px;
+}
+.user-msg-text {
+    font-family: var(--font-serif);
+    color: var(--text);
+}
+
+.assistant-msg {
+    background: transparent;
+    border-left: 2px solid var(--border-strong);
+    border-radius: 0;
+    padding-left: 16px;
+}
+.assistant-msg-body {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding-left: 0;
+}
+.assistant-msg-text {
+    font-family: var(--font-serif);
+    font-size: 14px;
+    line-height: 1.75;
+    color: var(--text);
+}
+
+.assistant-msg-meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.assistant-msg-reasoning-title,
+.system-msg {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.message-list-empty {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text);
+}
+.message-list-empty-hint {
+    font-family: var(--font-serif);
+    color: var(--text-muted);
+}
+
+/* 流式光标:用 Hermes 暖金细块 */
+.assistant-msg-stream-cursor {
+    background: var(--primary);
+}
+
+/* -------- 8. Prompt:终端古籍风 ------------------------------------------- */
+
+.prompt-area {
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.prompt-wrapper {
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg-menu);
+    transition: border-color 0.15s;
+}
+.prompt-wrapper:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.2);
+}
+
+.prompt-input {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+    background: transparent;
+    border-radius: 0;
+}
+
+.prompt-toolbar {
+    border-top: 1px solid var(--border);
+    background: transparent;
+}
+
+.prompt-mode-segment {
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    overflow: hidden;
+}
+.prompt-mode-btn {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 5px 12px;
+    transition: all 0.15s;
+}
+.prompt-mode-btn:hover {
+    color: var(--text);
+}
+.prompt-mode-btn.active {
+    background: rgba(var(--primary-rgb), 0.12);
+    color: var(--primary);
+}
+
+.prompt-plus-btn {
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    width: 28px;
+    height: 28px;
+}
+.prompt-plus-btn:hover {
+    border-color: rgba(var(--primary-rgb), 0.6);
+    color: var(--primary);
+}
+
+.prompt-plus-menu {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-strong);
+    border-radius: 0;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.prompt-plus-menu-item {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    border-radius: 0;
+    color: var(--text);
+}
+.prompt-plus-menu-item:hover {
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary);
+}
+.prompt-plus-menu-cmd {
+    color: var(--primary);
+    letter-spacing: 0.04em;
+}
+.prompt-plus-menu-desc {
+    color: var(--text-muted);
+}
+
+.prompt-send {
+    background: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: 0;
+    color: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    padding: 6px 16px;
+}
+.prompt-send:hover:not(:disabled) {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.prompt-send:disabled {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-muted);
+}
+
+.prompt-stop {
+    background: transparent;
+    border: 1px solid rgba(var(--error-rgb), 0.6);
+    border-radius: 0;
+    color: var(--error);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+}
+.prompt-stop:hover {
+    background: rgba(var(--error-rgb), 0.12);
+    border-color: var(--error);
+}
+
+.prompt-context-meter {
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+}
+.prompt-context-meter__title {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.prompt-context-meter__numbers {
+    font-family: var(--font-mono);
+    color: var(--text);
+}
+
+.prompt-plan-nudge {
+    border: 1px solid rgba(var(--primary-rgb), 0.45);
+    background: rgba(var(--primary-rgb), 0.06);
+    border-radius: 0;
+}
+.prompt-plan-nudge__text {
+    font-family: var(--font-serif);
+    color: var(--text);
+}
+.prompt-plan-nudge__kbd {
+    font-family: var(--font-mono);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    letter-spacing: 0.04em;
+}
+.prompt-plan-nudge__btn {
+    border-radius: 0 !important;
+    font-family: var(--font-mono);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+}
+
+/* -------- 9. Bridge 错误条:细线警示 -------------------------------------- */
+
+.bridge-error-banner {
+    background: rgba(var(--error-rgb), 0.1);
+    border-bottom: 1px solid rgba(var(--error-rgb), 0.5);
+    font-family: var(--font-serif);
+}
+.bridge-error-banner > .bridge-error-main > span:first-child {
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: none;
+}
+
+/* -------- 10. 卡片/通用容器圆角清零 ------------------------------------- */
+
+.run-event-card,
+.run-event-bubble,
+.run-event-callout,
+.run-event-alert,
+.run-event-pill,
+.context-memory-card,
+.context-memory-sidebar,
+.case-library-toolbar,
+.settings-models-item,
+.settings-card-head {
+    border-radius: 0 !important;
+}
+
+.run-event-pill {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+}
+
+/* -------- 11. 字体 fallback for headings 在 markdown 中 ------------------ */
+
+.assistant-msg-text h1,
+.assistant-msg-text h2,
+.assistant-msg-text h3 {
+    font-family: var(--font-display);
+    letter-spacing: 0.02em;
+}
+.assistant-msg-text code,
+.assistant-msg-text pre {
+    font-family: var(--font-mono);
+}
+
+/* -------- 12. 漏网圆角清零 + 小细节 -------------------------------------- */
+
+.context-memory-sidebar,
+.context-memory-sidebar__refresh,
+.context-memory-sidebar__toggle,
+.context-memory-card,
+.context-memory-card__head,
+.context-memory-list,
+.context-memory-empty,
+.context-memory-preview,
+.run-event-bubble__phase,
+.run-event-bubble__action,
+.run-event-step__dot,
+.run-event-badge,
+.case-library-status,
+.case-library-status__toggle,
+.settings-dialog,
+.settings-dialog-close,
+.settings-sidebar,
+.settings-sidebar-item,
+.exec-step,
+.exec-step-indicator,
+.assistant-msg-model-btn {
+    border-radius: 0 !important;
+}
+
+.context-memory-sidebar__eyebrow {
+    font-family: var(--font-mono);
+    letter-spacing: var(--tracking-wider);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.context-memory-sidebar__refresh,
+.context-memory-sidebar__toggle {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    transition: all 0.15s;
+}
+.context-memory-sidebar__refresh:hover,
+.context-memory-sidebar__toggle:hover {
+    color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.55);
+}
+
+.assistant-msg-model-btn {
+    border: 1px solid var(--border);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.assistant-msg-model-btn:hover {
+    color: var(--primary);
+    border-color: rgba(var(--primary-rgb), 0.55);
+}
+
+/* settings 左侧导航:hermes 风全大写小标签 */
+.settings-sidebar-item {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: var(--tracking-wide);
+    color: var(--text-muted);
+    border-left: 2px solid transparent;
+}
+.settings-sidebar-item:hover {
+    color: var(--text);
+    background: rgba(var(--text-rgb), 0.04);
+}
+.settings-sidebar-item.active,
+.settings-sidebar-item[aria-current="page"] {
+    color: var(--primary);
+    background: rgba(var(--primary-rgb), 0.08);
+    border-left-color: var(--primary);
+}
+
+/* settings header 衬线大字 */
+.settings-dialog-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* tabs 通用:细线下划风(用于"使用流程/快速案例"之类) */
+[role="tab"] {
+    border-radius: 0 !important;
+}
+
+/* run-event 中的状态点保持圆形(语义为状态指示),其余圆角清零 */
+.run-event-step__dot,
+.run-event-pill__dot {
+    border-radius: 999px !important;
+}

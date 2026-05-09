@@ -11,6 +11,9 @@
     "bundle": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-bridge.ps1; powershell -NoProfile -ExecutionPolicy Bypass -File scripts/download-jdk11.ps1; npm run tauri build"
   },
   "dependencies": {
+    "@fontsource/fraunces": "^5.2.9",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/source-serif-4": "^5.2.9",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "better-react-mathjax": "^3.0.0",

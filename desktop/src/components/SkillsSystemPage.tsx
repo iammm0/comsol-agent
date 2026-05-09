@@ -684,7 +684,7 @@ export function SkillsSystemPage() {
             <h3 className="skills-page-title">创建新的 Skill</h3>
             <p className="skills-page-desc">
               这里负责具体的创建逻辑。填写名称、领域说明、标签和触发词后，系统会在项目的
-              <code> skills/ </code>
+              <code> agent/skills/library/ </code>
               目录下生成新的技能模板。
             </p>
           </div>
@@ -817,7 +817,7 @@ export function SkillsSystemPage() {
             <ul className="skills-checklist">
               <li>目录内至少要有一个 <code>SKILL.md</code>。</li>
               <li>如果是单文件导入，建议文件名直接使用 <code>SKILL.md</code>。</li>
-              <li>导入后会复制到项目的 <code>skills/</code> 目录，并出现在技能广场。</li>
+              <li>导入后会复制到项目的 <code>agent/skills/library/</code> 目录，并出现在技能广场。</li>
               <li>导入成功后建议立即补齐详情页中的建模路径和调试路径内容。</li>
             </ul>
           </aside>

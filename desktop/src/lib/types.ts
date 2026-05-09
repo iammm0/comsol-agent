@@ -1,6 +1,9 @@
 /** 消息角色 */
 export type MessageRole = "user" | "assistant" | "system";
 
+/** 助手消息专用展示形态（非 LLM 自由文本） */
+export type AssistantPresentation = "environment_diagnosis";
+
 /** 单条对话消息 */
 export interface ChatMessage {
   id: string;
@@ -14,6 +17,8 @@ export interface ChatMessage {
   modelPath?: string | null;
   caseData?: CaseGeneratedData | null;
   caseSavedPath?: string | null;
+  /** 结构化 UI（如环境诊断卡片）；与 `text` 同源，由前端解析展示 */
+  assistantPresentation?: AssistantPresentation;
 }
 
 /** 运行/流式事件（与后端 bridge-event 一致） */

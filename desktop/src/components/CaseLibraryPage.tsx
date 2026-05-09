@@ -12,6 +12,8 @@ import {
 } from "../lib/caseLibrary";
 import { trackCaseLibraryRecord, type CaseLibraryRecordAction } from "../lib/caseLibraryRecords";
 
+const CASE_LIBRARY_STATUS_COLLAPSED_KEY = "mph-agent-case-library-status-collapsed";
+
 function buildParsePrompt(item: CaseLibraryItem): string {
   return [
     "请解析这个 COMSOL 官方案例，并给出可复现的建模步骤与关键参数：",
@@ -58,6 +60,21 @@ export function CaseLibraryPage() {
   const [syncState, setSyncState] = useState<CaseLibrarySyncState | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
+  const [statusCollapsed, setStatusCollapsed] = useState(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(CASE_LIBRARY_STATUS_COLLAPSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CASE_LIBRARY_STATUS_COLLAPSED_KEY, statusCollapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [statusCollapsed]);
 
   const loadCases = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -246,13 +263,35 @@ export function CaseLibraryPage() {
         </select>
       </div>
 
-      <div className={`case-library-status ${syncState?.status === "error" ? "case-library-status--error" : ""}`}>
-        <div className="case-library-status__main">
-          <span className="case-library-status__title">{renderSyncSummary(syncState)}</span>
-          <span className="case-library-status__meta">目标版本：{CASE_LIBRARY_TARGET_VERSION}</span>
-          {generatedAt && <span className="case-library-status__meta">索引时间：{formatCaseLibraryTime(generatedAt)}</span>}
+      <div
+        className={`case-library-status ${syncState?.status === "error" ? "case-library-status--error" : ""} ${
+          statusCollapsed ? "case-library-status--collapsed" : ""
+        }`}
+      >
+        <div className="case-library-status__body">
+          <div className="case-library-status__main">
+            <span className="case-library-status__title">{renderSyncSummary(syncState)}</span>
+            {!statusCollapsed && (
+              <>
+                <span className="case-library-status__meta">目标版本：{CASE_LIBRARY_TARGET_VERSION}</span>
+                {generatedAt && (
+                  <span className="case-library-status__meta">索引时间：{formatCaseLibraryTime(generatedAt)}</span>
+                )}
+              </>
+            )}
+          </div>
+          {!statusCollapsed && statusText ? <span className="case-library-status__meta case-library-status__hint">{statusText}</span> : null}
         </div>
-        {statusText && <span className="case-library-status__meta">{statusText}</span>}
+        <button
+          type="button"
+          className="case-library-status__toggle"
+          onClick={() => setStatusCollapsed((c) => !c)}
+          aria-expanded={!statusCollapsed}
+          aria-label={statusCollapsed ? "展开案例库状态" : "折叠案例库状态"}
+          title={statusCollapsed ? "展开案例库状态" : "折叠案例库状态"}
+        >
+          {statusCollapsed ? "▼" : "▲"}
+        </button>
       </div>
 
       {selectedCase ? (

@@ -23,8 +23,10 @@ export async function fetchOpsCatalog(options?: {
   query?: string;
   limit?: number;
   offset?: number;
+  /** 为 true 时仅返回官方 Java API 包装条目（不含 define_globals 等高层 native 摘要） */
+  wrappersOnly?: boolean;
 }): Promise<OpsCatalogResult> {
-  const { query, limit = 200, offset = 0 } = options ?? {};
+  const { query, limit = 200, offset = 0, wrappersOnly = true } = options ?? {};
 
   try {
     const res = await invoke<OpsCatalogResponse>("bridge_send", {
@@ -33,6 +35,7 @@ export async function fetchOpsCatalog(options?: {
         query: query?.trim() || undefined,
         limit,
         offset,
+        wrappers_only: wrappersOnly,
       },
     });
 

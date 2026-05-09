@@ -48,11 +48,17 @@ async function readContextCommand(
   return res.message || "";
 }
 
-export function ContextMemorySidebar() {
+interface ContextMemorySidebarProps {
+  /** 嵌入设置页时使用：无侧栏折叠条，占满容器宽度 */
+  embedded?: boolean;
+}
+
+export function ContextMemorySidebar({ embedded = false }: ContextMemorySidebarProps) {
   const { state } = useAppState();
   const cid = state.currentConversationId;
   const requestRef = useRef(0);
   const [collapsed, setCollapsed] = useState(() => {
+    if (embedded) return false;
     try {
       return localStorage.getItem(MEMORY_SIDEBAR_COLLAPSED_KEY) === "1";
     } catch {
@@ -116,6 +122,7 @@ export function ContextMemorySidebar() {
   }, [refresh, state.busyConversationId]);
 
   useEffect(() => {
+    if (embedded) return;
     try {
       localStorage.setItem(
         MEMORY_SIDEBAR_COLLAPSED_KEY,
@@ -124,7 +131,7 @@ export function ContextMemorySidebar() {
     } catch {
       // ignore
     }
-  }, [collapsed]);
+  }, [collapsed, embedded]);
 
   const memoryLines = useMemo(
     () => splitPreviewLines(preview.memoryText),
@@ -146,38 +153,18 @@ export function ContextMemorySidebar() {
         ? "ready"
         : "idle";
 
+  const rootClass = embedded
+    ? "context-memory-sidebar context-memory-sidebar--embedded"
+    : `context-memory-sidebar ${collapsed ? "collapsed" : ""}`;
+  const RootTag = embedded ? "div" : "aside";
+
   return (
-    <aside
-      className={`context-memory-sidebar ${collapsed ? "collapsed" : ""}`}
+    <RootTag
+      className={rootClass}
       aria-label="当前对话记忆上下文"
     >
       <header className="context-memory-sidebar__header">
-        <button
-          type="button"
-          className="context-memory-sidebar__toggle"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "展开记忆预览" : "收起记忆预览"}
-          title={collapsed ? "展开记忆预览" : "收起记忆预览"}
-          onClick={() => setCollapsed((value) => !value)}
-        >
-          {collapsed ? "<" : ">"}
-        </button>
-
-        {collapsed ? (
-          <div className="context-memory-sidebar__collapsed-body">
-            <span className="context-memory-sidebar__eyebrow">Memory</span>
-            <span className="context-memory-sidebar__collapsed-title">
-              记忆预览
-            </span>
-            <span
-              className={`context-memory-sidebar__collapsed-dot ${statusTone}`}
-              aria-hidden="true"
-            />
-            <span className="context-memory-sidebar__collapsed-count">
-              {previewCount}
-            </span>
-          </div>
-        ) : (
+        {embedded ? (
           <>
             <div className="context-memory-sidebar__heading">
               <span className="context-memory-sidebar__eyebrow">Memory</span>
@@ -193,10 +180,55 @@ export function ContextMemorySidebar() {
               {preview.loading ? "刷新中" : "刷新"}
             </button>
           </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="context-memory-sidebar__toggle"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "展开记忆预览" : "收起记忆预览"}
+              title={collapsed ? "展开记忆预览" : "收起记忆预览"}
+              onClick={() => setCollapsed((value) => !value)}
+            >
+              {collapsed ? "<" : ">"}
+            </button>
+
+            {collapsed ? (
+              <div className="context-memory-sidebar__collapsed-body">
+                <span className="context-memory-sidebar__eyebrow">Memory</span>
+                <span className="context-memory-sidebar__collapsed-title">
+                  记忆预览
+                </span>
+                <span
+                  className={`context-memory-sidebar__collapsed-dot ${statusTone}`}
+                  aria-hidden="true"
+                />
+                <span className="context-memory-sidebar__collapsed-count">
+                  {previewCount}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="context-memory-sidebar__heading">
+                  <span className="context-memory-sidebar__eyebrow">Memory</span>
+                  <h2>当前对话记忆</h2>
+                </div>
+                <button
+                  type="button"
+                  className="context-memory-sidebar__refresh"
+                  onClick={() => void refresh()}
+                  disabled={preview.loading}
+                  title="刷新记忆上下文"
+                >
+                  {preview.loading ? "刷新中" : "刷新"}
+                </button>
+              </>
+            )}
+          </>
         )}
       </header>
 
-      {!collapsed && (
+      {(embedded || !collapsed) && (
         <>
           <div className="context-memory-sidebar__meta">
             <span>最后更新：{formatUpdatedAt(preview.updatedAt)}</span>
@@ -246,6 +278,6 @@ export function ContextMemorySidebar() {
           </section>
         </>
       )}
-    </aside>
+    </RootTag>
   );
 }

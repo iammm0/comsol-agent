@@ -11,6 +11,7 @@ import {
 import type {
   AgentMode,
   AppView,
+  AssistantPresentation,
   ChatMessage,
   MessageRole,
   RunEvent,
@@ -36,9 +37,17 @@ import {
   isProviderId,
   type LLMBackendId,
 } from "../lib/apiConfig";
+import { parseStructuredAssistantText } from "../lib/structuredAssistantMessage";
 
 function genId(): string {
-  return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return `conv_${crypto.randomUUID()}`;
+    }
+  } catch {
+    // ignore
+  }
+  return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 let messageCounter = 0;
@@ -88,6 +97,7 @@ type AppAction =
       events?: RunEvent[];
       caseData?: ChatMessage["caseData"];
       caseSavedPath?: string | null;
+      assistantPresentation?: AssistantPresentation;
     }
   | { type: "APPEND_EVENT"; conversationId: string; event: RunEvent }
   | {
@@ -280,6 +290,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
         events,
         caseData: action.caseData ?? null,
         caseSavedPath: action.caseSavedPath ?? null,
+        assistantPresentation: action.assistantPresentation,
       };
       const prev = state.messagesByConversation[conversationId] ?? [];
       return {
@@ -323,9 +334,22 @@ function appReducer(state: AppState, action: AppAction): AppState {
           break;
         }
       }
+      const structured = parseStructuredAssistantText(text);
+      let displayText = text;
+      if (structured) {
+        displayText = structured.text;
+        if (!modelPath && structured.modelPath) {
+          modelPath = structured.modelPath;
+        }
+      }
       const updated = [
         ...prev.slice(0, -1),
-        { ...last, text, success, modelPath: modelPath ?? last.modelPath },
+        {
+          ...last,
+          text: displayText,
+          success,
+          modelPath: modelPath ?? last.modelPath,
+        },
       ];
       return {
         ...state,
@@ -400,6 +424,7 @@ interface AppStateContextValue {
       events?: RunEvent[];
       caseData?: ChatMessage["caseData"];
       caseSavedPath?: string | null;
+      assistantPresentation?: AssistantPresentation;
     }
   ) => void;
 }
@@ -437,6 +462,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         events?: RunEvent[];
         caseData?: ChatMessage["caseData"];
         caseSavedPath?: string | null;
+        assistantPresentation?: AssistantPresentation;
       }
     ) => {
       const id = state.currentConversationId;
@@ -450,6 +476,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         events: opts?.events,
         caseData: opts?.caseData,
         caseSavedPath: opts?.caseSavedPath ?? null,
+        assistantPresentation: opts?.assistantPresentation,
       });
     },
     [state.currentConversationId, dispatch]
