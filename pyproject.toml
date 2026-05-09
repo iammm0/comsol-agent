@@ -56,13 +56,11 @@ vec = [
 py-modules = ["cli"]
 
 [tool.setuptools.packages.find]
-include = ["agent*", "schemas", "prompts*"]
+include = ["agent*"]
 
 [tool.setuptools.package-data]
-agent = ["*.txt", "*.md"]
+agent = ["*.txt", "*.md", "prompts/**/*.txt", "skills/library/**/*.md"]
 "agent.clawcode" = ["reference_data/*.json", "gui/static/*"]
-schemas = ["*.md"]
-prompts = ["**/*.txt"]
 
 [tool.black]
 line-length = 100

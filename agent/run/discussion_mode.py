@@ -6,7 +6,7 @@ import re
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from schemas.task import DiscussionCard
+from agent.schemas.task import DiscussionCard
 
 FINALIZE_KEYWORDS = (
     "结束探讨",

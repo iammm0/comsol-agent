@@ -18,7 +18,7 @@ from agent.clawcode.task_runtime import TaskRuntime
 from agent.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from schemas.task import ExecutionStep, ReActTaskPlan
+    from agent.schemas.task import ExecutionStep, ReActTaskPlan
 
 logger = get_logger(__name__)
 

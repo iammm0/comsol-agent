@@ -9,7 +9,7 @@ from agent.utils.config import get_settings
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
-from schemas.physics import (
+from agent.schemas.physics import (
     BoundaryCondition,
     CouplingDefinition,
     DomainCondition,

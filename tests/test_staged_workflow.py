@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agent.run.discussion_mode import DiscussionModeHandler
 from agent.run.plan_mode import PlanModeHandler
-from schemas.task import DiscussionCard
+from agent.schemas.task import DiscussionCard
 
 
 class _DummyContextManager:

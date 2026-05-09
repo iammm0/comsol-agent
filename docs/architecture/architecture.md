@@ -247,7 +247,7 @@ flowchart TB
 | **Q&A / Summary** | 问答与结果摘要 | `agent/agents/qa_agent.py`、`agent/agents/summary_agent.py` |
 | **事件与上下文** | EventBus、会话上下文、记忆 | `agent/core/events.py`、`agent/utils/context_manager.py`、`agent/memory/memory_agent.py` |
 | **技能与提示** | 技能加载、向量检索注入、提示模板、LLM | `agent/skills/`、`agent/utils/prompt_loader.py`、`agent/utils/llm.py` |
-| **数据模型** | 任务计划、几何/物理/研究 Schema | `schemas/task.py`、`schemas/geometry.py`、`schemas/physics.py`、`schemas/study.py` |
+| **数据模型** | 任务计划、几何/物理/研究 Schema | `agent/schemas/task.py`、`agent/schemas/geometry.py`、`agent/schemas/physics.py`、`agent/schemas/study.py` |
 
 ---
 

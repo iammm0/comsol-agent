@@ -191,7 +191,7 @@ def _make_handler(
     action: str, session: ComsolToolSession
 ) -> Callable[[Dict[str, Any], ToolExecutionContext], tuple[str, Dict[str, Any]]]:
     def _handler(arguments: Dict[str, Any], context: ToolExecutionContext) -> tuple[str, Dict[str, Any]]:
-        from schemas.task import ExecutionStep
+        from agent.schemas.task import ExecutionStep
 
         plan = session.plan_factory(arguments)
         thought: Dict[str, Any] = {

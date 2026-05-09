@@ -20,7 +20,7 @@ if str(_project_root) not in sys.path:
 def main() -> None:
     from dotenv import load_dotenv
     from agent.utils.java_runtime import ensure_java_home_from_venv
-    from schemas.geometry import GeometryPlan, GeometryShape
+    from agent.schemas.geometry import GeometryPlan, GeometryShape
     from agent.executor.comsol_runner import COMSOLRunner
     from agent.utils.config import get_settings
 

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch, Mock
 
-from schemas.geometry import GeometryPlan, GeometryShape
+from agent.schemas.geometry import GeometryPlan, GeometryShape
 from agent.run.actions import do_exec_from_file
 
 

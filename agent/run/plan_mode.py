@@ -6,7 +6,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.utils.logger import get_logger
-from schemas.task import (
+from agent.schemas.task import (
     ClarifyingAnswer,
     ClarifyingOption,
     ClarifyingQuestion,

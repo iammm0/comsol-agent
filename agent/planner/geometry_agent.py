@@ -9,7 +9,7 @@ from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
-from schemas.geometry import GeometryPlan
+from agent.schemas.geometry import GeometryPlan
 
 logger = get_logger(__name__)
 

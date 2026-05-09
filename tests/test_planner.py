@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import Mock, patch
 
-from schemas.geometry import GeometryPlan, GeometryShape
+from agent.schemas.geometry import GeometryPlan, GeometryShape
 
 
 class TestPlannerAgent:

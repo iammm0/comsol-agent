@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional, Any
 
-from schemas.message import AgentMessage
+from agent.schemas.message import AgentMessage
 
 
 class BaseAgent(ABC):

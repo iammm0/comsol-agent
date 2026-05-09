@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from agent.skills import get_skill_injector
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
-from schemas.task import ExecutionStep, IterationRecord, Observation, ReActTaskPlan
+from agent.schemas.task import ExecutionStep, IterationRecord, Observation, ReActTaskPlan
 
 if TYPE_CHECKING:
     from agent.react.error_collector import ErrorCollector

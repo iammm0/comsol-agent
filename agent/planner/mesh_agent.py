@@ -9,7 +9,7 @@ from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector
-from schemas.mesh import MeshPlan, RefinementRegion
+from agent.schemas.mesh import MeshPlan, RefinementRegion
 
 logger = get_logger(__name__)
 

@@ -8,7 +8,7 @@ from agent.utils.prompt_loader import prompt_loader
 from agent.skills import get_skill_injector
 from agent.utils.logger import get_logger
 from agent.utils.config import get_settings
-from schemas.material import MaterialPlan, MaterialDefinition, MaterialProperty, MaterialAssignment
+from agent.schemas.material import MaterialPlan, MaterialDefinition, MaterialProperty, MaterialAssignment
 
 logger = get_logger(__name__)
 

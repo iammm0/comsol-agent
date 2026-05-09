@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from agent.utils.logger import get_logger
-from schemas.task import ErrorAnalysisResult, Observation
+from agent.schemas.task import ErrorAnalysisResult, Observation
 
 logger = get_logger(__name__)
 

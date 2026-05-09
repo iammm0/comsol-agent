@@ -12,7 +12,7 @@ from agent.clawcode.agent_runtime import LocalCodingAgent
 from agent.clawcode.agent_types import AgentPermissions, AgentRuntimeConfig, ModelConfig
 from agent.utils.config import get_project_root, get_settings
 from agent.utils.logger import get_logger
-from schemas.task import ExecutionStep, ReActTaskPlan
+from agent.schemas.task import ExecutionStep, ReActTaskPlan
 
 logger = get_logger(__name__)
 COMSOL_API_INDEX_URL = "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/api/index.html"

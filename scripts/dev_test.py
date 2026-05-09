@@ -53,7 +53,7 @@ def test_schema():
     print("=" * 60)
     
     try:
-        from schemas.geometry import GeometryShape, GeometryPlan
+        from agent.schemas.geometry import GeometryShape, GeometryPlan
         
         # 测试矩形
         rect = GeometryShape(

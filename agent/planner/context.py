@@ -9,7 +9,7 @@ from typing import Optional, List, Any, Literal, Dict
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from schemas.task import ClarifyingQuestion
+from agent.schemas.task import ClarifyingQuestion
 
 
 AgentTypeLiteral = Literal["geometry", "material", "physics", "mesh", "study"]

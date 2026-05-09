@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agent.executor.clawcode_dispatcher import ClawCodeComsolDispatcher
-from schemas.task import ExecutionStep, ReActTaskPlan
+from agent.schemas.task import ExecutionStep, ReActTaskPlan
 
 
 def _plan(tmp_path: Path) -> ReActTaskPlan:

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from schemas.task import ReActTaskPlan
+from agent.schemas.task import ReActTaskPlan
 
 
 class PlanNeedsClarification(RuntimeError):

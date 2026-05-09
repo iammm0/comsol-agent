@@ -25,7 +25,7 @@ from agent.utils.config import get_settings
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
-from schemas.task import ClarifyingOption, ClarifyingQuestion, TaskPlan
+from agent.schemas.task import ClarifyingOption, ClarifyingQuestion, TaskPlan
 
 logger = get_logger(__name__)
 
@@ -865,7 +865,7 @@ class PlannerOrchestrator:
                 ctx.append_failure(step.step_index, agent_type, err_msg)
                 # 继续执行后续步骤，后续 Agent 可通过 ctx 看到本步失败信息
                 if agent_type == "geometry" and not task_plan.geometry:
-                    from schemas.geometry import GeometryPlan
+                    from agent.schemas.geometry import GeometryPlan
 
                     task_plan.geometry = GeometryPlan(
                         model_name="model", units="m", dimension=2, shapes=[], operations=[]

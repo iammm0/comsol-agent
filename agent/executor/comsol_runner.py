@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from agent.utils.config import get_project_root, get_settings
 from agent.utils.java_runtime import ensure_bundled_java
 from agent.utils.logger import get_logger
-from schemas.geometry import GeometryPlan, GeometryShape
+from agent.schemas.geometry import GeometryPlan, GeometryShape
 
 if TYPE_CHECKING:
     pass

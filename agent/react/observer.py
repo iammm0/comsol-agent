@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from agent.utils.logger import get_logger
-from schemas.task import ReActTaskPlan, ExecutionStep, Observation
+from agent.schemas.task import ReActTaskPlan, ExecutionStep, Observation
 
 logger = get_logger(__name__)
 

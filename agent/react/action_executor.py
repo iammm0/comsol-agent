@@ -18,7 +18,7 @@ from agent.planner.physics_agent import PhysicsAgent
 from agent.planner.study_agent import StudyAgent
 from agent.utils.config import get_settings
 from agent.utils.logger import get_logger
-from schemas.task import ExecutionStep, GlobalDefinitionPlan, ReActTaskPlan
+from agent.schemas.task import ExecutionStep, GlobalDefinitionPlan, ReActTaskPlan
 
 logger = get_logger(__name__)
 GLOBAL_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")

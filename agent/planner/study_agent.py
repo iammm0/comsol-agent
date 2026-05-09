@@ -9,7 +9,7 @@ from agent.utils.config import get_settings
 from agent.utils.llm import LLMClient
 from agent.utils.logger import get_logger
 from agent.utils.prompt_loader import prompt_loader
-from schemas.study import StudyPlan, StudyType
+from agent.schemas.study import StudyPlan, StudyType
 
 logger = get_logger(__name__)
 
